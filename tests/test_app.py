@@ -431,6 +431,61 @@ def _(c):
     expect(p.locator("main")).not_to_contain_text("编的")
 
 
+@step("小记：语音和计时、规矩手册（做到了加规矩）、突击检查、称呼、等级、黑暗模式")
+def _(c):
+    p = c.page
+    mon = (datetime.fromisoformat(TODAY) - timedelta(days=datetime.fromisoformat(TODAY).weekday())).date().isoformat()
+    def seed(d):
+        d["private"]["program"] = {"start": mon, "weeks": [{"title": "编的周", "tasks": [
+            {"id": "k1", "track": "c", "text": "{称呼}，保持 2 秒", "level": 1, "rule": "编的规矩甲"},
+            {"id": "k2", "track": "b", "text": "编的第二张", "level": 2}]}],
+            "checks": ["编的突击命令"], "checkEvery": [0.1, 0.1],
+            "levels": [{"name": "编的一级", "min": 0}, {"name": "编的二级", "min": 30, "text": "编的升级仪式"}],
+            "rewards": [{"text": "编的奖励撤规矩", "unrule": True}]}
+        d["private"]["callNames"] = ["编的称呼"]
+        d["private"]["sessions"] = []
+        d["private"]["ui"]["trackC"] = "编的宠物"
+    c.write(seed)
+    c.go("#/p")
+    p.reload()
+    p.get_by_label("密码").fill("123456")
+    expect(p.locator(".card", has_text="规矩手册")).to_contain_text("编的一级 · 0 分")
+    p.get_by_role("link", name="编的开始").click()
+    p.get_by_role("checkbox", name="黑暗模式（关灯，只听口令）").check()
+    p.get_by_role("button", name="准备好了").click()
+    expect(p.locator("body.dark-session")).to_have_count(1)
+    # 突击检查（测试里间隔设成 6 秒）
+    expect(p.locator(".check-card")).to_contain_text("编的突击命令", timeout=12000)
+    p.get_by_role("button", name="做到了").click()
+    expect(p.locator(".task-text")).to_have_text("编的称呼，保持 2 秒")
+    expect(p.locator(".task-card")).to_contain_text("编的宠物")
+    expect(p.get_by_text("这条会加进规矩手册：编的规矩甲")).to_be_visible()
+    p.get_by_role("button", name="开始计时").click()
+    expect(p.get_by_role("button", name="停", exact=True)).to_be_visible()
+    expect(p.get_by_role("button", name="开始计时")).to_be_visible(timeout=4000)  # 2 秒到了，计时器回到开始
+    p.get_by_role("button", name="做到了").click()
+    c.wait(lambda d: d["private"].get("rules") and d["private"]["rules"][0]["text"] == "编的规矩甲", "加规矩")
+    for _ in range(6):  # 剩下的任务和随时可能来的突击检查
+        if p.get_by_text("收尾", exact=True).count():
+            break
+        p.get_by_role("button", name="做到了").click()
+        p.wait_for_timeout(300)
+    expect(p.get_by_text("收尾", exact=True)).to_be_visible()
+    expect(p.get_by_text("升级了")).to_be_visible()
+    expect(p.get_by_text("编的升级仪式")).to_be_visible()
+    expect(p.get_by_text("编的奖励撤规矩")).to_be_visible()
+    p.get_by_role("button", name="撤销一条规矩").click()
+    c.sheet().get_by_role("button", name="编的规矩甲").click()
+    c.wait(lambda d: not d["private"]["rules"], "撤销规矩")
+    p.get_by_role("button", name="结束").click()
+    c.wait(lambda d: d["private"]["sessions"] and d["private"]["sessions"][0]["checks"] >= 1, "突击检查记下来")
+    expect(p.locator("body.dark-session")).to_have_count(0)
+    # 称呼可以自己加、删
+    p.get_by_label("新的称呼").fill("编的第二个称呼")
+    p.get_by_label("新的称呼").locator("..").get_by_role("button", name="加", exact=True).click()
+    c.wait(lambda d: d["private"]["callNames"] == ["编的称呼", "编的第二个称呼"], "称呼")
+
+
 @step("定期打理：到日子出现在今天，点做了")
 def _(c):
     p = c.page

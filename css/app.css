@@ -594,3 +594,19 @@ svg.i.big-icon { width: 36px; height: 36px; color: var(--accent); align-self: ce
 .task-card.scene { background: color-mix(in srgb, var(--accent) 10%, var(--card)); }
 .task-card.reward { min-height: 0; background: color-mix(in srgb, var(--good) 12%, var(--card)); }
 .task-card.penalty { min-height: 0; background: color-mix(in srgb, var(--amber) 12%, var(--card)); }
+
+/* 一段时间：计时、突击检查、黑暗模式 */
+.timer-box { display: flex; align-items: center; gap: 12px; margin: 6px 0 10px; }
+.count-down { font-size: 30px; font-weight: 700; font-variant-numeric: tabular-nums; min-width: 3.2em; }
+.check-card { background: color-mix(in srgb, var(--danger) 10%, var(--card)); }
+.big-btn { min-height: 58px; font-size: 17px; }
+.rules li { margin-bottom: 6px; }
+.stop-btn { margin-top: 18px; color: var(--muted); }
+body.dark-session { background: #000; color: #8d8a93; }
+body.dark-session nav#nav, body.dark-session .sync-pill { display: none; }
+body.dark-session .card, body.dark-session .session-timer { background: #0b0b0d; box-shadow: none; color: #8d8a93; }
+body.dark-session .badge { background: #17161a; color: #6f6a7a; }
+body.dark-session button, body.dark-session .button { background: #1a1820; color: #9a93ad; }
+body.dark-session .pray-progress span { background: #17161a; }
+body.dark-session .pray-progress span.on { background: #4b4360; }
+body.dark-session main { padding-bottom: 40px; }

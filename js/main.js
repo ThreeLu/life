@@ -101,6 +101,7 @@ function boot() {
   window.addEventListener('online', () => store?.sync());
   window.addEventListener('hashchange', () => {
     for (const el of document.querySelectorAll('.sheet-overlay, .overlay')) el.remove();
+    if (currentPath() !== '/p/s') { document.body.classList.remove('dark-session'); try { speechSynthesis.cancel(); } catch { /* 无 */ } }
     render();
     window.scrollTo(0, 0);
   });
@@ -2434,7 +2435,9 @@ function privateView() {
         h('span', { class: 'grow' }, `${e.day.slice(5).replace('-', '/')} ${hm(e.at)}`,
           h('span', { class: 'muted small' }, [e.score ? `${ui.score} ${e.score}` : '', e.flag ? ui.flagStat : '', e.checks ? checksText(e.checks, ui) : ''].filter(Boolean).map((x) => ` · ${x}`).join(''))),
         icon('chev', 'i chev')))) : null,
+    rulesCard(),
     sessionsCard(dayKey()),
+    callNamesCard(),
     mediaCard(),
     suppliesCard(ui),
     limitsCard());
@@ -2512,6 +2515,7 @@ const P_PROGRAM_DEFAULT = {
   safety: ['任何一张都可以跳过。', '不舒服就停。'], aftercare: ['收拾好东西', '喝一杯水'],
   afterLabel: '结束后的心情', alsoCount: '这次也记一次', mediaTitle: '音频', limitsTitle: '绝对不要', customTitle: '自己写的',
   sceneTitle: '今天的情景', rewardTitle: '奖励', penaltyTitle: '惩罚', pointsLabel: '得分',
+  trackC: 'C', checkTitle: '突击检查', rulesTitle: '规矩手册', levelLabel: '等级', callTitle: '称呼',
 };
 const pp = () => ({ ...P_PROGRAM_DEFAULT, ...pui() });
 
@@ -2533,7 +2537,87 @@ function programCard(today) {
     h('a', { class: 'button wide', href: '#/p/s' }, ui.sessionStart));
 }
 
-const sess = { step: 'safety', i: 0, start: null, results: {}, key: '', seed: 0, scene: null };
+// 一段计时的时间：安全提醒（+ 现在生效的规矩）→ 情景 → 任务一张一张（语音念、带计时）→ 收尾（得分、等级、奖励 / 惩罚）
+// 语音用浏览器自带的中文朗读（建议戴耳机）；突击检查：随机时刻响一声、念一条 program.checks；黑暗模式：全黑的大按钮界面。
+const sess = { step: 'safety', i: 0, start: null, results: {}, key: '', seed: 0, scene: null, voice: true, dark: false, nextCheck: 0, check: null, checksDone: 0, checksSkip: 0, timer: null, beforePoints: 0 };
+let sessTicker = null;
+
+function speak(text) {
+  if (!sess.voice || !('speechSynthesis' in window)) return;
+  try {
+    speechSynthesis.cancel();
+    const u = new SpeechSynthesisUtterance(String(text).replace(/[「」]/g, ''));
+    u.lang = 'zh-CN';
+    const v = speechSynthesis.getVoices().find((x) => /zh[-_]CN/i.test(x.lang));
+    if (v) u.voice = v;
+    u.rate = 0.95;
+    speechSynthesis.speak(u);
+  } catch { /* 不支持就不念 */ }
+}
+function beep() {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const o = ctx.createOscillator(); const g = ctx.createGain();
+    o.frequency.value = 880; g.gain.value = 0.15;
+    o.connect(g); g.connect(ctx.destination); o.start(); o.stop(ctx.currentTime + 0.35);
+  } catch { /* 没声音就算了 */ }
+}
+// 称呼：{称呼} 换成用户自己定的称呼里随机一个
+function callName(text, seed) {
+  const names = store.data.private.callNames || [];
+  let k = 0;
+  return String(text).replace(/\{称呼\}/g, () => pickOne(names.length ? names : [''], `${seed}-${k++}`) || '');
+}
+const taskText = (t) => fillText(callName(t.text, `${sess.seed}-${t.id}`), `${sess.seed}-${t.id}`);
+// 任务里的第一个时长：「3 分钟」「30 秒」→ 秒数
+function durationOf(text) {
+  const m = String(text).match(/(\d+)\s*(分钟|秒)/);
+  return m ? Number(m[1]) * (m[2] === '分钟' ? 60 : 1) : 0;
+}
+function totalPoints(d) { return d.private.sessions.reduce((a, s) => a + (s.points || 0), 0); }
+function levelOf(d, points) {
+  const levels = (d.private.program?.levels || []).slice().sort((a, b) => a.min - b.min);
+  let cur = null; let next = null;
+  for (const l of levels) { if (points >= l.min) cur = l; else { next = l; break; } }
+  return { cur, next };
+}
+
+function startTicker() {
+  clearInterval(sessTicker);
+  sessTicker = setInterval(() => {
+    if (currentPath() !== '/p/s' || !sess.start) { clearInterval(sessTicker); sessTicker = null; document.body.classList.remove('dark-session'); return; }
+    const d = store.data;
+    // 计时器
+    if (sess.timer) {
+      const left = Math.ceil((sess.timer.end - Date.now()) / 1000);
+      const el = document.querySelector('.count-down');
+      if (el) el.textContent = left > 0 ? `${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')}` : '时间到';
+      if (left === 10) speak('还剩十秒');
+      if (left <= 0) { sess.timer = null; beep(); speak('时间到'); render(); }
+    }
+    const top = document.querySelector('.session-timer');
+    if (top) top.textContent = timerLine(d);
+    // 突击检查
+    const checks = d.private.program?.checks || [];
+    if (checks.length && !sess.check && sess.step === 'task' && sess.nextCheck && Date.now() >= sess.nextCheck) {
+      sess.check = taskText({ id: `c${Date.now()}`, text: pickOne(checks, Date.now()) });
+      beep();
+      setTimeout(() => speak(`突击检查。${sess.check}`), 400);
+      render();
+    }
+  }, 1000);
+}
+function timerLine(d) {
+  const mins = Math.floor((Date.now() - sess.start) / 60000);
+  const limit = d.private.minutes || 60;
+  return mins >= limit ? `${mins} 分钟了，时间到了，开始收尾吧。` : `${mins} / ${limit} 分钟 · 最晚 ${d.private.latest || '23:30'} 收尾`;
+}
+function scheduleCheck() {
+  // 下一次突击检查：program.checkEvery = [最少, 最多] 分钟以后（默认 4–10）
+  const [lo, hi] = store.data.private.program?.checkEvery || [4, 10];
+  sess.nextCheck = Date.now() + (lo + Math.random() * (hi - lo)) * 60000;
+}
+
 function sessionView() {
   const gate = lockGate();
   if (gate) return gate;
@@ -2542,47 +2626,98 @@ function sessionView() {
   const today = dayKey();
   const limits = d.private.limits.map((x) => x.trim()).filter(Boolean);
   const tasks = weekTasks(d, today).filter((t) => !limits.some((l) => t.text.includes(l)));
-  if (sess.key !== today) Object.assign(sess, { step: 'safety', i: 0, start: null, results: {}, key: today });
-  const mins = sess.start ? Math.floor((Date.now() - sess.start) / 60000) : 0;
-  const limit = d.private.minutes || 60;
-  const top = sess.start ? h('div', { class: `session-timer${mins >= limit ? ' over' : ''}` }, mins >= limit ? `${mins} 分钟了，时间到了，开始收尾吧。` : `${mins} / ${limit} 分钟 · 最晚 ${d.private.latest || '23:30'} 收尾`) : null;
+  if (sess.key !== today) Object.assign(sess, { step: 'safety', i: 0, start: null, results: {}, key: today, check: null, checksDone: 0, checksSkip: 0, timer: null });
+  document.body.classList.toggle('dark-session', Boolean(sess.dark && sess.start));
+  const top = sess.start ? h('div', { class: `session-timer${Math.floor((Date.now() - sess.start) / 60000) >= (d.private.minutes || 60) ? ' over' : ''}` }, timerLine(d)) : null;
+  const rules = d.private.rules || [];
+  const stopBtn = sess.start ? h('button', { class: 'link small center block stop-btn', onclick: () => { sess.timer = null; sess.check = null; sess.step = 'end'; speachStop(); render(); } }, '叫停，直接收尾') : null;
+
   if (sess.step === 'safety') {
     return h('div', { class: 'session' },
       header(ui.sessionTitle, helpButton(ui.title, ui.help)),
       h('div', { class: 'card' }, h('h3', {}, '开始之前'), h('ul', { class: 'small flags' }, ui.safety.map((x) => h('li', {}, x))),
         limits.length ? [h('h3', {}, ui.limitsTitle), h('p', { class: 'small' }, limits.join('、'))] : null),
+      rules.length ? h('div', { class: 'card' }, h('h3', {}, ui.rulesTitle || '现在生效的规矩'), h('ol', { class: 'small' }, rules.map((r) => h('li', {}, r.text)))) : null,
+      h('div', { class: 'card' },
+        h('label', { class: 'switch-row' }, h('input', { type: 'checkbox', checked: sess.voice, onchange: (e) => { sess.voice = e.target.checked; } }), '语音念命令（戴上耳机）'),
+        h('label', { class: 'switch-row', style: 'margin-top:10px !important' }, h('input', { type: 'checkbox', checked: sess.dark, onchange: (e) => { sess.dark = e.target.checked; } }), '黑暗模式（关灯，只听口令）')),
       h('button', { class: 'wide', onclick: () => {
         sess.seed = Date.now();
         sess.scene = pickOne(d.private.program?.scenes, sess.seed);
-        sess.step = sess.scene ? 'scene' : 'task'; sess.start = Date.now(); render();
+        sess.step = sess.scene ? 'scene' : 'task'; sess.start = Date.now();
+        sess.beforePoints = totalPoints(d);
+        scheduleCheck(); startTicker();
+        if (sess.scene) speak(`今天的情景。${fillText(callName(sess.scene, sess.seed), sess.seed)}`);
+        else if (tasks[0]) speak(taskText(tasks[0]));
+        render();
       } }, '准备好了'),
       h('a', { class: 'link small center block', href: '#/p' }, '先不了'));
   }
+  if (sess.check) {
+    const finish = (ok) => { if (ok) sess.checksDone++; else sess.checksSkip++; sess.check = null; sess.timer = null; scheduleCheck(); render(); };
+    const secs = durationOf(sess.check);
+    return h('div', { class: 'session' }, top,
+      h('div', { class: 'card task-card check-card' }, h('span', { class: 'badge warn' }, ui.checkTitle || '突击检查'), h('p', { class: 'task-text' }, sess.check),
+        secs ? timerBox(secs) : null),
+      h('div', { class: 'actions' }, h('button', { class: 'grow big-btn', onclick: () => finish(true) }, '做到了'), h('button', { class: 'secondary big-btn', onclick: () => finish(false) }, '跳过')));
+  }
   if (sess.step === 'scene') {
     return h('div', { class: 'session' }, top,
-      h('div', { class: 'card task-card scene' }, h('span', { class: 'badge accent' }, ui.sceneTitle), h('p', { class: 'task-text' }, fillText(sess.scene, sess.seed))),
-      h('button', { class: 'wide', onclick: () => { sess.step = 'task'; render(); } }, '开始'));
+      h('div', { class: 'card task-card scene' }, h('span', { class: 'badge accent' }, ui.sceneTitle), h('p', { class: 'task-text' }, fillText(callName(sess.scene, sess.seed), sess.seed))),
+      h('button', { class: 'wide big-btn', onclick: () => { sess.step = 'task'; if (tasks[0]) speak(taskText(tasks[0])); render(); } }, '开始'),
+      stopBtn);
   }
   if (sess.step === 'task' && sess.i < tasks.length) {
     const t = tasks[sess.i];
-    const mark = (r) => { sess.results[t.id] = r; sess.i++; if (sess.i >= tasks.length) sess.step = 'end'; render(); window.scrollTo(0, 0); };
+    const text = taskText(t);
+    const mark = (r) => {
+      sess.results[t.id] = r;
+      sess.timer = null;
+      if (r === 'done' && t.rule) save('小记：新规矩', (data) => { const rs = (data.private.rules ||= []); if (!rs.some((x) => x.text === t.rule)) rs.push({ id: newId('rl'), text: t.rule, at: dayKey() }); }).catch(() => {});
+      sess.i++;
+      if (sess.i >= tasks.length) { sess.step = 'end'; speak('任务做完了。开始收尾。'); } else speak(taskText(tasks[sess.i]));
+      render(); window.scrollTo(0, 0);
+    };
+    const secs = durationOf(text);
+    const badge = { a: ui.trackA, b: ui.trackB, c: ui.trackC || ui.trackB }[t.track] || ui.trackB;
     return h('div', { class: 'session' },
       top,
       h('div', { class: 'pray-progress' }, tasks.map((_, k) => h('span', { class: k <= sess.i ? 'on' : '' }))),
       h('div', { class: `card task-card ${t.track || ''}` },
-        h('div', { class: 'rec-top' }, h('span', { class: 'badge accent' }, t.track === 'b' ? ui.trackB : ui.trackA), t.level ? h('span', { class: 'muted small' }, '●'.repeat(t.level)) : null),
-        h('p', { class: 'task-text' }, fillText(t.text, `${sess.seed}-${t.id}`)),
+        h('div', { class: 'rec-top' }, h('span', { class: 'badge accent' }, badge), t.level ? h('span', { class: 'muted small' }, '●'.repeat(t.level)) : null),
+        h('p', { class: 'task-text' }, text),
+        secs ? timerBox(secs) : null,
+        t.rule ? h('p', { class: 'small' }, `做到了，这条会加进规矩手册：${t.rule}`) : null,
         t.note ? h('p', { class: 'small muted' }, t.note) : null),
-      h('div', { class: 'actions' }, h('button', { class: 'grow', onclick: () => mark('done') }, '做到了'), h('button', { class: 'secondary', onclick: () => mark('skip') }, '跳过')),
-      h('button', { class: 'link small center block', onclick: () => { sess.step = 'end'; render(); } }, '直接收尾'));
+      h('div', { class: 'actions' }, h('button', { class: 'grow big-btn', onclick: () => mark('done') }, '做到了'), h('button', { class: 'secondary big-btn', onclick: () => mark('skip') }, '跳过')),
+      h('button', { class: 'link small center block', onclick: () => speak(text) }, '再念一遍'),
+      stopBtn);
   }
-  // 收尾：得分；全做到抽一张奖励，跳过两张以上抽一张惩罚（惩罚也可以不做）
+  return sessionEnd(d, ui, tasks, top);
+}
+function speachStop() { try { speechSynthesis.cancel(); } catch { /* 无 */ } }
+
+// 计时：点一下开始倒数，到了响一声、念「时间到」
+function timerBox(secs) {
+  const running = sess.timer && sess.timer.secs === secs;
+  return h('div', { class: 'timer-box' },
+    h('span', { class: 'count-down' }, running ? '' : `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, '0')}`),
+    running ? h('button', { class: 'small secondary', onclick: () => { sess.timer = null; render(); } }, '停')
+      : h('button', { class: 'small', onclick: () => { sess.timer = { secs, end: Date.now() + secs * 1000 }; speak('开始'); render(); } }, '开始计时'));
+}
+
+function sessionEnd(d, ui, tasks, top) {
+  // 收尾：得分（突击检查做到的每次 10 分）；等级；全做到抽奖励，跳过两张以上抽惩罚（可以不做）
+  speachStop();
   const pg = d.private.program || {};
-  const points = sessionPoints(sess.results, tasks);
-  const skips = Object.values(sess.results).filter((x) => x === 'skip').length;
-  const doneAll = tasks.length > 0 && tasks.every((t) => sess.results[t.id] === 'done');
+  const points = sessionPoints(sess.results, tasks) + sess.checksDone * 10;
+  const skips = Object.values(sess.results).filter((x) => x === 'skip').length + sess.checksSkip;
+  const doneAll = tasks.length > 0 && tasks.every((t) => sess.results[t.id] === 'done') && !sess.checksSkip;
   const reward = doneAll ? pickOne(pg.rewards, `${sess.seed}-r`) : null;
   const penalty = skips >= 2 ? pickOne(pg.penalties, `${sess.seed}-p`) : null;
+  const before = levelOf(d, sess.beforePoints);
+  const after_ = levelOf(d, sess.beforePoints + points);
+  const levelUp = after_.cur && after_.cur !== before.cur;
   const care = new Set();
   let score = null; let after = null;
   const rows = h('div', {});
@@ -2592,6 +2727,11 @@ function sessionView() {
   draw();
   const note = h('textarea', { rows: 2, placeholder: '想写的写一句（可以不写）', 'aria-label': '备注' });
   const count = h('input', { type: 'checkbox', 'aria-label': ui.alsoCount });
+  const unrule = () => {
+    const rs = d.private.rules || [];
+    if (!rs.length) { toast('现在没有规矩可以撤销'); return; }
+    const close = openSheet({ title: '撤销一条规矩', body: h('div', { class: 'group' }, rs.map((r) => cell({ title: r.text, onclick: () => { close(); saveRender('小记：撤销规矩', (data) => { data.private.rules = data.private.rules.filter((x) => x.id !== r.id); }); } }))), confirmText: null, cancelText: '先不撤' });
+  };
   const finish = async () => {
     const end = new Date();
     const start = new Date(sess.start || end);
@@ -2602,21 +2742,26 @@ function sessionView() {
           id, day: dayKey(start), start: start.toISOString(), end: end.toISOString(), minutes: Math.round((end - start) / 60000),
           week: (programWeek(data, dayKey(start))?.n ?? -1) + 1, tasks: { ...sess.results },
           ...(score ? { score } : {}), ...(after ? { after } : {}), ...(note.value.trim() ? { note: note.value.trim() } : {}),
-          points, ...(sess.scene ? { scene: fillText(sess.scene, sess.seed).slice(0, 80) } : {}), ...(reward ? { reward: true } : {}), ...(penalty ? { penalty: true } : {}),
+          points, ...(sess.checksDone || sess.checksSkip ? { checks: sess.checksDone, checksSkip: sess.checksSkip } : {}),
+          ...(sess.scene ? { scene: fillText(sess.scene, sess.seed).slice(0, 80) } : {}), ...(reward ? { reward: true } : {}), ...(penalty ? { penalty: true } : {}),
         });
         if (count.checked) data.events.push({ id: newId('e'), day: dayKey(end), at: end.toISOString(), type: 'p', ...(score ? { score } : {}), flag: false, session: id });
       });
     } catch { return; }
-    Object.assign(sess, { step: 'safety', i: 0, start: null, results: {}, key: '' });
+    Object.assign(sess, { step: 'safety', i: 0, start: null, results: {}, key: '', check: null, checksDone: 0, checksSkip: 0, timer: null });
+    document.body.classList.remove('dark-session');
     toast(ui.doneToast || '收好了。辛苦了，你很好。');
     go('#/p');
   };
   return h('div', { class: 'session' },
     top,
     h('div', { class: 'card center' }, h('span', { class: 'muted small' }, ui.pointsLabel), h('div', { class: 'big-num' }, String(points)),
-      h('span', { class: 'muted small' }, `做到 ${Object.values(sess.results).filter((x) => x === 'done').length} 张，跳过 ${skips} 张`)),
-    reward ? h('div', { class: 'card task-card reward' }, h('span', { class: 'badge good' }, ui.rewardTitle), h('p', { class: 'task-text' }, fillText(reward, sess.seed))) : null,
-    penalty ? h('div', { class: 'card task-card penalty' }, h('span', { class: 'badge warn' }, ui.penaltyTitle), h('p', { class: 'task-text' }, fillText(penalty, sess.seed)), h('p', { class: 'small muted' }, '惩罚也可以不做。')) : null,
+      h('span', { class: 'muted small' }, `做到 ${Object.values(sess.results).filter((x) => x === 'done').length + sess.checksDone} 张，跳过 ${skips} 张`),
+      after_.cur ? h('p', { class: 'small' }, `${ui.levelLabel || '等级'}：${after_.cur.name}${after_.next ? `（再 ${after_.next.min - sess.beforePoints - points} 分升到「${after_.next.name}」）` : ''}`) : null),
+    levelUp ? h('div', { class: 'card task-card reward' }, h('span', { class: 'badge good' }, '升级了'), h('p', { class: 'task-text' }, `${after_.cur.name}`), after_.cur.text ? h('p', { class: 'small' }, fillText(callName(after_.cur.text, sess.seed), sess.seed)) : null) : null,
+    reward ? h('div', { class: 'card task-card reward' }, h('span', { class: 'badge good' }, ui.rewardTitle), h('p', { class: 'task-text' }, fillText(callName(reward.text || reward, sess.seed), sess.seed)),
+      reward.unrule ? h('button', { class: 'small secondary', onclick: unrule }, '撤销一条规矩') : null) : null,
+    penalty ? h('div', { class: 'card task-card penalty' }, h('span', { class: 'badge warn' }, ui.penaltyTitle), h('p', { class: 'task-text' }, fillText(callName(penalty, sess.seed), sess.seed)), h('p', { class: 'small muted' }, '惩罚也可以不做。')) : null,
     h('div', { class: 'card' }, h('h3', {}, '收尾'), h('p', { class: 'small muted' }, '一样一样做，做完点一下。'),
       h('div', { class: 'chips' }, ui.aftercare.map((x, i) => {
         const b = h('button', { type: 'button', class: 'chip check', onclick: () => { if (care.has(i)) care.delete(i); else care.add(i); b.classList.toggle('on', care.has(i)); } }, x);
@@ -2624,6 +2769,35 @@ function sessionView() {
       }))),
     h('div', { class: 'card' }, rows, note, h('label', { class: 'switch-row', style: 'margin-top:10px !important' }, count, ui.alsoCount)),
     h('button', { class: 'wide', onclick: finish }, '结束'));
+}
+
+// 规矩手册：现在生效的规矩，可以自己加、删
+function rulesCard() {
+  const d = store.data;
+  const ui = pp();
+  const rs = d.private.rules || [];
+  const input = h('input', { placeholder: '加一条规矩', 'aria-label': '新的规矩' });
+  const add = () => { const v = input.value.trim(); if (v) saveRender('小记：加规矩', (data) => { (data.private.rules ||= []).push({ id: newId('rl'), text: v, at: dayKey() }); }); };
+  const pts = totalPoints(d);
+  const lv = levelOf(d, pts);
+  return h('div', { class: 'card' },
+    h('div', { class: 'rec-top' }, h('h3', {}, ui.rulesTitle || '规矩手册'), lv.cur ? h('span', { class: 'small' }, `${lv.cur.name} · ${pts} 分`) : null),
+    rs.length ? h('ol', { class: 'small rules' }, rs.map((r) => h('li', {}, r.text, ' ', h('button', { class: 'link small muted', onclick: () => saveUndoable('小记：删规矩', (data) => { data.private.rules = data.private.rules.filter((x) => x.id !== r.id); }, '删掉了').then(render).catch(() => {}) }, '删')))) : h('p', { class: 'muted small' }, '还没有。任务做到了会往这里加，奖励可以撤销。'),
+    h('div', { class: 'inline-add' }, input, h('button', { class: 'small', onclick: add }, '加')));
+}
+
+// 称呼：语音和任务里 {称呼} 会换成这里随机一个
+function callNamesCard() {
+  const d = store.data;
+  const ui = pp();
+  const list = d.private.callNames || [];
+  const input = h('input', { placeholder: '加一个称呼', 'aria-label': '新的称呼' });
+  const add = () => { const v = input.value.trim(); if (v) saveRender('小记：称呼', (data) => { (data.private.callNames ||= []).push(v); }); };
+  return h('div', { class: 'card' },
+    h('h3', {}, ui.callTitle || '称呼'),
+    h('p', { class: 'muted small' }, '任务和语音里会从这些里面随机叫你。'),
+    h('div', { class: 'chips' }, list.map((x, i) => h('button', { type: 'button', class: 'chip', onclick: () => saveRender('小记：删称呼', (data) => { data.private.callNames.splice(i, 1); }) }, `${x} ×`))),
+    h('div', { class: 'inline-add' }, input, h('button', { class: 'small', onclick: add }, '加')));
 }
 
 function sessionsCard(today) {
