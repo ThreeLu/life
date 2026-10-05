@@ -38,6 +38,7 @@ TODAY = day_key()
 YESTERDAY = (datetime.fromisoformat(TODAY) - timedelta(days=1)).date().isoformat()
 
 STEPS = []
+LAST_AI = []  # 发给 DeepSeek 的请求（检查发了什么）
 
 
 def step(name):
@@ -595,6 +596,129 @@ NEXT TIME
     assert sorted(x["level"] for x in cards) == [0, 1, 1] and all(x["due"] > TODAY for x in cards), cards
 
 
+@step("想去的地方：粘贴小红书、选类型和区、地图上点位置；去过了打分写话放照片；列表、地图、按区、足迹、周末去哪")
+def _(c):
+    p = c.page
+    c.write(lambda d: d["settings"].update(city={"name": "编的城", "lat": 36.66, "lon": 117.02, "districts": ["甲区", "乙区"]}))
+    c.go("#/places")
+    p.reload()
+    expect(p.get_by_text("还没有地方")).to_be_visible()
+    p.get_by_role("link", name="＋ 加一个").click()
+    p.get_by_label("小红书分享").fill("【编的书店 - 编的作者 | 小红书 - 你的生活指南】 😆 AbCdEfGh12 😆 http://xhslink.com/a/abc123 复制本条信息，打开【小红书】App查看精彩内容！")
+    expect(p.get_by_label("名字")).to_have_value("编的书店")
+    expect(p.get_by_label("链接")).to_have_value("http://xhslink.com/a/abc123")
+    p.get_by_role("group", name="类型").get_by_role("button", name="店").click()
+    p.get_by_role("group", name="区").get_by_role("button", name="甲区").click()
+    p.get_by_role("group", name="有多想去").get_by_role("button", name="★★★").click()
+    p.locator(".map-box .leaflet-container, .map-box.leaflet-container").first.wait_for()
+    p.locator(".map-box").click(position={"x": 120, "y": 100})
+    p.get_by_label("为什么想去").fill("编的理由")
+    p.get_by_role("button", name="存好").click()
+    c.wait(lambda d: d["places"] and d["places"][0]["name"] == "编的书店", "加地方")
+    pl = c.data()["places"][0]
+    assert pl["kind"] == "shop" and pl["district"] == "甲区" and pl["want"] == 3 and pl["lat"] and pl["link"].startswith("http://xhslink"), pl
+    expect(p.get_by_text("想去（1）")).to_be_visible()
+    # 周末去哪：想去页一直有
+    expect(p.locator(".weekend")).to_contain_text("编的书店")
+    expect(p.locator(".weekend")).to_contain_text("想去还没去")
+    # 去过了：打分、一句话、照片
+    p.locator(".list-card").get_by_role("link", name="编的书店").click()
+    p.get_by_role("button", name="去过了").click()
+    c.sheet().get_by_role("button", name="5 ★").click()
+    c.sheet().get_by_label("一句话").fill("编的感受")
+    png = ROOT / "icon-180.png"
+    c.sheet().get_by_label("照片").set_input_files(str(png))
+    c.sheet().get_by_role("button", name="存好").click()
+    c.wait(lambda d: d["places"][0].get("visits") and d["places"][0]["visits"][0].get("photo"), "去过了")
+    v = c.data()["places"][0]["visits"][0]
+    assert v["score"] == 5 and v["note"] == "编的感受" and c.repo.read(v["photo"]), v
+    expect(p.locator(".visit-photo")).to_be_visible()
+    expect(p.get_by_text("去过 1 次")).to_be_visible()
+    # 又加一个，不标位置
+    c.go("#/place/new")
+    p.get_by_label("名字").fill("编的面馆")
+    p.get_by_role("group", name="类型").get_by_role("button", name="吃的").click()
+    p.get_by_role("button", name="存好").click()
+    c.wait(lambda d: len(d["places"]) == 2, "第二个")
+    p.get_by_role("button", name="地图").click()
+    expect(p.locator(".leaflet-interactive")).to_have_count(1)
+    expect(p.get_by_text("还有 1 个地方没标位置")).to_be_visible()
+    p.get_by_role("button", name="按区").click()
+    expect(p.locator(".area-row", has_text="甲区")).to_contain_text("1/1")
+    p.get_by_role("button", name="足迹").click()
+    expect(p.get_by_text(f"{TODAY[:4]} 年 · 去了 1 个地方、1 次")).to_be_visible()
+    # 改一下
+    c.go(f"#/place/{pl['id']}")
+    p.get_by_role("link", name="改一下").click()
+    p.get_by_label("大概花多少").fill("50")
+    p.get_by_role("button", name="存好").click()
+    c.wait(lambda d: d["places"][0].get("cost") == 50 and d["places"][0]["visits"], "改地方")
+
+
+@step("分析：什么在影响我（攒够天数）、走势、作息、规律、护肤、计划")
+def _(c):
+    p = c.page
+    c.go("#/stats")
+    expect(p.get_by_text("就开始有结论了")).to_be_visible()
+    # 编 30 天：运动的日子心情 8、不运动 5；睡够 7 小时精力高
+    def seed(d):
+        for i in range(1, 31):
+            day = (datetime.fromisoformat(TODAY) - timedelta(days=i)).date().isoformat()
+            sport = i % 2 == 0
+            r = d["days"].setdefault(day, {})
+            r.update(mood=8 if sport else 5, energy=4 if i % 3 else 2, note=f"编的第{i}天", did=f"编的科研{i}", planDone="yes" if i % 2 else "part",
+                     sleep={"bed": "23:30" if i % 3 else "01:30", "wake": "07:30"})
+            if sport:
+                d["events"].append({"id": f"s{i}", "day": day, "at": f"{day}T10:00:00Z", "type": "sport", "kind": "跑步", "minutes": 30})
+            d["events"].append({"id": f"w{i}", "day": day, "at": f"{day}T12:00:00Z", "type": "shower"})
+    c.write(seed)
+    p.reload()
+    expect(p.locator(".inf-row", has_text="运动了的日子，当天心情平均 7.9，其他日子 5")).to_be_visible()
+    expect(p.locator(".inf-row", has_text="睡够 7 小时")).to_have_count(2)
+    expect(p.locator("svg[aria-label='心情']")).to_be_visible()
+    expect(p.locator("svg[aria-label='每天几点睡几点起']")).to_be_visible()
+    p.get_by_role("button", name="运动", exact=True).click()
+    expect(p.locator("svg[aria-label='星期几']")).to_be_visible()
+    expect(p.locator("svg[aria-label='每周计划完成率']")).to_be_visible()
+
+
+@step("回顾：周报月报（DeepSeek 写一段、存下来、月报有科研回顾）、年报")
+def _(c):
+    p = c.page
+    c.go(f"#/report?k=month&d={YESTERDAY}")
+    p.get_by_role("button", name="请 DeepSeek 写一段").click()
+    expect(p.get_by_text("编的回顾正文")).to_be_visible()
+    expect(p.get_by_text("编的科研回顾")).to_be_visible()
+    key = f"m{YESTERDAY[:7]}"
+    c.wait(lambda d: d["letters"][key]["text"] == "编的回顾正文", "月报存下来")
+    sent = LAST_AI[-1]
+    assert "编的科研" in sent and "科研回顾" in sent, sent[:500]
+    p.get_by_role("link", name="周", exact=True).click()
+    expect(p.locator(".period-nav")).to_contain_text("这周（")
+    p.get_by_role("link", name="年", exact=True).click()
+    expect(p.locator(".stat-grid")).to_contain_text("运动")
+
+
+@step("问问我的记录：带着最近的记录问 DeepSeek；状态不对首页轻轻提一句")
+def _(c):
+    p = c.page
+    c.go("#/ask")
+    p.get_by_role("button", name="我最近为什么总是累？").click()
+    expect(p.locator(".msg.ai")).to_have_text("编的回答")
+    sent = LAST_AI[-1]
+    assert "编的第1天" in sent and "运动跑步30分" in sent, sent[:600]
+    assert "小记" not in sent  # 小记那一页没开着锁，不带上
+    # 连续 3 天心情低
+    def low(d):
+        for i in (1, 2, 3):
+            day = (datetime.fromisoformat(TODAY) - timedelta(days=i)).date().isoformat()
+            d["days"][day]["mood"] = 3
+    c.write(low)
+    c.go("#/")
+    p.reload()
+    expect(p.get_by_text("最近几天心情都不太好")).to_be_visible()
+
+
 def inventory_seed():
     inv = {
         "version": 1, "locations": [{"id": "L1", "name": "洗手池 Sink"}], "tags": ["洗漱护肤", "零食食品"],
@@ -608,7 +732,7 @@ def inventory_seed():
             {"id": "inv-m5", "name": "编的蒙脱石散", "location": "L1", "tags": ["药品急救"], "quantity": 1, "archived": False},
         ],
     }
-    return {"inventory.json": json.dumps(inv, ensure_ascii=False).encode()}
+    return {"inventory.json": json.dumps(inv, ensure_ascii=False).encode(), "config/ai.json": b'{"deepseek": {"key": "test-key", "model": "test"}}'}
 
 
 def ledger_seed():
@@ -624,6 +748,21 @@ def fake_weather(page):
     days = [(datetime.fromisoformat(TODAY) + dt.timedelta(days=i)).date().isoformat() for i in range(5)]
     body = json.dumps({"daily": {"time": days, "temperature_2m_min": [15, 12, 5, 6, 7], "temperature_2m_max": [24, 20, 12, 13, 14]}})
     page.route("https://api.open-meteo.com/**", lambda route: route.fulfill(status=200, content_type="application/json", body=body, headers={"Access-Control-Allow-Origin": "*"}))
+
+
+def fake_externals(page):
+    """地图底图不联网；DeepSeek 用假回答"""
+    page.route("https://webrd0*.is.autonavi.com/**", lambda route: route.fulfill(status=404, body=""))
+    page.route("https://archive-api.open-meteo.com/**", lambda route: route.fulfill(status=200, content_type="application/json", headers={"Access-Control-Allow-Origin": "*"},
+                                                                                  body=json.dumps({"daily": {"time": [], "precipitation_sum": [], "sunshine_duration": []}})))
+
+    def ai(route):
+        body = route.request.post_data or ""
+        LAST_AI.append(body)
+        content = {"answer": "编的回答"} if "问题" in body or "answer" in body else {"letter": "编的回顾正文", "research": "编的科研回顾"}
+        route.fulfill(status=200, content_type="application/json", headers={"Access-Control-Allow-Origin": "*"},
+                      body=json.dumps({"choices": [{"finish_reason": "stop", "message": {"content": json.dumps(content, ensure_ascii=False)}}]}))
+    page.route("https://api.deepseek.com/**", ai)
 
 
 def main():
@@ -648,6 +787,7 @@ def main():
         page.on("pageerror", lambda e: errors.append(str(e)))
         page.on("dialog", lambda d: d.accept())
         fake_weather(page)
+        fake_externals(page)
         c = Ctx(page, repo)
         for i, (name, fn) in enumerate(STEPS):
             if i and only and not any(k in name for k in only):

@@ -34,4 +34,11 @@ m = day_message({"sick": {"current": ep}}, datetime(2026, 10, 10, 16, 7))
 assert m["body"] == "喝杯温水吧；该量一次体温了" and m["title"] == "照顾自己", m
 ep = {"kind": "cold", "water": {"2026-10-10": 6}, "temps": [{"at": "2026-10-10T07:00:00Z", "t": 36.8}]}
 assert day_message({"sick": {"current": ep}}, datetime(2026, 10, 10, 16, 7)) is None
+# 周五：周末去哪
+FRI = datetime(2026, 10, 9, 22, 31)
+places = [{"name": "编的书店", "want": 3}, {"name": "编的公园", "want": 1}, {"name": "编的面馆", "visits": [{"day": "2026-09-01", "score": 5}]},
+          {"name": "刚去过", "visits": [{"day": "2026-10-08", "score": 5}]}]
+m = message({"days": {"2026-10-09": {"mood": 6, "prayer": {"night": {"at": "x"}}}}, "places": places}, FRI)
+assert m["body"] == "周末可以去：编的书店、编的公园" and m["url"].endswith("#/places"), m
+assert message({"days": {"2026-10-10": {"mood": 6, "prayer": {"night": {"at": "x"}}}}, "places": places}, SAT) is None
 print("推送规则 ✓")

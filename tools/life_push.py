@@ -11,7 +11,7 @@ import json
 import os
 import subprocess
 import sys
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 
 APP = "https://threelu.github.io/life/"
 DAY_START_HOUR = 4
@@ -44,9 +44,35 @@ def message(data, now):
     if (data.get("sick") or {}).get("current"):
         lines.append("身体在恢复，今晚早点睡")
         url = url or f"{APP}#/sick"
+    if today.weekday() == 4:
+        picks = weekend_picks(data.get("places") or [], today)
+        if picks:
+            lines.append(f"周末可以去：{'、'.join(picks)}")
+            url = url or f"{APP}#/places"
     if not lines:
         return None
     return {"title": "睡前", "body": "；".join(lines), "url": url, "tag": f"life-{t}"}
+
+
+def weekend_picks(places, today, n=2):
+    """周末去哪：和网页 places.js 的 weekendPicks 同样的规则（不看天气）：没去过的按想去程度、去过 4 分以上隔了 3 周、60 天没去的"""
+    cand = []
+    for p in places:
+        if p.get("archived"):
+            continue
+        visits = p.get("visits") or []
+        if not visits:
+            cand.append((30 + (p.get("want") or 1) * 10, p["name"]))
+            continue
+        last = max(v["day"] for v in visits)
+        gap = (today - date.fromisoformat(last)).days
+        best = max((v.get("score") or 0) for v in visits)
+        if best >= 4 and gap >= 21:
+            cand.append((20 + best * 2, p["name"]))
+        elif gap >= 60:
+            cand.append((15, p["name"]))
+    cand.sort(key=lambda x: (-x[0], x[1]))
+    return [name for _, name in cand[:n]]
 
 
 FEVER_FROM = 37.3

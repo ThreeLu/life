@@ -15,12 +15,19 @@ import {
   CHEER_ON, cheerNight, MILESTONE_TEXT, SICK_KINDS, RED_FLAGS, FEVER_FROM, BIBLE_BOOKS,
 } from './content.js';
 import { pushSupport, subscribe, currentSubscription, deviceName, PUSH_FILE } from './push.js';
-import { h } from './util.js';
+import { h, compressImage, blobToBase64 } from './util.js';
+import { askJson } from './ai.js';
+import { PLACE_KINDS, parseShare, visited, lastVisit, bestScore, weekendPicks, districtProgress, footprints, weekendDays, wgsToGcj } from './places.js';
+import {
+  MIN_DAYS, influences, influenceText, moodDays, series, sleepPattern, sleepHours, bedMinutes, bedLabel, rhythm, careRates, planRates,
+  beforeSick, gentleNote, periodSummary, rangeDays,
+} from './stats.js';
+import { lineChart, barChart, monthGrid, sleepBars } from './charts.js';
 import { icon } from './icons.js';
 
 const SETTINGS_KEY = 'life-settings';
 const DEFAULT_REPO = 'ThreeLu/life-data';
-const EDITING_ROUTES = /^\/(night|pray\/go|p$|english)/;
+const EDITING_ROUTES = /^\/(night|pray\/go|p$|english|place\/|ask)/;
 
 const readJson = (key) => { try { return JSON.parse(localStorage.getItem(key)) || {}; } catch { return {}; } };
 const writeJson = (key, v) => { try { localStorage.setItem(key, JSON.stringify(v)); } catch { /* 存不了就算了 */ } };
@@ -130,6 +137,13 @@ const routes = [
   [/^\/english\/cards$/, () => englishCardsView()],
   [/^\/sick$/, () => sickView()],
   [/^\/sick\/book$/, () => sickBookView()],
+  [/^\/places$/, () => placesView()],
+  [/^\/place\/([^/]+)\/edit$/, (id) => placeEditView(id)],
+  [/^\/place\/new$/, () => placeEditView('new')],
+  [/^\/place\/([^/]+)$/, (id) => placeView(id)],
+  [/^\/stats$/, () => statsView()],
+  [/^\/report$/, (_, q) => reportView(q)],
+  [/^\/ask$/, () => askView()],
   [/^\/p$/, () => privateView()],
   [/^\/periodic$/, () => periodicView()],
   [/^\/history$/, () => historyView()],
@@ -140,7 +154,7 @@ const NAV_GROUPS = {
   '/': [/^\/?$/, /^\/day\//, /^\/night/, /^\/sick/],
   '/look': [/^\/look/, /^\/step\//],
   '/pray': [/^\/pray/],
-  '/more': [/^\/more/, /^\/english/, /^\/periodic/, /^\/history/, /^\/settings/],
+  '/more': [/^\/more/, /^\/english/, /^\/periodic/, /^\/history/, /^\/settings/, /^\/places?/, /^\/stats/, /^\/report/, /^\/ask/],
 };
 
 function setupNav() {
@@ -195,7 +209,7 @@ async function saving(message, fn) {
 }
 // 先存手机、页面立刻更新、后台上传
 async function save(message, fn, opts) {
-  if (opts?.online) return saving('正在保存…', () => store.save(message, fn, opts));
+  if (opts?.online || opts?.uploads?.length || opts?.removes?.length) return saving('正在保存…', () => store.save(message, fn, opts));
   try {
     return await store.save(message, fn, opts);
   } catch (e) {
@@ -346,11 +360,19 @@ function todayView(day) {
     nightCard(day, rec),
     isToday ? periodicCard(today) : null,
     isToday ? skinWeekCard(today, true) : null,
+    isToday ? gentleCard(today) : null,
+    isToday ? weekendCard(today) : null,
     isToday ? englishDueCard(today) : null,
     isToday ? yearAgoCard(today) : null,
     isToday ? weekCardToday(today) : null,
     isToday && !sickActive(d) ? h('button', { class: 'link small center block unwell', onclick: startSickSheet }, '我不舒服') : null,
     !isToday ? h('a', { class: 'button secondary wide', href: '#/' }, '回到今天') : null);
+}
+
+// 最近几天状态不对：轻轻提一句
+function gentleCard(today) {
+  const t = gentleNote(store.data, today);
+  return t ? h('div', { class: 'card soft' }, h('p', { class: 'small' }, t)) : null;
 }
 
 // 每天一句鼓励的话
@@ -414,7 +436,7 @@ function sleepCard(day) {
   if (sl?.bed || sl?.wake) {
     return h('button', { class: 'card line-card', onclick: () => sleepSheet(day) },
       icon('bed'), h('span', { class: 'grow' }, `昨晚 ${sl.bed || '?'} 睡，${sl.wake || '?'} 起`, sl.q ? h('span', { class: 'muted' }, ` · 睡得 ${SLEEP_Q[sl.q - 1]}`) : null),
-      h('span', { class: 'muted small' }, sleepHours(sl)));
+      h('span', { class: 'muted small' }, sleepText(sl)));
   }
   if (day === dayKey() && new Date().getHours() >= 15) return null; // 下午以后就不占地方了（「＋」里还能记）
   const form = sleepForm(day, render);
@@ -424,7 +446,7 @@ function sleepCard(day) {
     h('button', { class: 'small', onclick: () => form.submit() }, '记好了'));
 }
 const SLEEP_Q = ['很差', '不太好', '一般', '不错', '很好'];
-function sleepHours(sl) {
+function sleepText(sl) {
   if (!sl.bed || !sl.wake) return '';
   const [bh, bm] = sl.bed.split(':').map(Number);
   const [wh, wm] = sl.wake.split(':').map(Number);
@@ -1312,6 +1334,596 @@ function englishCardsView() {
     h('div', { class: 'section-title' }, '错句本'), h('div', { class: 'card' }, list('mistake')));
 }
 
+// ---------- 想去的地方 ----------
+// 地图用高德的底图（不用密钥）+ Leaflet（vendor/leaflet，按需加载）。坐标存高德坐标（GCJ-02）。
+
+const PLACES_HELP = [
+  ['怎么加', [
+    '在小红书里点「分享 → 复制链接」，回到这里点「＋ 加一个」，粘贴进第一个框，名字和链接会自动填好。',
+    '选一下类型、在哪个区，在小地图上点一下它的位置（也可以点「用我现在的位置」）。其他都可以不填。',
+  ]],
+  ['去过了', ['点进一个地方 →「去过了」，打个分、写一句话，可以放一张照片。同一个地方可以去很多次。', '地图上空心的是想去的，实心的是去过的；颜色按类型分。']],
+  ['周末去哪', ['周五到周日，「今天」页会从你写过的地方里挑 1–2 个：想去还没去的、去过觉得好的、好久没去的。周末要下雨就先推室内的。周五晚上的推送也会带上。']],
+  ['走遍', ['「按区」看每个区去过几个地方，空着的区周末可以去转转。「足迹」是每一年去过的地方。']],
+];
+const placeState = { tab: 'list', kind: '' };
+let leafletLoading = null;
+function loadLeaflet() {
+  if (window.L) return Promise.resolve(window.L);
+  if (!leafletLoading) {
+    leafletLoading = new Promise((resolve, reject) => {
+      const css = document.createElement('link');
+      css.rel = 'stylesheet'; css.href = 'vendor/leaflet/leaflet.css';
+      document.head.append(css);
+      const js = document.createElement('script');
+      js.src = 'vendor/leaflet/leaflet.js';
+      js.onload = () => resolve(window.L);
+      js.onerror = () => { leafletLoading = null; reject(new Error('地图加载失败')); };
+      document.head.append(js);
+    });
+  }
+  return leafletLoading;
+}
+const AMAP_TILES = 'https://webrd0{s}.is.autonavi.com/appmaptile?lang=zh_cn&size=1&scale=1&style=8&x={x}&y={y}&z={z}';
+function baseMap(el, L, center, zoom) {
+  const map = L.map(el, { zoomControl: false, attributionControl: true }).setView(center, zoom);
+  L.tileLayer(AMAP_TILES, { subdomains: '1234', maxZoom: 18, attribution: '高德地图' }).addTo(map);
+  return map;
+}
+const cityCenter = () => { const c = store.data.settings.city; return c?.lat ? [c.lat, c.lon] : [36.66, 117.02]; };
+
+function placesView() {
+  const d = store.data;
+  const today = dayKey();
+  const list = d.places.filter((p) => !placeState.kind || p.kind === placeState.kind);
+  const tabs = [['list', '列表'], ['map', '地图'], ['area', '按区'], ['foot', '足迹']];
+  let body;
+  if (placeState.tab === 'map') body = placesMap(list);
+  else if (placeState.tab === 'area') body = placesArea();
+  else if (placeState.tab === 'foot') body = placesFoot(today);
+  else body = placesList(list, today);
+  const visitedN = d.places.filter(visited).length;
+  return h('div', {},
+    headerSub('想去的地方', d.places.length ? `${d.places.length} 个地方，去过 ${visitedN} 个` : '走遍、吃遍你的城市', helpButton('想去的地方怎么用', PLACES_HELP)),
+    weekendCard(today, true),
+    h('div', { class: 'segmented' }, tabs.map(([k, v]) => h('button', { class: `seg${placeState.tab === k ? ' on' : ''}`, onclick: () => { placeState.tab = k; render(); } }, v))),
+    ['list', 'map'].includes(placeState.tab) ? h('div', { class: 'chip-scroll' },
+      [['', '全部'], ...Object.entries(PLACE_KINDS).map(([k, v]) => [k, v.name])].map(([k, v]) => h('button', { type: 'button', class: `chip${placeState.kind === k ? ' on' : ''}`, onclick: () => { placeState.kind = k; render(); } }, v))) : null,
+    body,
+    h('div', { class: 'actions sticky' }, h('a', { class: 'button', href: '#/place/new' }, '＋ 加一个')));
+}
+
+function stars(n) { return n ? '★'.repeat(n) + '☆'.repeat(Math.max(0, 3 - n)) : ''; }
+function placeRow(p, today) {
+  const last = lastVisit(p);
+  const k = PLACE_KINDS[p.kind] || PLACE_KINDS.other;
+  return h('a', { class: 'place-row', href: `#/place/${p.id}` },
+    h('span', { class: `place-dot${visited(p) ? ' done' : ''}`, style: `--c:${k.color}` }),
+    h('span', { class: 'grow' }, p.name, h('span', { class: 'muted small block' }, [k.name, p.district, p.want && !visited(p) ? stars(p.want) : '', last ? `去过 ${p.visits.length} 次 · 上次${relDay(last.day, today)}` : ''].filter(Boolean).join(' · '))),
+    last?.score ? h('span', { class: 'small' }, `${bestScore(p)} 分`) : null);
+}
+function placesList(list, today) {
+  if (!list.length) return h('div', { class: 'card' }, h('p', { class: 'muted small' }, store.data.places.length ? '这一类还没有。' : '还没有地方。在小红书看到想去的，复制链接，点下面「＋ 加一个」。'));
+  const want = list.filter((p) => !visited(p)).sort((a, b) => (b.want || 0) - (a.want || 0));
+  const been = list.filter(visited).sort((a, b) => lastVisit(b).day.localeCompare(lastVisit(a).day));
+  return [
+    want.length ? [h('div', { class: 'section-title' }, `想去（${want.length}）`), h('div', { class: 'card list-card' }, want.map((p) => placeRow(p, today)))] : null,
+    been.length ? [h('div', { class: 'section-title' }, `去过（${been.length}）`), h('div', { class: 'card list-card' }, been.map((p) => placeRow(p, today)))] : null,
+  ];
+}
+function placesMap(list) {
+  const el = h('div', { class: 'map-box' });
+  const noPos = list.filter((p) => !p.lat).length;
+  loadLeaflet().then((L) => {
+    if (!el.isConnected) return;
+    const map = baseMap(el, L, cityCenter(), 12);
+    const pts = [];
+    for (const p of list.filter((x) => x.lat)) {
+      const k = PLACE_KINDS[p.kind] || PLACE_KINDS.other;
+      const m = L.circleMarker([p.lat, p.lng], { radius: 8, color: k.color, weight: 3, fillColor: k.color, fillOpacity: visited(p) ? 0.9 : 0.1 }).addTo(map);
+      const a = document.createElement('a');
+      a.href = `#/place/${p.id}`; a.textContent = p.name;
+      m.bindPopup(a);
+      pts.push([p.lat, p.lng]);
+    }
+    if (pts.length > 1) map.fitBounds(pts, { padding: [30, 30], maxZoom: 14 });
+    else if (pts.length === 1) map.setView(pts[0], 14);
+  }).catch((e) => el.replaceChildren(h('p', { class: 'muted small' }, e.message)));
+  return [el, noPos ? h('p', { class: 'muted small' }, `还有 ${noPos} 个地方没标位置，点进去在小地图上点一下就好。`) : null];
+}
+function placesArea() {
+  const d = store.data;
+  const prog = districtProgress(d.places, d.settings.city?.districts || []);
+  const rows = Object.entries(prog);
+  if (!rows.length) return h('div', { class: 'card' }, h('p', { class: 'muted small' }, '加地方时选一下在哪个区，这里就能看到每个区去过几个。'));
+  return h('div', { class: 'card' },
+    h('p', { class: 'muted small' }, '空着的区，周末可以去转转。'),
+    rows.map(([dist, x]) => h('div', { class: 'area-row' },
+      h('span', { class: 'area-name' }, dist),
+      h('span', { class: 'bar-track grow' }, h('span', { class: 'bar', style: `width:${x.total ? (x.visited / x.total) * 100 : 0}%;background:var(--good)` })),
+      h('span', { class: 'small muted area-num' }, x.total ? `${x.visited}/${x.total}` : '—'))));
+}
+function placesFoot(today) {
+  const years = [...new Set(store.data.places.flatMap((p) => (p.visits || []).map((v) => v.day.slice(0, 4))))].sort().reverse();
+  if (!years.length) return h('div', { class: 'card' }, h('p', { class: 'muted small' }, '去过一个地方点「去过了」，足迹就从这里开始。'));
+  return years.map((y) => {
+    const list = footprints(store.data.places, y);
+    const places = new Set(list.map((x) => x.place.id)).size;
+    return [h('div', { class: 'section-title' }, `${y} 年 · 去了 ${places} 个地方、${list.length} 次`),
+      h('div', { class: 'card list-card' }, list.map(({ place, visit }) => h('a', { class: 'place-row', href: `#/place/${place.id}` },
+        h('span', { class: 'muted small ev-time' }, visit.day.slice(5).replace('-', '/')),
+        h('span', { class: 'grow' }, place.name, visit.note ? h('span', { class: 'muted small block' }, visit.note) : null),
+        visit.score ? h('span', { class: 'small' }, '★'.repeat(visit.score)) : null)))];
+  });
+}
+
+// 周末去哪：周五到周日在「今天」出现；想去页一直有
+const weekendWeather = { key: '', rainy: null };
+function weekendCard(today, always = false) {
+  const d = store.data;
+  if (!d.places.length) return null;
+  const dow = parseDay(today).getDay();
+  if (!always && ![5, 6, 0].includes(dow)) return null;
+  const [sat, sun] = weekendDays(today);
+  const city = d.settings.city;
+  if (city?.lat && weekendWeather.key !== sat) {
+    weekendWeather.key = sat;
+    fetch(`https://api.open-meteo.com/v1/forecast?latitude=${city.lat}&longitude=${city.lon}&daily=precipitation_probability_max&timezone=Asia%2FShanghai&start_date=${sat}&end_date=${sun}`)
+      .then((r) => r.json()).then((j) => { weekendWeather.rainy = Math.max(...(j.daily?.precipitation_probability_max || [0])) >= 60; if (['/', '/places'].includes(currentPath())) render(); })
+      .catch(() => {});
+  }
+  const picks = weekendPicks(d.places, today, { rainy: Boolean(weekendWeather.rainy) });
+  if (!picks.length) return null;
+  return h('div', { class: 'card weekend' },
+    h('h3', {}, '这个周末去哪'),
+    weekendWeather.rainy ? h('p', { class: 'small muted' }, '周末可能下雨，先推室内的。') : null,
+    picks.map((x) => h('a', { class: 'place-row', href: `#/place/${x.place.id}` },
+      h('span', { class: `place-dot${visited(x.place) ? ' done' : ''}`, style: `--c:${(PLACE_KINDS[x.place.kind] || PLACE_KINDS.other).color}` }),
+      h('span', { class: 'grow' }, x.place.name, h('span', { class: 'muted small block' }, x.why)))),
+    freeMoneyLine());
+}
+// 账本里这个预算月自由钱还剩多少（读不到就不显示）
+const freeCache = { at: 0, text: '' };
+function freeMoneyLine() {
+  const el = h('p', { class: 'muted small' }, freeCache.text);
+  if (Date.now() - freeCache.at > 600000) {
+    freeCache.at = Date.now();
+    readLedgerFile().then((f) => {
+      if (!f?.budget?.free) return;
+      const start = f.settings?.periodStartDay || 1;
+      const t = dayKey();
+      let ps = `${t.slice(0, 8)}${String(start).padStart(2, '0')}`;
+      if (Number(t.slice(8)) < start) ps = `${addDays(`${t.slice(0, 8)}01`, -1).slice(0, 8)}${String(start).padStart(2, '0')}`;
+      const free = new Set(f.categories.filter((c) => c.group === 'free').map((c) => c.id));
+      const spent = f.tx.filter((x) => x.type === 'expense' && free.has(x.category) && x.date >= ps && x.date <= t).reduce((a, x) => a + (x.cny ?? x.amount), 0);
+      freeCache.text = `这个月自由钱还剩 ¥${Math.max(0, Math.round(f.budget.free - spent))}`;
+      if (el.isConnected) el.textContent = freeCache.text;
+    });
+  }
+  return el;
+}
+async function readLedgerFile() {
+  const lg = readJson('ledger-settings');
+  const owner = (settings.repo || DEFAULT_REPO).split('/')[0];
+  const g = new GitHub({ token: lg.token || settings.token, repo: lg.repo || `${owner}/finance-data` });
+  try { return JSON.parse(await g.readText('finance.json', 'main')); } catch { return null; }
+}
+
+// 一个地方：新建 / 编辑
+const placeDraft = { id: null, data: null };
+function placeEditView(id) {
+  const d = store.data;
+  const old = id === 'new' ? null : d.places.find((p) => p.id === id);
+  if (id !== 'new' && !old) return notFound();
+  if (placeDraft.id !== id) { placeDraft.id = id; placeDraft.data = structuredClone(old || { kind: null, district: null, want: 2 }); }
+  const x = placeDraft.data;
+  const share = h('textarea', { rows: 2, placeholder: '粘贴小红书「复制链接」的内容', 'aria-label': '小红书分享' });
+  const name = h('input', { value: x.name || '', placeholder: '名字', 'aria-label': '名字', oninput: (e) => { x.name = e.target.value; } });
+  const link = h('input', { value: x.link || '', placeholder: '链接（可以不填）', 'aria-label': '链接', oninput: (e) => { x.link = e.target.value; } });
+  const why = h('input', { value: x.why || '', placeholder: '为什么想去（可以不填）', 'aria-label': '为什么想去', oninput: (e) => { x.why = e.target.value; } });
+  const cost = h('input', { inputmode: 'numeric', value: x.cost || '', placeholder: '大概花多少（可以不填）', 'aria-label': '大概花多少', oninput: (e) => { x.cost = Number(e.target.value) || null; } });
+  const season = h('input', { value: x.season || '', placeholder: '什么时候去最好，比如「春天」「晚上」（可以不填）', 'aria-label': '什么时候去最好', oninput: (e) => { x.season = e.target.value; } });
+  share.addEventListener('input', () => {
+    const r = parseShare(share.value);
+    if (r.title && !name.value) { name.value = r.title; x.name = r.title; }
+    if (r.url) { link.value = r.url; x.link = r.url; }
+  });
+  const pick = (k, v) => { x[k] = x[k] === v ? null : v; render(); };
+  const mapEl = h('div', { class: 'map-box small-map' });
+  loadLeaflet().then((L) => {
+    if (!mapEl.isConnected) return;
+    const map = baseMap(mapEl, L, x.lat ? [x.lat, x.lng] : cityCenter(), x.lat ? 15 : 12);
+    let marker = x.lat ? L.marker([x.lat, x.lng]).addTo(map) : null;
+    map.on('click', (e) => {
+      x.lat = Math.round(e.latlng.lat * 1e6) / 1e6; x.lng = Math.round(e.latlng.lng * 1e6) / 1e6;
+      if (marker) marker.setLatLng(e.latlng); else marker = L.marker(e.latlng).addTo(map);
+    });
+    mapEl.useHere = () => navigator.geolocation.getCurrentPosition((pos) => {
+      const g = wgsToGcj(pos.coords.latitude, pos.coords.longitude);
+      x.lat = Math.round(g.lat * 1e6) / 1e6; x.lng = Math.round(g.lng * 1e6) / 1e6;
+      if (marker) marker.setLatLng([x.lat, x.lng]); else marker = L.marker([x.lat, x.lng]).addTo(map);
+      map.setView([x.lat, x.lng], 16);
+    }, () => toast('拿不到位置：在 iPhone 设置里允许 Safari 使用位置', 'error'), { enableHighAccuracy: true, timeout: 10000 });
+  }).catch((e) => mapEl.replaceChildren(h('p', { class: 'muted small' }, e.message)));
+  const submit = () => {
+    if (!x.name?.trim()) { toast('写个名字', 'error'); return; }
+    const pid = old?.id || newId('pl');
+    saveRender(old ? `改地方：${x.name}` : `想去：${x.name}`, (data) => {
+      const p = { ...x, id: pid, name: x.name.trim(), visits: old?.visits || [], at: old?.at || dayKey() };
+      for (const k of Object.keys(p)) if (p[k] === null || p[k] === '' || p[k] === undefined) delete p[k];
+      const i = data.places.findIndex((y) => y.id === pid);
+      if (i >= 0) data.places[i] = p; else data.places.push(p);
+    }).then((ok) => { if (ok) { placeDraft.id = null; toast(old ? '改好了' : '记下了。想去的地方又多了一个。'); go(old ? `#/place/${pid}` : '#/places'); } });
+  };
+  const districts = d.settings.city?.districts || [];
+  return h('div', { class: 'form' },
+    headerSub(old ? '改一下' : '想去的地方', old ? old.name : '名字之外都可以不填'),
+    old ? null : h('div', { class: 'card' }, share, h('p', { class: 'muted small' }, '在小红书点「分享 → 复制链接」，粘贴到这里。')),
+    h('div', { class: 'card' },
+      name,
+      h('div', { class: 'label-sm' }, '类型'), choiceRow('类型', Object.entries(PLACE_KINDS).map(([k, v]) => [k, v.name]), x.kind, (v) => pick('kind', v)),
+      districts.length ? [h('div', { class: 'label-sm' }, '在哪个区'), choiceRow('区', [...districts, '外地'].map((v) => [v, v]), x.district, (v) => pick('district', v))] : null,
+      h('div', { class: 'label-sm' }, '有多想去'), choiceRow('有多想去', [[1, '★'], [2, '★★'], [3, '★★★']], x.want, (v) => pick('want', v))),
+    h('div', { class: 'card' }, h('h3', {}, '位置：在地图上点一下'), mapEl,
+      h('button', { class: 'link small', onclick: () => mapEl.useHere?.() }, '用我现在的位置')),
+    h('div', { class: 'card' }, why, link, cost, season),
+    h('div', { class: 'actions sticky' }, h('button', { class: 'grow', onclick: submit }, '存好'), h('a', { class: 'button secondary', href: old ? `#/place/${old.id}` : '#/places', onclick: () => { placeDraft.id = null; } }, '取消')));
+}
+
+const photoUrls = {};
+function placePhoto(path) {
+  const img = h('img', { class: 'visit-photo', alt: '照片' });
+  if (photoUrls[path]) img.src = photoUrls[path];
+  else gh.readBlob(path).then((b) => { photoUrls[path] = URL.createObjectURL(b); img.src = photoUrls[path]; }).catch(() => img.remove());
+  return img;
+}
+
+function placeView(id) {
+  const d = store.data;
+  const p = d.places.find((x) => x.id === id);
+  if (!p) return notFound();
+  const k = PLACE_KINDS[p.kind] || PLACE_KINDS.other;
+  const visits = (p.visits || []).slice().sort((a, b) => b.day.localeCompare(a.day));
+  const remove = () => {
+    if (!confirm(`删掉「${p.name}」？去过的记录也会一起删掉。`)) return;
+    save(`删掉地方：${p.name}`, (data) => { data.places = data.places.filter((x) => x.id !== id); }, { online: true, removes: (p.visits || []).filter((v) => v.photo).map((v) => v.photo) })
+      .then(() => go('#/places')).catch(() => {});
+  };
+  const mapEl = p.lat ? h('div', { class: 'map-box small-map' }) : null;
+  if (mapEl) loadLeaflet().then((L) => { if (mapEl.isConnected) { const m = baseMap(mapEl, L, [p.lat, p.lng], 15); L.circleMarker([p.lat, p.lng], { radius: 9, color: k.color, fillColor: k.color, fillOpacity: 0.6 }).addTo(m); } }).catch(() => {});
+  const amap = p.lat ? `https://uri.amap.com/marker?position=${p.lng},${p.lat}&name=${encodeURIComponent(p.name)}&coordinate=gaode&callnative=1` : null;
+  return h('div', {},
+    headerSub(p.name, [k.name, p.district, !visited(p) && p.want ? stars(p.want) : ''].filter(Boolean).join(' · ')),
+    h('div', { class: 'card' },
+      p.why ? h('p', {}, p.why) : null,
+      [p.cost ? `大概 ¥${p.cost}` : '', p.season ? `最好：${p.season}` : ''].filter(Boolean).length ? h('p', { class: 'small muted' }, [p.cost ? `大概 ¥${p.cost}` : '', p.season ? `最好：${p.season}` : ''].filter(Boolean).join(' · ')) : null,
+      h('div', { class: 'actions' },
+        h('button', { onclick: () => visitSheet(p) }, visited(p) ? '又去了一次' : '去过了'),
+        p.link ? h('a', { class: 'button secondary', href: p.link, target: '_blank', rel: 'noopener' }, '看笔记') : null,
+        amap ? h('a', { class: 'button secondary', href: amap, target: '_blank', rel: 'noopener' }, '导航') : null)),
+    mapEl,
+    visits.length ? [h('div', { class: 'section-title' }, `去过 ${visits.length} 次`), visits.map((v) => h('div', { class: 'card visit' },
+      h('div', { class: 'rec-top' }, h('b', {}, `${v.day} ${v.score ? '★'.repeat(v.score) : ''}`), h('button', { class: 'link small', onclick: () => visitSheet(p, v) }, '改')),
+      v.note ? h('p', { class: 'small' }, v.note) : null,
+      v.photo ? placePhoto(v.photo) : null))] : null,
+    h('div', { class: 'actions' }, h('a', { class: 'button secondary', href: `#/place/${p.id}/edit` }, '改一下'), h('button', { class: 'danger', onclick: remove }, '删掉')),
+    h('a', { class: 'small', href: '#/places' }, '‹ 回到想去的地方'));
+}
+
+function visitSheet(p, v = null) {
+  const day = h('input', { type: 'date', value: v?.day || dayKey(), 'aria-label': '哪天去的' });
+  const note = h('textarea', { rows: 3, placeholder: '一句话：怎么样？（可以不写）', 'aria-label': '一句话' });
+  note.value = v?.note || '';
+  const file = h('input', { type: 'file', accept: 'image/*', 'aria-label': '照片' });
+  let score = v?.score || null;
+  const sRow = h('div', {});
+  const draw = () => sRow.replaceChildren(scoreRow('打分', 5, score, (x) => { score = x; draw(); }, ['1', '2', '3', '4', '5'].map((n) => `${n} ★`)));
+  draw();
+  const close = openSheet({
+    title: v ? '这一次' : `去过「${p.name}」`,
+    body: h('div', { class: 'form' }, h('label', {}, '哪天', day), h('div', { class: 'label-sm' }, '打分'), sRow, note,
+      h('label', {}, v?.photo ? '换一张照片（可以不换）' : '一张照片（可以不放）', file),
+      v ? h('button', { class: 'danger small', onclick: () => { close(); save('删掉一次去过', (data) => { const q = data.places.find((x) => x.id === p.id); q.visits = q.visits.filter((x) => x.id !== v.id); }, { online: Boolean(v.photo), removes: v.photo ? [v.photo] : [] }).then(render).catch(() => {}); } }, '删掉这一次') : null),
+    confirmText: '存好',
+    onConfirm: async () => {
+      const vid = v?.id || newId('v');
+      let uploads = []; let photo = v?.photo || null; const removes = [];
+      if (file.files[0]) {
+        try {
+          const blob = await compressImage(file.files[0], 1280, 0.8);
+          const path = `photos/places/${p.id}-${vid}-${Date.now().toString(36)}.jpg`;
+          uploads = [{ path, base64: await blobToBase64(blob) }];
+          if (photo) removes.push(photo);
+          photo = path;
+        } catch (e) { toast(e.message, 'error'); return false; }
+      }
+      try {
+        await save(`去过：${p.name}`, (data) => {
+          const q = data.places.find((x) => x.id === p.id);
+          if (!q) return false;
+          q.visits ||= [];
+          const x = { id: vid, day: day.value || dayKey(), ...(score ? { score } : {}), ...(note.value.trim() ? { note: note.value.trim() } : {}), ...(photo ? { photo } : {}) };
+          const i = q.visits.findIndex((y) => y.id === vid);
+          if (i >= 0) q.visits[i] = x; else q.visits.push(x);
+        }, uploads.length || removes.length ? { uploads, removes } : undefined);
+      } catch { return false; }
+      render();
+      if (!v) toast(score >= 4 ? '去到一个喜欢的地方，真好。' : '又多走了一个地方。');
+      return true;
+    },
+  });
+}
+
+// ---------- 分析 ----------
+
+const STATS_HELP = [
+  ['这一页是什么', [
+    '把你记下来的东西放在一起看：什么在影响你的状态、作息、心情的走势、每件事的规律、护肤做得怎么样、计划完成得怎么样、生病前有什么规律。',
+    '数据要攒一段时间：规律一两周就有；「什么在影响我」要心情记满 3 周才开始给结论。数据不够时会告诉你还要多少天。',
+  ]],
+  ['怎么看「什么在影响我」', [
+    '网页比较「做了某件事的日子」和「没做的日子」，心情、精力这些平均差多少，从差得多的往下排。',
+    '只能看出两件事常常一起出现，看不出谁导致谁。比如运动的日子心情好，可能是运动让你开心，也可能是开心的时候更想去运动。',
+    '天数少的会标「还不太可靠」，多记一阵子就准了。',
+  ]],
+  ['报告和问问我的记录', [
+    '周报、月报、年报：这段时间的数字，再请 DeepSeek 写一小段话（存下来，不会每次重写）。',
+    '问问我的记录：用大白话问，比如「我最近为什么总是累？」。DeepSeek 会读你最近 60 天的记录来回答。小记的数字只有在那一页开着锁的时候才会一起发过去。',
+  ]],
+];
+const statsState = { range: 30, rhythm: 'shower' };
+const weatherHist = { key: '', data: {} };
+const spendHist = { at: 0, data: {} };
+
+function statsView() {
+  const d = store.data;
+  const today = dayKey();
+  const nMood = moodDays(d, today);
+  // 天气历史（Open-Meteo 历史接口）和每天花的钱（账本）：拿到了就重画一次
+  const city = d.settings.city;
+  const from = addDays(today, -120);
+  if (city?.lat && weatherHist.key !== today) {
+    weatherHist.key = today;
+    fetch(`https://archive-api.open-meteo.com/v1/archive?latitude=${city.lat}&longitude=${city.lon}&start_date=${from}&end_date=${addDays(today, -1)}&daily=precipitation_sum,sunshine_duration&timezone=Asia%2FShanghai`)
+      .then((r) => r.json()).then((j) => {
+        weatherHist.data = Object.fromEntries(j.daily.time.map((t, i) => [t, { rain: j.daily.precipitation_sum[i] || 0, sun: (j.daily.sunshine_duration[i] || 0) / 3600 }]));
+        if (currentPath() === '/stats') render();
+      }).catch(() => {});
+  }
+  if (Date.now() - spendHist.at > 600000) {
+    spendHist.at = Date.now();
+    readLedgerFile().then((f) => {
+      if (!f) return;
+      const out = {};
+      for (const t of f.tx) if (['expense', 'writeoff'].includes(t.type)) out[t.date] = (out[t.date] || 0) + (t.cny ?? t.amount);
+      spendHist.data = out;
+      if (currentPath() === '/stats') render();
+    });
+  }
+  const inf = influences(d, today, { weather: weatherHist.data, spend: spendHist.data });
+  const n = statsState.range;
+  const moodS = series(d, today, n, (x) => d.days[x]?.mood ?? null);
+  const energyS = series(d, today, n, (x) => d.days[x]?.energy ?? null);
+  const stressS = series(d, today, n, (x) => d.days[x]?.stress ?? null);
+  const slS = series(d, today, n, (x) => sleepHours(d.days[x]?.sleep));
+  const sp = sleepPattern(d, today, 30);
+  const RH = { shower: ['洗澡', (e) => e.type === 'shower'], sport: ['运动', (e) => e.type === 'sport'], drink: ['咖啡奶茶茶', (e) => e.type === 'drink'], english: ['英语', (e) => e.type === 'english'] };
+  const rh = rhythm(d, today, RH[statsState.rhythm][1]);
+  const care = careRates(d, today);
+  const plans = planRates(d, today);
+  const bs = beforeSick(d);
+  const fmtH = (v) => (v === null ? '—' : `${Math.floor(v)} 小时${Math.round((v % 1) * 60) ? ` ${Math.round((v % 1) * 60)} 分` : ''}`);
+  return h('div', {},
+    headerSub('分析', `心情记了 ${nMood} 天`, helpButton('分析怎么看', STATS_HELP)),
+    h('div', { class: 'group' },
+      cell({ href: '#/ask', ic: 'sparkle', title: '问问我的记录', sub: '用大白话问，DeepSeek 读你的记录回答' }),
+      cell({ href: `#/report?k=week&d=${today}`, ic: 'calendar', color: 'var(--sage)', title: '这周的回顾' }),
+      cell({ href: `#/report?k=month&d=${today}`, ic: 'chart', color: 'var(--blue)', title: '这个月的回顾' }),
+      cell({ href: `#/report?k=year&d=${today}`, ic: 'book', color: 'var(--amber)', title: `${today.slice(0, 4)} 年度报告` })),
+
+    h('div', { class: 'section-title' }, '什么在影响我'),
+    h('div', { class: 'card' },
+      nMood < MIN_DAYS ? h('p', { class: 'small' }, `心情再记大约 ${MIN_DAYS - nMood} 天，这里就开始有结论了。先照常记就好。`) : null,
+      inf.length ? inf.slice(0, 8).map((x) => h('div', { class: 'inf-row' },
+        h('span', { class: `inf-dot ${x.key === 'drink' || x.key === 'spend' ? (x.diff > 0 ? 'bad' : 'good') : x.diff >= 0 ? 'good' : 'bad'}` }),
+        h('span', { class: 'grow small' }, influenceText(x), h('span', { class: 'muted block' }, `做了 ${x.nWith} 天 / 没做 ${x.nWithout} 天${x.reliable ? '' : ' · 还不太可靠'}`))))
+        : h('p', { class: 'muted small' }, '每种情况都要有 3 天以上才能比，多记几天。'),
+      h('p', { class: 'muted small' }, '只能看出两件事常常一起出现，看不出谁导致谁。')),
+
+    h('div', { class: 'section-title' }, '走势'),
+    h('div', { class: 'segmented' }, [[30, '30 天'], [90, '90 天']].map(([k, v]) => h('button', { class: `seg${n === k ? ' on' : ''}`, onclick: () => { statsState.range = k; render(); } }, v))),
+    h('div', { class: 'card' },
+      h('h3', {}, '心情（线是 7 天平均）'), lineChart(moodS, { min: 1, max: 10, title: '心情' }),
+      h('h3', {}, '精力'), lineChart(energyS, { min: 1, max: 5, title: '精力', color: 'var(--good)' }),
+      h('h3', {}, '压力'), lineChart(stressS, { min: 1, max: 5, title: '压力', color: 'var(--danger)' }),
+      h('h3', {}, '睡了几小时'), lineChart(slS, { min: 4, max: 10, title: '睡眠', color: 'var(--blue)' })),
+
+    h('div', { class: 'section-title' }, '作息（最近 30 天）'),
+    h('div', { class: 'card' },
+      sp.rows.length ? [
+        sleepBars(sp.rows.map((r) => ({ day: r.day, bed: bedMinutes(r.sl), wake: bedMinutes({ bed: r.sl.wake }) })), { title: '每天几点睡几点起' }),
+        h('div', { class: 'stat-grid' },
+          stat('平均睡', fmtH(sp.all.hours)), stat('平均几点睡', sp.all.bed === null ? '—' : bedLabel(Math.round(sp.all.bed))),
+          stat('工作日', `${fmtH(sp.weekday.hours)}`), stat('周末', `${fmtH(sp.weekend.hours)}`)),
+        sp.weekday.bed !== null && sp.weekend.bed !== null && Math.abs(sp.weekend.bed - sp.weekday.bed) >= 60 ? h('p', { class: 'small muted' }, `周末比工作日晚睡 ${Math.round((sp.weekend.bed - sp.weekday.bed) / 60 * 10) / 10} 小时。差太多周一会特别困。`) : null,
+      ] : h('p', { class: 'muted small' }, '早上在「今天」记一下几点睡几点起，这里就有图了。')),
+
+    h('div', { class: 'section-title' }, '规律'),
+    h('div', { class: 'chip-scroll' }, Object.entries(RH).map(([k, [v]]) => h('button', { type: 'button', class: `chip${statsState.rhythm === k ? ' on' : ''}`, onclick: () => { statsState.rhythm = k; render(); } }, v))),
+    h('div', { class: 'card' },
+      rh.count ? [
+        h('div', { class: 'stat-grid' },
+          stat('这个月', `${rh.thisMonth} 次`), stat('上个月', `${rh.lastMonth} 次`),
+          stat('平均隔', rh.avgGap === null ? '—' : `${Math.round(rh.avgGap * 10) / 10} 天`), stat('最长隔', rh.maxGap === null ? '—' : `${rh.maxGap} 天`)),
+        monthGrid(today.slice(0, 7), rh.days, { title: '这个月哪天做了' }),
+        h('h3', { style: 'margin-top:12px' }, '星期几'), barChart('一二三四五六日'.split('').map((w, i) => ({ label: w, v: rh.weekday[i] })), { title: '星期几' }),
+        h('h3', {}, '几点'), barChart(Object.entries(rh.hours).map(([k, v]) => ({ label: k, v })), { title: '几点', color: 'var(--sage)' }),
+      ] : h('p', { class: 'muted small' }, '还没有记录。')),
+
+    care.length ? [h('div', { class: 'section-title' }, '护肤（最近 30 天做了几天）'),
+      h('div', { class: 'card' }, care.map((c) => h('div', { class: 'area-row' },
+        h('span', { class: 'area-name' }, `${WHEN[c.r.when]}${c.r.name}`),
+        h('span', { class: 'bar-track grow' }, h('span', { class: 'bar', style: `width:${c.total ? (c.done / c.total) * 100 : 0}%;background:var(--accent)` })),
+        h('span', { class: 'small muted area-num' }, `${c.done}/${c.total}`))),
+        skinTrend())] : null,
+
+    plans.some((x) => x.n) ? [h('div', { class: 'section-title' }, '科研：说要做的做到了几成'),
+      h('div', { class: 'card' }, barChart(plans.map((x) => ({ label: `${Number(x.mon.slice(5, 7))}/${Number(x.mon.slice(8))}`, v: x.rate === null ? 0 : Math.round(x.rate * 100) })), { title: '每周计划完成率', fmt: (v) => `${v}%`, color: 'var(--blue)' }),
+        h('p', { class: 'muted small' }, '做到算 1，做了一部分算一半。计划没完成很正常，研究本来就难估时间。'),
+        h('a', { class: 'small', href: `#/report?k=month&d=${today}` }, '月度科研回顾在月报里 ›'))] : null,
+
+    bs ? [h('div', { class: 'section-title' }, '生病前一周'),
+      h('div', { class: 'card' }, h('p', { class: 'small' }, `一共病过 ${bs.n} 次。生病前一周：平均睡 ${fmtH(bs.sleepBefore)}（平时 ${fmtH(bs.sleepUsual)}），压力 ${bs.stressBefore?.toFixed(1) ?? '—'}（平时 ${bs.stressUsual?.toFixed(1) ?? '—'}）。`),
+        h('p', { class: 'muted small' }, bs.n < 3 ? '病过 3 次以上规律才看得清。' : '睡得少、压力大的时候，记得多照顾自己。'))] : null);
+}
+function skinTrend() {
+  const d = store.data;
+  const weeks = Object.entries(d.weeks).filter(([, w]) => w.skin?.score).sort((a, b) => a[0].localeCompare(b[0])).slice(-12);
+  if (weeks.length < 2) return h('p', { class: 'muted small' }, '每周给皮肤打个分，攒两周以上这里能看到变化。');
+  return [h('h3', { style: 'margin-top:12px' }, '每周的皮肤'), barChart(weeks.map(([mon, w]) => ({ label: `${Number(mon.slice(5, 7))}/${Number(mon.slice(8))}`, v: w.skin.score })), { title: '每周皮肤分', color: 'var(--good)' })];
+}
+
+// 报告：周 / 月 / 年。数字 + DeepSeek 写的一小段（存在 letters 里）
+function reportRange(k, day) {
+  if (k === 'week') { const mon = weekOf(day); return { key: `w${mon}`, from: mon, to: addDays(mon, 6), title: `这周（${weekLabel(mon)}）`, prev: addDays(mon, -7), next: addDays(mon, 7) }; }
+  if (k === 'month') {
+    const m = day.slice(0, 7); const end = addDays(`${addDays(`${m}-28`, 7).slice(0, 7)}-01`, -1);
+    return { key: `m${m}`, from: `${m}-01`, to: end, title: `${Number(m.slice(5))} 月`, prev: addDays(`${m}-01`, -1), next: addDays(end, 1) };
+  }
+  const y = day.slice(0, 4);
+  return { key: `y${y}`, from: `${y}-01-01`, to: `${y}-12-31`, title: `${y} 年`, prev: `${Number(y) - 1}-06-01`, next: `${Number(y) + 1}-06-01` };
+}
+const letterBusy = {};
+function reportView(q) {
+  const d = store.data;
+  const k = ['week', 'month', 'year'].includes(q.k) ? q.k : 'week';
+  const r = reportRange(k, q.d || dayKey());
+  const to = r.to > dayKey() ? dayKey() : r.to;
+  const s = periodSummary(d, r.from, to);
+  const letter = d.letters?.[r.key];
+  const fmt1 = (v) => (v === null ? '—' : (Math.round(v * 10) / 10).toString());
+  const tiles = [
+    ['心情', fmt1(s.mood)], ['精力', fmt1(s.energy)], ['压力', fmt1(s.stress)], ['平均睡', s.sleep === null ? '—' : `${fmt1(s.sleep)} 小时`],
+    ['护肤做完', `${s.careDays} 天`], ['洗澡', `${s.showers} 次`], ['运动', `${s.sports} 次${s.km ? ` · ${Math.round(s.km * 10) / 10} 公里` : ''}`], ['咖啡奶茶茶', `${s.drinks} 杯`],
+    ['祷告', `${s.prayers} 晚`], ['读经', `${s.reads} 次`], ['英语', `${s.english} 次`], ['去了', `${new Set(s.visits.map((v) => v.name)).size} 个地方`],
+  ];
+  const write = async () => {
+    letterBusy[r.key] = true; render();
+    try {
+      const cfg = await aiConfig();
+      const out = await askJson(cfg, LETTER_SYSTEM, `${r.title}的记录（${r.from} 到 ${to}）：\n${summaryText(s)}\n\n请写这段时间的回顾。${k === 'month' ? '另外单独写一段「科研回顾」：把每天写的科研那一句整理成这个月做了哪些方向、推进到哪、卡在哪里，可以直接拿去组会汇报。' : ''}返回 JSON：{"letter": "回顾正文", "research": "科研回顾（月报才写，没有就空字符串）"}`);
+      await save(`回顾：${r.title}`, (data) => { (data.letters ||= {})[r.key] = { at: dayKey(), text: String(out.letter || ''), research: String(out.research || '') }; });
+    } catch (e) { toast(e.message, 'error'); }
+    letterBusy[r.key] = false; render();
+  };
+  const tabs = [['week', '周'], ['month', '月'], ['year', '年']];
+  return h('div', {},
+    headerSub('回顾', r.title),
+    h('div', { class: 'segmented' }, tabs.map(([kk, v]) => h('a', { class: `seg${k === kk ? ' on' : ''}`, href: `#/report?k=${kk}&d=${q.d || dayKey()}` }, v))),
+    h('div', { class: 'period-nav' },
+      h('a', { class: 'icon-btn', href: `#/report?k=${k}&d=${r.prev}`, 'aria-label': '上一段' }, '‹'),
+      h('b', { class: 'grow center' }, r.title),
+      r.next <= dayKey() ? h('a', { class: 'icon-btn', href: `#/report?k=${k}&d=${r.next}`, 'aria-label': '下一段' }, '›') : h('span', { class: 'icon-btn ghost' })),
+    h('div', { class: 'card letter' },
+      h('h3', {}, icon('sparkle', 'i'), ' 写给你的话'),
+      letter ? [h('p', { class: 'letter-text' }, letter.text), letter.research ? [h('h3', {}, '科研回顾'), h('p', { class: 'letter-text' }, letter.research)] : null,
+        h('button', { class: 'link small', onclick: write, disabled: letterBusy[r.key] }, letterBusy[r.key] ? '正在写……' : '重新写')]
+        : s.recorded < 2 ? h('p', { class: 'muted small' }, '这段时间记得太少，先不写。')
+          : h('button', { class: 'secondary', onclick: write, disabled: letterBusy[r.key] }, letterBusy[r.key] ? 'DeepSeek 正在写……' : '请 DeepSeek 写一段')),
+    h('div', { class: 'card' }, h('div', { class: 'stat-grid' }, tiles.map(([a, b]) => stat(a, b))),
+      s.bestDay ? h('p', { class: 'small' }, `心情最好的一天：${dayLabel(s.bestDay)}${d.days[s.bestDay].note ? `，「${d.days[s.bestDay].note}」` : ''}`) : null,
+      s.habits ? h('p', { class: 'small good-text' }, `养成了 ${s.habits} 个新习惯。`) : null),
+    s.notes.length ? h('div', { class: 'card' }, h('h3', {}, '每天的一句话'), s.notes.slice(-31).map((x) => h('div', { class: 'small night-note' }, h('span', { class: 'muted' }, `${x.day.slice(5).replace('-', '/')} · ${x.mood || '-'} 分　`), x.note))) : null,
+    s.did.length && k !== 'year' ? h('div', { class: 'card' }, h('h3', {}, '科研'), s.did.map((x) => h('div', { class: 'small night-note' }, h('span', { class: 'muted' }, `${x.day.slice(5).replace('-', '/')}　`), x.did))) : null);
+}
+const LETTER_SYSTEM = '你是一位温暖、真诚的朋友，帮一位博士生回顾他的一段生活。他在用心学着照顾自己：护肤、祷告（他是基督徒）、运动、练英语。'
+  + '用中文大白话写，160–260 字，分两三段。先说看到的好的地方（要具体，引用他的数字或他写的话），再温和地说一两个可以留意的规律，最后一句鼓励。'
+  + '不说教，不评判，不用「你应该」，不夸张，不制造焦虑。没做到的事轻轻带过或者不提。只能说「常常一起出现」，不要下因果结论。';
+
+function summaryText(s) {
+  const f = (v) => (v === null ? '没记' : Math.round(v * 10) / 10);
+  return [
+    `记录了 ${s.recorded}/${s.days} 天。心情平均 ${f(s.mood)}（1–10），精力 ${f(s.energy)}（1–5），压力 ${f(s.stress)}（1–5），平均睡 ${f(s.sleep)} 小时。`,
+    `护肤都做完 ${s.careDays} 天，洗澡 ${s.showers} 次，运动 ${s.sports} 次（${s.sportMinutes} 分钟${s.km ? `，${Math.round(s.km * 10) / 10} 公里` : ''}），咖啡奶茶茶 ${s.drinks} 杯，祷告 ${s.prayers} 晚，读经 ${s.reads} 次，英语 ${s.english} 次，生病 ${s.sick} 次，新养成习惯 ${s.habits} 个。`,
+    s.visits.length ? `去过：${s.visits.map((v) => `${v.name}${v.score ? `（${v.score} 分）` : ''}`).join('、')}。` : '',
+    s.notes.length ? `每天的一句话：${s.notes.map((x) => `${x.day.slice(5)} ${x.mood || '-'}分 ${x.note}`).join('；')}` : '',
+    s.did.length ? `科研：${s.did.map((x) => `${x.day.slice(5)} ${x.did}`).join('；')}` : '',
+  ].filter(Boolean).join('\n');
+}
+
+let aiCache = null;
+async function aiConfig() {
+  if (aiCache?.key) return aiCache;
+  const inv = readJson('inventory-settings');
+  const owner = (settings.repo || DEFAULT_REPO).split('/')[0];
+  const g = new GitHub({ token: inv.token || settings.token, repo: inv.repo || `${owner}/inventory-data` });
+  try { aiCache = JSON.parse(await g.readText('config/ai.json', 'main'))?.deepseek || {}; } catch { aiCache = {}; }
+  return aiCache;
+}
+
+// 问问我的记录：聊天只在内存里，不存
+const askState = { messages: [], busy: false, draft: '' };
+const ASK_SYSTEM = '你是一位温暖、聪明的朋友，帮他从自己的生活记录里找答案。下面是他最近的记录（每天一行）。'
+  + '回答用中文大白话，先直接回答，再用记录里的具体日子和数字说明；不确定就说不确定，不要编；只能说「常常一起出现」，不下因果结论。'
+  + '不说教、不评判，语气温和，最后可以给一个很小、很容易做到的建议。涉及身体不舒服要提醒他看医生。'
+  + '返回 JSON：{"answer": "回答"}';
+function recordContext() {
+  const d = store.data;
+  const today = dayKey();
+  const lines = [];
+  for (const day of rangeDays(addDays(today, -59), today)) {
+    const r = d.days[day] || {};
+    const ev = eventsOn(d, day);
+    const parts = [
+      r.mood ? `心情${r.mood}` : '', r.energy ? `精力${r.energy}` : '', r.stress ? `压力${r.stress}` : '',
+      r.sleep?.bed ? `睡${r.sleep.bed}-${r.sleep.wake || '?'}` : '',
+      ev.some((e) => e.type === 'shower') ? '洗澡' : '',
+      ev.filter((e) => e.type === 'sport').map((e) => `运动${e.kind}${e.minutes ? `${e.minutes}分` : ''}`).join(' '),
+      ev.filter((e) => e.type === 'drink').map((e) => `${e.kind}@${hm(e.at)}`).join(' '),
+      careFullDay(d, day) ? '护肤做完' : Object.keys(r.care || {}).length ? '护肤做了一部分' : '',
+      r.prayer?.night ? `祷告(${NEAR[r.prayer.night.near] || ''})` : '', r.read !== undefined ? '读经' : '',
+      r.note ? `「${r.note}」` : '', r.did ? `科研:${r.did}` : '', r.planDone ? `计划${{ yes: '做到', part: '部分', no: '没做' }[r.planDone]}` : '',
+    ].filter(Boolean);
+    if (parts.length) lines.push(`${day} ${parts.join('，')}`);
+  }
+  const sick = (d.sick.history || []).slice(-5).map((x) => `${x.start}~${x.end} ${SICK_KINDS[x.kind].name}`).join('；');
+  // 小记：只有那一页开着锁的时候才带上（用户同意发给 DeepSeek，但别的时候别让它出现在没上锁的页面上）
+  let priv = '';
+  if (Date.now() < unlockUntil) {
+    const ps = privateStats(d);
+    const ui = pui();
+    priv = `\n${ui.title}：最近 30 天 ${ps.recent} 次，平均隔 ${ps.avgGap?.toFixed(1) ?? '-'} 天，日期：${ps.list.filter((e) => daysBetween(e.day, today) < 60).map((e) => e.day.slice(5)).join(' ')}`;
+  }
+  return `今天 ${today}。\n${lines.join('\n') || '（最近没什么记录）'}${sick ? `\n生病：${sick}` : ''}${priv}`;
+}
+async function askRecords(question) {
+  askState.messages.push({ role: 'me', text: question });
+  askState.busy = true; render();
+  try {
+    const cfg = await aiConfig();
+    const history = askState.messages.slice(0, -1).slice(-6).map((m) => ({ role: m.role === 'me' ? 'user' : 'assistant', content: m.role === 'me' ? m.text : JSON.stringify({ answer: m.text }) }));
+    const out = await askJson(cfg, `${ASK_SYSTEM}\n\n${recordContext()}`, question, { history });
+    askState.messages.push({ role: 'ai', text: String(out.answer || '（没有回答）') });
+  } catch (e) {
+    askState.messages.push({ role: 'ai', text: e.message, error: true });
+  }
+  askState.busy = false; render();
+  window.scrollTo(0, document.body.scrollHeight);
+}
+function askView() {
+  const input = h('textarea', { rows: 1, placeholder: '比如：我最近为什么总是累？', 'aria-label': '问题' });
+  input.value = askState.draft;
+  input.addEventListener('input', () => { askState.draft = input.value; });
+  const send = () => { const v = input.value.trim(); if (!v || askState.busy) return; askState.draft = ''; askRecords(v); };
+  const examples = ['我最近为什么总是累？', '我状态最好的那几天有什么共同点？', '咖啡对我的睡眠有影响吗？', '这个月我做得最好的是什么？'];
+  return h('div', {},
+    headerSub('问问我的记录', 'DeepSeek 读你最近 60 天的记录'),
+    askState.messages.length ? null : h('div', { class: 'chips' }, examples.map((x) => h('button', { type: 'button', class: 'chip', onclick: () => askRecords(x) }, x))),
+    h('div', { class: 'chat' }, askState.messages.map((m) => h('div', { class: `msg ${m.role}${m.error ? ' error-msg' : ''}` }, m.text)),
+      askState.busy ? h('div', { class: 'msg ai thinking' }, '正在翻你的记录……') : null),
+    h('div', { class: 'chat-input' }, input, h('button', { onclick: send, disabled: askState.busy }, '问')));
+}
+
 // ---------- 生病 ----------
 // 一次生病 = sick.current：{ id, kind, start, temps: [{ at, t }], meds: [{ at, item, name }], water: { 日期: 杯 }, done: { 日期: { 第几项: true } },
 //   gut: { 日期: { d: 拉, v: 吐 } }, suspects: [文字], end?, how? }。好了以后移进 sick.history。
@@ -1934,6 +2546,9 @@ function moreView() {
   return h('div', {},
     header('更多'),
     h('div', { class: 'group' },
+      cell({ href: '#/stats', ic: 'chart', color: 'var(--blue)', title: '分析', sub: '什么在影响我、作息、规律、回顾' }),
+      cell({ href: '#/places', ic: 'globe', color: 'var(--good)', title: '想去的地方', sub: '地图、周末去哪、足迹' })),
+    h('div', { class: 'group' },
       cell({ href: '#/night', ic: 'moon', title: '睡前复盘' }),
       cell({ href: '#/english', ic: 'globe', color: 'var(--blue)', title: '英语陪练', sub: '复制提示词，和 ChatGPT 语音聊' }),
       cell({ href: '#/periodic', ic: 'calendar', color: 'var(--sage)', title: '定期打理', sub: '剪指甲、换床单、理发……' }),
@@ -1941,7 +2556,7 @@ function moreView() {
       cell({ href: '#/history', ic: 'list', color: 'var(--amber)', title: '最近的记录' })),
     h('div', { class: 'group' },
       cell({ href: '#/settings', ic: 'gear', color: 'var(--muted)', title: '设置' })),
-    h('p', { class: 'muted small center' }, '以后还会加：分析、想去的地方、爱好。'));
+    h('p', { class: 'muted small center' }, '以后还会加：爱好。'));
 }
 
 // ---------- 设置 ----------

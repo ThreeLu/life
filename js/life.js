@@ -57,6 +57,8 @@ export function defaultData(today) {
     sick: { current: null, history: [], plans: structuredClone(DEFAULT_PLANS), meds: {}, clinic: {} },
     english: { cards: [], next: '' },
     milestones: {}, // { key: 达到的日期 }，seen: { key: true }
+    places: [], // 想去的地方，见 places.js
+    letters: {}, // DeepSeek 写的回顾：{ w周一 / m月份 / y年份: { at, text, research } }
   };
 }
 
@@ -83,6 +85,8 @@ export function migrate(data) {
   data.sick.plans = { ...DEFAULT_PLANS, ...(data.sick.plans || {}) };
   data.english = { ...d.english, ...(data.english || {}) };
   data.milestones ||= {};
+  data.places ||= [];
+  data.letters ||= {};
   return data;
 }
 
