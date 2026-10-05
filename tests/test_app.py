@@ -372,11 +372,12 @@ def _(c):
     def seed(d):
         d["private"]["program"] = {"start": mon, "weeks": [
             {"title": "编的第一周", "intro": "编的介绍", "buy": {"name": "编的东西", "price": "¥10"}, "tasks": [
-                {"id": "t1", "track": "a", "text": "编的任务一", "level": 1},
+                {"id": "t1", "track": "a", "text": "编的任务一 {3-3} 次，{只有这个}", "level": 1},
                 {"id": "t2", "track": "b", "text": "编的任务二（含忌讳词）", "level": 2},
                 {"id": "t3", "track": "b", "text": "编的任务三", "level": 1, "note": "编的安全提示"}]},
             {"title": "编的第二周", "tasks": [{"id": "t4", "track": "a", "text": "编的任务四"}]}],
-            "pool": [{"id": "p1", "track": "b", "text": "编的池子任务", "from": 1}, {"id": "p2", "track": "b", "text": "编的以后才有", "from": 5}], "draw": 1}
+            "pool": [{"id": "p1", "track": "b", "text": "编的池子任务", "from": 1}, {"id": "p2", "track": "b", "text": "编的以后才有", "from": 5}], "draw": 1,
+            "scenes": ["编的情景 {甲|甲}"], "rewards": ["编的奖励"], "penalties": ["编的惩罚"]}
         d["private"]["limits"] = ["忌讳词"]
         d["private"]["ui"].update(sessionStart="编的开始", safety=["编的安全一"], aftercare=["编的收尾一", "编的收尾二"])
     c.write(seed)
@@ -391,7 +392,9 @@ def _(c):
     expect(p.get_by_text("编的安全一")).to_be_visible()
     expect(p.get_by_text("忌讳词")).to_be_visible()
     p.get_by_role("button", name="准备好了").click()
-    expect(p.locator(".task-text")).to_have_text("编的任务一")
+    expect(p.locator(".task-text")).to_have_text("编的情景 甲")
+    p.get_by_role("button", name="开始", exact=True).click()
+    expect(p.locator(".task-text")).to_have_text("编的任务一 3 次，{只有这个}")
     p.get_by_role("button", name="做到了").click()
     expect(p.locator(".task-text")).to_have_text("编的池子任务")  # 从任务池抽的（第 5 周以后的不会抽到），含「绝对不要」的跳过了
     p.get_by_role("button", name="做到了").click()
@@ -399,13 +402,16 @@ def _(c):
     expect(p.get_by_text("编的安全提示")).to_be_visible()
     p.get_by_role("button", name="跳过").click()
     expect(p.get_by_text("收尾", exact=True)).to_be_visible()
+    expect(p.locator(".big-num")).to_have_text("20")  # 做到的两张，各 1 级
+    expect(p.get_by_text("编的奖励")).to_have_count(0)  # 有跳过就没有奖励
+    expect(p.get_by_text("编的惩罚")).to_have_count(0)  # 只跳过一张，没有惩罚
     p.get_by_role("button", name="编的收尾一").click()
     p.get_by_role("group", name="结束后的心情").get_by_role("button", name="不错").click()
     p.get_by_role("checkbox").check()
     p.get_by_role("button", name="结束").click()
     c.wait(lambda d: d["private"]["sessions"], "一段时间")
     ss = c.data()["private"]["sessions"][0]
-    assert ss["tasks"] == {"t1": "done", "p1": "done", "t3": "skip"} and ss["after"] == 4 and ss["week"] == 1, ss
+    assert ss["tasks"] == {"t1": "done", "p1": "done", "t3": "skip"} and ss["after"] == 4 and ss["week"] == 1 and ss["points"] == 20 and ss["scene"] == "编的情景 甲", ss
     assert any(e.get("session") == ss["id"] for e in c.data()["events"]), "也记一次"
     expect(p.locator(".card", has_text="（最近）")).to_contain_text("任务 2/3")
     # 音频

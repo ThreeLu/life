@@ -3,7 +3,7 @@ import { Store, newId, diff, apply as applyPatch } from './store.js';
 import {
   defaultData, dayKey, addDays, daysBetween, weekOf, weekLabel, hm, parseDay, WHEN, routineOf, careDone, weekCount,
   startStep, stopStep, stepStatus, nextStep, readyForHabit, periodicDue, eventsOn, privateStats,
-  prayedOn, prayerStats, stageReady, readingToday, markRead, bibleLink, programWeek, weekTasks, privateNote,
+  prayedOn, prayerStats, stageReady, readingToday, markRead, bibleLink, programWeek, weekTasks, privateNote, fillText, pickOne, sessionPoints,
   dailyCheer, weekHighlights, newMilestones, careFullDay,
   sickActive, recoveryLeft, tempStats, medInfo, doseStatus, medConflicts, seasonWarning,
   parseSummary, reviewCard, dueCards, mistakeTypes, REVIEW_STEPS,
@@ -2511,6 +2511,7 @@ const P_PROGRAM_DEFAULT = {
   programTitle: '这一周', sessionStart: '开始', sessionTitle: '时间', trackA: 'A', trackB: 'B',
   safety: ['任何一张都可以跳过。', '不舒服就停。'], aftercare: ['收拾好东西', '喝一杯水'],
   afterLabel: '结束后的心情', alsoCount: '这次也记一次', mediaTitle: '音频', limitsTitle: '绝对不要', customTitle: '自己写的',
+  sceneTitle: '今天的情景', rewardTitle: '奖励', penaltyTitle: '惩罚', pointsLabel: '得分',
 };
 const pp = () => ({ ...P_PROGRAM_DEFAULT, ...pui() });
 
@@ -2532,7 +2533,7 @@ function programCard(today) {
     h('a', { class: 'button wide', href: '#/p/s' }, ui.sessionStart));
 }
 
-const sess = { step: 'safety', i: 0, start: null, results: {}, key: '' };
+const sess = { step: 'safety', i: 0, start: null, results: {}, key: '', seed: 0, scene: null };
 function sessionView() {
   const gate = lockGate();
   if (gate) return gate;
@@ -2550,8 +2551,17 @@ function sessionView() {
       header(ui.sessionTitle, helpButton(ui.title, ui.help)),
       h('div', { class: 'card' }, h('h3', {}, '开始之前'), h('ul', { class: 'small flags' }, ui.safety.map((x) => h('li', {}, x))),
         limits.length ? [h('h3', {}, ui.limitsTitle), h('p', { class: 'small' }, limits.join('、'))] : null),
-      h('button', { class: 'wide', onclick: () => { sess.step = 'task'; sess.start = Date.now(); render(); } }, '准备好了'),
+      h('button', { class: 'wide', onclick: () => {
+        sess.seed = Date.now();
+        sess.scene = pickOne(d.private.program?.scenes, sess.seed);
+        sess.step = sess.scene ? 'scene' : 'task'; sess.start = Date.now(); render();
+      } }, '准备好了'),
       h('a', { class: 'link small center block', href: '#/p' }, '先不了'));
+  }
+  if (sess.step === 'scene') {
+    return h('div', { class: 'session' }, top,
+      h('div', { class: 'card task-card scene' }, h('span', { class: 'badge accent' }, ui.sceneTitle), h('p', { class: 'task-text' }, fillText(sess.scene, sess.seed))),
+      h('button', { class: 'wide', onclick: () => { sess.step = 'task'; render(); } }, '开始'));
   }
   if (sess.step === 'task' && sess.i < tasks.length) {
     const t = tasks[sess.i];
@@ -2561,12 +2571,18 @@ function sessionView() {
       h('div', { class: 'pray-progress' }, tasks.map((_, k) => h('span', { class: k <= sess.i ? 'on' : '' }))),
       h('div', { class: `card task-card ${t.track || ''}` },
         h('div', { class: 'rec-top' }, h('span', { class: 'badge accent' }, t.track === 'b' ? ui.trackB : ui.trackA), t.level ? h('span', { class: 'muted small' }, '●'.repeat(t.level)) : null),
-        h('p', { class: 'task-text' }, t.text),
+        h('p', { class: 'task-text' }, fillText(t.text, `${sess.seed}-${t.id}`)),
         t.note ? h('p', { class: 'small muted' }, t.note) : null),
       h('div', { class: 'actions' }, h('button', { class: 'grow', onclick: () => mark('done') }, '做到了'), h('button', { class: 'secondary', onclick: () => mark('skip') }, '跳过')),
       h('button', { class: 'link small center block', onclick: () => { sess.step = 'end'; render(); } }, '直接收尾'));
   }
-  // 收尾
+  // 收尾：得分；全做到抽一张奖励，跳过两张以上抽一张惩罚（惩罚也可以不做）
+  const pg = d.private.program || {};
+  const points = sessionPoints(sess.results, tasks);
+  const skips = Object.values(sess.results).filter((x) => x === 'skip').length;
+  const doneAll = tasks.length > 0 && tasks.every((t) => sess.results[t.id] === 'done');
+  const reward = doneAll ? pickOne(pg.rewards, `${sess.seed}-r`) : null;
+  const penalty = skips >= 2 ? pickOne(pg.penalties, `${sess.seed}-p`) : null;
   const care = new Set();
   let score = null; let after = null;
   const rows = h('div', {});
@@ -2586,6 +2602,7 @@ function sessionView() {
           id, day: dayKey(start), start: start.toISOString(), end: end.toISOString(), minutes: Math.round((end - start) / 60000),
           week: (programWeek(data, dayKey(start))?.n ?? -1) + 1, tasks: { ...sess.results },
           ...(score ? { score } : {}), ...(after ? { after } : {}), ...(note.value.trim() ? { note: note.value.trim() } : {}),
+          points, ...(sess.scene ? { scene: fillText(sess.scene, sess.seed).slice(0, 80) } : {}), ...(reward ? { reward: true } : {}), ...(penalty ? { penalty: true } : {}),
         });
         if (count.checked) data.events.push({ id: newId('e'), day: dayKey(end), at: end.toISOString(), type: 'p', ...(score ? { score } : {}), flag: false, session: id });
       });
@@ -2596,6 +2613,10 @@ function sessionView() {
   };
   return h('div', { class: 'session' },
     top,
+    h('div', { class: 'card center' }, h('span', { class: 'muted small' }, ui.pointsLabel), h('div', { class: 'big-num' }, String(points)),
+      h('span', { class: 'muted small' }, `做到 ${Object.values(sess.results).filter((x) => x === 'done').length} 张，跳过 ${skips} 张`)),
+    reward ? h('div', { class: 'card task-card reward' }, h('span', { class: 'badge good' }, ui.rewardTitle), h('p', { class: 'task-text' }, fillText(reward, sess.seed))) : null,
+    penalty ? h('div', { class: 'card task-card penalty' }, h('span', { class: 'badge warn' }, ui.penaltyTitle), h('p', { class: 'task-text' }, fillText(penalty, sess.seed)), h('p', { class: 'small muted' }, '惩罚也可以不做。')) : null,
     h('div', { class: 'card' }, h('h3', {}, '收尾'), h('p', { class: 'small muted' }, '一样一样做，做完点一下。'),
       h('div', { class: 'chips' }, ui.aftercare.map((x, i) => {
         const b = h('button', { type: 'button', class: 'chip check', onclick: () => { if (care.has(i)) care.delete(i); else care.add(i); b.classList.toggle('on', care.has(i)); } }, x);
@@ -2615,7 +2636,7 @@ function sessionsCard(today) {
       const done = Object.values(s.tasks || {}).filter((x) => x === 'done').length;
       const all = Object.keys(s.tasks || {}).length;
       return h('div', { class: 'event-row' },
-        h('span', { class: 'grow small' }, `${s.day.slice(5).replace('-', '/')} · ${s.minutes} 分钟 · 任务 ${done}/${all}`,
+        h('span', { class: 'grow small' }, `${s.day.slice(5).replace('-', '/')} · ${s.minutes} 分钟 · 任务 ${done}/${all}${s.points ? ` · ${s.points} 分` : ''}`,
           h('span', { class: 'muted' }, [s.score ? ` · ${ui.score} ${s.score}` : '', s.after ? ` · 心情 ${s.after}` : ''].join(''))),
         h('button', { class: 'link small muted', onclick: () => saveUndoable('小记：删一段', (data) => { data.private.sessions = data.private.sessions.filter((x) => x.id !== s.id); }, '删掉了').then(render).catch(() => {}) }, '删'));
     }));

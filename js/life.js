@@ -490,3 +490,20 @@ export function privateNote(data, today) {
   if (long >= 2) return '最近几次都超时了不少，注意别占了睡觉的时间。';
   return null;
 }
+
+// 让任务有点变化：{3-6} → 3 到 6 之间随机一个整数；{跪好|趴好} → 随机选一个。同一个 seed 结果一样（一次时间里不会变）
+export function seeded(seed) {
+  let x = (typeof seed === 'number' ? seed : [...String(seed)].reduce((a, c) => (a * 31 + c.charCodeAt(0)) >>> 0, 7)) >>> 0 || 1;
+  return () => { x = (x * 1103515245 + 12345) >>> 0; return x / 4294967296; };
+}
+export function fillText(text, seed) {
+  const rnd = seeded(seed);
+  return String(text || '').replace(/\{(\d+)-(\d+)\}|\{([^{}]*\|[^{}]*)\}/g, (m, a, b, opts) => {
+    if (opts) { const list = opts.split('|'); return list[Math.floor(rnd() * list.length)]; }
+    const lo = Number(a); const hi = Number(b);
+    return String(lo + Math.floor(rnd() * (hi - lo + 1)));
+  });
+}
+export const pickOne = (list, seed) => (list?.length ? list[Math.floor(seeded(seed)() * list.length)] : null);
+// 得分：做到的任务按强度算（1 级 10 分，2 级 20 分，3 级 30 分）
+export const sessionPoints = (results, tasks) => tasks.reduce((a, t) => a + (results[t.id] === 'done' ? (t.level || 1) * 10 : 0), 0);

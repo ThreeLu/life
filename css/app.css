@@ -591,3 +591,6 @@ svg.i.big-icon { width: 36px; height: 36px; color: var(--accent); align-self: ce
 .task-card { min-height: 220px; }
 .task-card.b { box-shadow: inset 3px 0 0 var(--accent), var(--shadow); }
 .task-text { font-size: 20px; line-height: 1.75; margin: 14px 0; white-space: pre-wrap; }
+.task-card.scene { background: color-mix(in srgb, var(--accent) 10%, var(--card)); }
+.task-card.reward { min-height: 0; background: color-mix(in srgb, var(--good) 12%, var(--card)); }
+.task-card.penalty { min-height: 0; background: color-mix(in srgb, var(--amber) 12%, var(--card)); }
