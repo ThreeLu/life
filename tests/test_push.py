@@ -5,7 +5,7 @@ from datetime import datetime
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "tools"))
-from life_push import message  # noqa: E402
+from life_push import day_message, message  # noqa: E402
 
 SAT = datetime(2026, 10, 10, 22, 31)  # 周六
 SUN = datetime(2026, 10, 11, 22, 31)  # 周日
@@ -25,4 +25,13 @@ assert m is None, m
 for d in [{"days": {}}, {"days": {}, "events": [{"type": "p"}]}]:
     m = message(d, SUN)
     assert "小记" not in m["body"], m
+# 生病：睡前加一句；白天喝水跟不上、发烧 4 小时没量体温提醒
+m = message({"days": {"2026-10-10": {"mood": 6, "prayer": {"night": {"at": "x"}}}}, "sick": {"current": {"kind": "cold"}}}, SAT)
+assert m["body"] == "身体在恢复，今晚早点睡" and m["url"].endswith("#/sick"), m
+assert day_message({"sick": {"current": None}}, datetime(2026, 10, 10, 14, 7)) is None
+ep = {"kind": "fever", "water": {"2026-10-10": 1}, "temps": [{"at": "2026-10-10T03:00:00Z", "t": 38.2}]}  # 北京 11:00 量的
+m = day_message({"sick": {"current": ep}}, datetime(2026, 10, 10, 16, 7))
+assert m["body"] == "喝杯温水吧；该量一次体温了" and m["title"] == "照顾自己", m
+ep = {"kind": "cold", "water": {"2026-10-10": 6}, "temps": [{"at": "2026-10-10T07:00:00Z", "t": 36.8}]}
+assert day_message({"sick": {"current": ep}}, datetime(2026, 10, 10, 16, 7)) is None
 print("推送规则 ✓")

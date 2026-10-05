@@ -3,12 +3,16 @@ import { Store, newId, diff, apply as applyPatch } from './store.js';
 import {
   defaultData, dayKey, addDays, daysBetween, weekOf, weekLabel, hm, parseDay, WHEN, routineOf, careDone, weekCount,
   startStep, stopStep, stepStatus, nextStep, readyForHabit, periodicDue, eventsOn, privateStats,
-  prayedOn, prayerStats, stageReady, PSALMS, psalmLink,
+  prayedOn, prayerStats, stageReady, readingToday, markRead, bibleLink,
+  dailyCheer, weekHighlights, newMilestones, careFullDay,
+  sickActive, recoveryLeft, tempStats, medInfo, doseStatus, medConflicts, seasonWarning,
+  parseSummary, reviewCard, dueCards, mistakeTypes, REVIEW_STEPS,
 } from './life.js';
 import {
   TRACKS, STEPS, stepById, DIRECTIONS, SKIN_TAGS, VERSES, MORNING_VERSES, CONFESS_VERSE, verseFor, LORDS_PRAYER,
   STAGES, PRAISE_HINTS, THANKS_HINTS, CONFESS_HINT, ASK_HINT, ENTRUST_HINT, NEAR, prayerPrompt,
   EN_MODES, EN_CYCLE, EN_TOPICS, englishPrompt,
+  CHEER_ON, cheerNight, MILESTONE_TEXT, SICK_KINDS, RED_FLAGS, FEVER_FROM, BIBLE_BOOKS,
 } from './content.js';
 import { pushSupport, subscribe, currentSubscription, deviceName, PUSH_FILE } from './push.js';
 import { h } from './util.js';
@@ -122,6 +126,10 @@ const routes = [
   [/^\/pray$/, () => prayView()],
   [/^\/pray\/go$/, (_, q) => prayGoView(q.m)],
   [/^\/english$/, () => englishView()],
+  [/^\/english\/review$/, () => englishReviewView()],
+  [/^\/english\/cards$/, () => englishCardsView()],
+  [/^\/sick$/, () => sickView()],
+  [/^\/sick\/book$/, () => sickBookView()],
   [/^\/p$/, () => privateView()],
   [/^\/periodic$/, () => periodicView()],
   [/^\/history$/, () => historyView()],
@@ -129,7 +137,7 @@ const routes = [
   [/^\/settings$/, () => settingsView()],
 ];
 const NAV_GROUPS = {
-  '/': [/^\/?$/, /^\/day\//, /^\/night/],
+  '/': [/^\/?$/, /^\/day\//, /^\/night/, /^\/sick/],
   '/look': [/^\/look/, /^\/step\//],
   '/pray': [/^\/pray/],
   '/more': [/^\/more/, /^\/english/, /^\/periodic/, /^\/history/, /^\/settings/],
@@ -196,7 +204,7 @@ async function save(message, fn, opts) {
   }
 }
 // 改完马上重画
-const saveRender = (message, fn) => save(message, fn).then(render).catch(() => {});
+const saveRender = (message, fn) => save(message, fn).then(() => { render(); return true; }).catch(() => false); // 成功返回 true
 
 function undoToast(text, onUndo) {
   for (const el of document.querySelectorAll('.toast.undo')) el.remove();
@@ -326,6 +334,10 @@ function todayView(day) {
   const lockBtn = isToday ? h('a', { class: 'icon-btn quiet', href: '#/p', 'aria-label': '小记' }, icon('leaf')) : null;
   return h('div', {},
     headerSub(isToday ? '今天' : relDay(day), dayLabel(day), lockBtn, helpButton('今天这一页怎么用', TODAY_HELP)),
+    isToday ? cheerCard(day) : null,
+    isToday ? milestoneCard() : null,
+    isToday ? sickCard(today) : null,
+    isToday ? seasonCard() : null,
     isToday ? morningPrayerCard(day) : null,
     planCard(day),
     sleepCard(day),
@@ -334,8 +346,44 @@ function todayView(day) {
     nightCard(day, rec),
     isToday ? periodicCard(today) : null,
     isToday ? skinWeekCard(today, true) : null,
+    isToday ? englishDueCard(today) : null,
     isToday ? yearAgoCard(today) : null,
+    isToday ? weekCardToday(today) : null,
+    isToday && !sickActive(d) ? h('button', { class: 'link small center block unwell', onclick: startSickSheet }, '我不舒服') : null,
     !isToday ? h('a', { class: 'button secondary wide', href: '#/' }, '回到今天') : null);
+}
+
+// 每天一句鼓励的话
+function cheerCard(day) {
+  const c = dailyCheer(day);
+  return h('div', { class: 'cheer' }, c.verse ? [h('span', {}, c.verse.text), h('span', { class: 'cheer-ref' }, ` — ${c.verse.ref}`)] : c.text);
+}
+
+// 这周的你：只数做到的
+function weekCardToday(today) {
+  const list = weekHighlights(store.data, today);
+  if (!list.length) return null;
+  return h('div', { class: 'card week-you' }, h('h3', {}, '这周的你'), h('p', {}, list.join(' · ')), h('p', { class: 'muted small' }, '一点一点，都算数。'));
+}
+
+// 里程碑：达到时记下日期，首页祝贺 3 天（或点「好」收起）
+let milestoneSaving = false;
+function milestoneCard() {
+  const d = store.data;
+  const fresh = newMilestones(d);
+  if (fresh.length && !milestoneSaving) {
+    milestoneSaving = true;
+    save('里程碑', (data) => { for (const k of newMilestones(data)) data.milestones[k] = dayKey(); })
+      .then(() => { milestoneSaving = false; render(); }).catch(() => { milestoneSaving = false; });
+  }
+  const seen = d.milestones.seen || {};
+  const show = Object.entries(d.milestones).filter(([k, at]) => k !== 'seen' && MILESTONE_TEXT[k] && !seen[k] && daysBetween(at, dayKey()) <= 3);
+  if (!show.length) return null;
+  const ok = () => saveRender('里程碑：看到了', (data) => { data.milestones.seen = { ...(data.milestones.seen || {}), ...Object.fromEntries(show.map(([k]) => [k, true])) }; });
+  return h('div', { class: 'card milestone' },
+    h('div', { class: 'milestone-icon' }, icon('sparkle')),
+    h('div', { class: 'grow' }, show.map(([k]) => h('b', { class: 'block' }, MILESTONE_TEXT[k])), h('span', { class: 'muted small' }, '为你高兴。')),
+    h('button', { class: 'small secondary', onclick: ok }, '好'));
 }
 
 // 第 2 阶段起：早上一句话，把今天交给神
@@ -356,7 +404,8 @@ function planCard(day) {
     h('h3', {}, '昨天说今天要'),
     h('p', { class: 'plan-text' }, plan),
     choiceRow('做到了吗', [['yes', '做到了'], ['part', '做了一部分'], ['no', '没做']], done, (v) =>
-      saveRender('今天的计划', (data) => { if (v) dayOf(data, day).planDone = v; else delete dayOf(data, day).planDone; })));
+      saveRender('今天的计划', (data) => { if (v) dayOf(data, day).planDone = v; else delete dayOf(data, day).planDone; })
+        .then((ok) => { if (ok && v) toast(CHEER_ON[{ yes: 'planYes', part: 'planPart', no: 'planNo' }[v]]); })));
 }
 
 function sleepCard(day) {
@@ -393,7 +442,8 @@ function sleepForm(day, after) {
   drawQ();
   const submit = () => {
     if (!bed.value && !wake.value) { toast('填一下几点睡、几点起', 'error'); return false; }
-    return save('睡眠', (data) => { dayOf(data, day).sleep = { bed: bed.value, wake: wake.value, ...(q ? { q } : {}) }; }).then(after).catch(() => false);
+    return save('睡眠', (data) => { dayOf(data, day).sleep = { bed: bed.value, wake: wake.value, ...(q ? { q } : {}) }; })
+      .then(() => { after(); toast(q >= 4 ? CHEER_ON.sleepGood : '记好了'); }).catch(() => false);
   };
   const box = h('div', { class: 'form sleep-form' },
     h('div', { class: 'row-2' }, h('label', {}, '几点睡', bed), h('label', {}, '几点起', wake)),
@@ -409,10 +459,17 @@ function sleepSheet(day) {
 function careCard(day) {
   const d = store.data;
   const care = d.days[day]?.care || {};
-  const toggle = (r) => saveRender(`护肤：${r.name}`, (data) => {
-    const c = (dayOf(data, day).care ||= {});
-    if (c[r.id]) delete c[r.id]; else c[r.id] = true;
-  });
+  const toggle = (r) => {
+    const before = careDone(store.data, day, r.when);
+    saveRender(`护肤：${r.name}`, (data) => {
+      const c = (dayOf(data, day).care ||= {});
+      if (c[r.id]) delete c[r.id]; else c[r.id] = true;
+    }).then((ok) => {
+      if (!ok) return;
+      const after = careDone(store.data, day, r.when);
+      if (CHEER_ON[r.when] && after.total && after.done === after.total && before.done < before.total) toast(CHEER_ON[r.when]);
+    });
+  };
   const groups = ['am', 'shower', 'pm', 'week'].map((when) => {
     const items = routineOf(d, when);
     if (!items.length) return null;
@@ -484,7 +541,7 @@ async function recordShower(day) {
     onConfirm: () => saveRender('洗澡后', (data) => {
       const c = (dayOf(data, day).care ||= {});
       for (const r of items) { if (picked.has(r.id)) c[r.id] = true; else delete c[r.id]; }
-    }),
+    }).then((ok) => { if (ok && picked.size === items.length) toast(CHEER_ON.shower); }),
   });
 }
 
@@ -513,9 +570,10 @@ function sportSheet(day) {
       if (!kind) { toast('选一下做的什么运动', 'error'); return false; }
       const mins = Number(minutes.value) || null;
       const dist = Number(km.value) || null;
+      if (sickActive(d)) toast('生病的时候运动先停一停，好了再动。', 'error');
       return saveRender(`运动：${kind}`, (data) => {
         data.events.push({ id: newId('e'), day, at: atFor(day), type: 'sport', kind, ...(mins ? { minutes: mins } : {}), ...(dist && !km.hidden ? { km: dist } : {}), ...(level ? { level } : {}), ...(note.value.trim() ? { note: note.value.trim() } : {}) });
-      });
+      }).then((ok) => ok && toast(CHEER_ON.sport));
     },
   });
 }
@@ -529,7 +587,8 @@ function quickSheet() {
       cell({ ic: 'run', color: 'var(--sage)', title: '运动', onclick: () => { close(); sportSheet(day); } }),
       cell({ ic: 'cup', color: 'var(--amber)', title: '喝了一杯', sub: store.data.settings.drinkKinds.join(' / '), onclick: () => { close(); drinkSheet(day); } }),
       cell({ ic: 'bed', color: 'var(--blue)', title: '睡眠', onclick: () => { close(); sleepSheet(day); } }),
-      cell({ ic: 'moon', color: 'var(--accent)', title: '睡前复盘', href: '#/night' })),
+      cell({ ic: 'moon', color: 'var(--accent)', title: '睡前复盘', href: '#/night' }),
+      sickActive(store.data) ? cell({ ic: 'shield', color: 'var(--danger)', title: '生病：喝水、体温、吃药', href: '#/sick' }) : cell({ ic: 'shield', color: 'var(--danger)', title: '我不舒服', onclick: () => { close(); startSickSheet(); } })),
     confirmText: null, cancelText: '关闭',
   });
 }
@@ -560,7 +619,7 @@ function periodicCard(today) {
   const done = (p) => saveUndoable(`定期打理：${p.name}`, (data) => {
     const x = data.periodic.find((y) => y.id === p.id);
     if (x) x.last = today;
-  }, `「${p.name}」记好了，${p.every} 天后再提醒`).then(render).catch(() => {});
+  }, `${CHEER_ON.periodic}（${p.every} 天后再提醒）`).then(render).catch(() => {});
   return h('div', { class: 'card' },
     h('h3', {}, '该打理了'),
     due.map((p) => h('div', { class: 'event-row' },
@@ -626,7 +685,7 @@ function nightView(day) {
     const r = dayOf(data, day);
     for (const k of ['mood', 'energy', 'stress', 'planDone']) { if (st[k]) r[k] = st[k]; else delete r[k]; }
     for (const [k, el] of [['note', note], ['did', did], ['plan', plan]]) { const v = el.value.trim(); if (v) r[k] = v; else delete r[k]; }
-  }).then(() => { toast('记好了'); render(); }).catch(() => {});
+  }).then(() => { toast(cheerNight(st.mood)); render(); }).catch(() => {});
   const isToday = day === dayKey();
   const pmItems = routineOf(d, 'pm');
   return h('div', { class: 'form' },
@@ -732,8 +791,8 @@ function stepView(id) {
   const st = stepStatus(d, id);
   const info = d.look.steps[id];
   const items = d.look.routine.filter((r) => r.step === id);
-  const start = () => saveRender(`开始学：${s.name}`, (data) => startStep(data, id, today)).then(() => toast(s.routine ? '开始了，打卡项已经加进「今天」' : '开始了'));
-  const habit = () => saveRender(`养成了：${s.name}`, (data) => { data.look.steps[id] = { ...data.look.steps[id], status: 'habit', habitAt: today }; }).then(() => toast('🎉 养成了一个好习惯'));
+  const start = () => saveRender(`开始学：${s.name}`, (data) => startStep(data, id, today)).then((ok) => ok && toast(`${CHEER_ON.stepStart}${s.routine ? '打卡项已经加进「今天」。' : ''}`));
+  const habit = () => saveRender(`养成了：${s.name}`, (data) => { data.look.steps[id] = { ...data.look.steps[id], status: 'habit', habitAt: today }; }).then((ok) => ok && toast(CHEER_ON.stepHabit));
   const back = () => saveRender(`改回在学：${s.name}`, (data) => { data.look.steps[id] = { ...data.look.steps[id], status: 'learning' }; delete data.look.steps[id].habitAt; });
   const stop = () => saveUndoable(`不学了：${s.name}`, (data) => stopStep(data, id), `「${s.name}」先放下了`).then(render).catch(() => {});
   const rename = (r) => {
@@ -998,19 +1057,39 @@ function itemsCard() {
 
 function readingCard(today) {
   const d = store.data;
-  const idx = Math.min(d.prayer.next || 0, PSALMS.length - 1);
-  const p = PSALMS[idx];
+  const r = readingToday(d, today);
   const readToday = d.days[today]?.read !== undefined;
-  const finished = (d.prayer.next || 0) >= PSALMS.length;
-  const read = () => saveRender(`读经：${p.label}`, (data) => { dayOf(data, today).read = idx; data.prayer.next = idx + 1; }).then(() => toast('读了 ✓'));
+  const read = () => saveRender(`读经：${r.label}`, (data) => markRead(data, today)).then((ok) => ok && toast(CHEER_ON.read));
+  const en = d.settings.bibleVersionEn;
   return h('div', { class: 'card' },
-    h('h3', {}, '读经（不强求）'),
-    finished ? h('p', {}, '诗篇读完了一遍 🎉 想读什么，告诉 Claude 换一卷。') : [
-      h('p', {}, readToday ? `今天读了 ✓ 下一篇：${p.label}` : `今天：${p.label}`),
+    h('div', { class: 'rec-top' }, h('h3', {}, `读经（不强求）· ${r.info.name}`), h('button', { class: 'link small', onclick: bookSheet }, '换一卷')),
+    r.done ? h('p', {}, `${r.info.name}读完了一遍 🎉 点「换一卷」接着读别的。`) : [
+      h('p', {}, readToday ? `今天读过了 ✓${r.info.byDate ? '' : ` 下一次：${r.label}`}` : `今天：${r.label}`),
       h('div', { class: 'actions' },
-        h('a', { class: 'button secondary', href: psalmLink(p, d.settings.bibleVersion), target: '_blank', rel: 'noopener' }, '打开 Bible App'),
+        h('a', { class: 'button secondary', href: bibleLink(r.ref, d.settings.bibleVersion), target: '_blank', rel: 'noopener' }, '打开 Bible App'),
+        en ? h('a', { class: 'button secondary', href: bibleLink(r.ref, en), target: '_blank', rel: 'noopener' }, '英文版') : null,
         readToday ? null : h('button', { onclick: read }, '读了')),
-      h('p', { class: 'muted small' }, `诗篇一共 ${PSALMS.length} 次读完，读到第 ${idx + 1} 次。`)]);
+      h('p', { class: 'muted small' }, r.info.byDate ? r.info.note : `${r.info.note}。一共 ${r.total} 次读完，读到第 ${r.idx + 1} 次。`)]);
+}
+
+function bookSheet() {
+  const d = store.data;
+  const cur = d.prayer.book || 'PSA';
+  let pick = cur;
+  let en = Boolean(d.settings.bibleVersionEn);
+  const list = h('div', {});
+  const draw = () => list.replaceChildren(
+    h('div', { class: 'group' }, Object.entries(BIBLE_BOOKS).map(([k, b]) => h('button', { type: 'button', class: `cell pick${pick === k ? ' on' : ''}`, 'aria-pressed': String(pick === k), onclick: () => { pick = k; draw(); } },
+      h('span', { class: 'grow' }, b.name, h('span', { class: 'muted small block' }, b.note)), pick === k ? icon('check', 'i') : null))),
+    h('label', { class: 'switch-row' }, h('input', { type: 'checkbox', checked: en, onchange: (e) => { en = e.target.checked; } }), '旁边加一个英文版（NLT）链接，中英对照读'));
+  draw();
+  openSheet({
+    title: '读哪一卷', body: [h('p', { class: 'muted small' }, '换了以后，原来那一卷读到哪里还记着，换回来接着读。'), list], confirmText: '好了',
+    onConfirm: () => saveRender('读经：换一卷', (data) => {
+      data.prayer.book = pick;
+      if (en) data.settings.bibleVersionEn = 116; else delete data.settings.bibleVersionEn;
+    }),
+  });
 }
 
 function chatgptPraySheet() {
@@ -1034,7 +1113,7 @@ function chatgptPraySheet() {
     onConfirm: () => saveRender('祷告（和 ChatGPT）', (data) => {
       const p = (dayOf(data, today).prayer ||= {});
       p.night = { at: nowIso(), mode: 'chatgpt', ...(near ? { near } : {}), ...(back.value.trim() ? { summary: back.value.trim() } : {}) };
-    }).then(() => toast('记好了，晚安')),
+    }).then((ok) => ok && toast(CHEER_ON.prayer)),
   });
 }
 
@@ -1089,7 +1168,7 @@ function prayGoView(mode) {
 }
 function finishMorning(today) {
   const done = () => saveRender('早上的祷告', (data) => { (dayOf(data, today).prayer ||= {}).morning = { at: nowIso() }; })
-    .then(() => { prayState.key = ''; toast('今天交给神了'); go('#/'); });
+    .then((ok) => { if (!ok) return; prayState.key = ''; toast(CHEER_ON.morning); go('#/'); });
   return [h('h2', { class: 'pray-title' }, '去过今天吧'), h('button', { class: 'wide', onclick: done }, '好')];
 }
 function finishNight(today, m) {
@@ -1101,20 +1180,25 @@ function finishNight(today, m) {
   const done = () => saveRender('祷告', (data) => {
     const p = (dayOf(data, today).prayer ||= {});
     p.night = { at: nowIso(), mode: m, ...(near ? { near } : {}), ...(note.value.trim() ? { note: note.value.trim() } : {}) };
-  }).then(() => { prayState.key = ''; toast('晚安'); go('#/pray'); });
+  }).then((ok) => { if (!ok) return; prayState.key = ''; toast(CHEER_ON.prayer); go('#/pray'); });
   return [h('h2', { class: 'pray-title' }, '今天离神'), nRow, note, h('button', { class: 'wide', onclick: done }, '完成')];
 }
 
 // ---------- 英语陪练 ----------
+// 错句本 / 表达本：english.cards = [{ id, kind: mistake|expr, front, back, type?, cn?, example?, at, due, level, seen }]，english.next = 上次 ChatGPT 说下次注意什么
 
 const EN_HELP = [
   ['怎么练', [
     '网页按「聊天 2 次、美国生活 2 次、会议 1 次」轮着给你今天的模式和话题，也可以自己换。',
     '点「复制」→ 打开 ChatGPT 新对话粘贴发送 → 点语音按钮聊 15 分钟。',
-    '聊完回到文字框打 wrap up，它会列出你说错的句子和值得学的表达。',
-    '回来点「练完了」，记一次。按周算次数，不用每天练。',
+    '聊完回到文字框打 wrap up，它会按固定格式列出你说错的句子和值得学的表达。',
+    '把那段总结整个复制，贴到这一页的「贴回来」里，点「存进本子」：说错的进错句本，表达进表达本，同时记一次练习。不想贴的话点「练完了」只记一次。',
   ]],
-  ['以后会加', ['把 ChatGPT 的总结贴回来，自动存进错句本和表达本，每天复习一两分钟（第二批做）。']],
+  ['每天复习', [
+    '首页会出现「英语复习 N 条」，每次最多 10 条，一两分钟。',
+    '错句：先看你说的，想想怎么改，再点开看正确的。表达：先看中文，想想英文怎么说。',
+    '「记住了」：隔 1、3、7、14、30、60 天再出现，越熟越少见。「还没记住」：明天再来。',
+  ]],
   ['省事的办法', ['在 ChatGPT 里建一个「项目」（Projects），把提示词里不变的部分放进项目说明，以后只发今天的模式和话题。']],
 ];
 const enState = { mode: null, topic: null };
@@ -1127,15 +1211,39 @@ function englishView() {
   const pool = EN_TOPICS[mode];
   const seed = [...today].reduce((a, c) => a + c.charCodeAt(0), 0) + sessions.length;
   const topic = enState.topic && pool.includes(enState.topic) ? enState.topic : pool[seed % pool.length];
-  const text = englishPrompt(mode, topic);
+  const text = englishPrompt(mode, topic, d.english.next);
   const mon = weekOf(today);
   const thisWeek = sessions.filter((e) => e.day >= mon).length;
   const box = h('textarea', { rows: 8, readonly: true, class: 'prompt-box', 'aria-label': '英语提示词' });
   box.value = text;
-  const done = () => saveUndoable('英语练了一次', (data) => { data.events.push({ id: newId('e'), day: today, at: nowIso(), type: 'english', mode, topic }); }, '记了一次')
+  const done = (extra = {}) => saveUndoable('英语练了一次', (data) => { data.events.push({ id: newId('e'), day: today, at: nowIso(), type: 'english', mode, topic, ...extra }); }, CHEER_ON.english)
     .then(() => { enState.mode = null; enState.topic = null; render(); }).catch(() => {});
+  const paste = h('textarea', { rows: 5, placeholder: '把 ChatGPT「wrap up」以后写的总结整段贴在这里', 'aria-label': 'ChatGPT 的总结' });
+  const savePaste = () => {
+    const r = parseSummary(paste.value);
+    if (!r.mistakes.length && !r.expressions.length) { toast('没认出错句和表达。要贴 === SUMMARY === 那一整段', 'error'); return; }
+    const have = new Set(d.english.cards.map((c) => c.front.toLowerCase()));
+    const cards = [
+      ...r.mistakes.map((m) => ({ kind: 'mistake', front: m.said, back: m.better, type: m.type })),
+      ...r.expressions.map((x) => ({ kind: 'expr', front: x.expr, back: x.example, cn: x.cn })),
+    ].filter((c) => !have.has(c.front.toLowerCase())).map((c) => ({ id: newId('c'), ...c, at: today, due: addDays(today, 1), level: 0 }));
+    saveRender('英语：存进本子', (data) => {
+      data.english.cards.push(...cards);
+      if (r.next) data.english.next = r.next;
+      data.events.push({ id: newId('e'), day: today, at: nowIso(), type: 'english', mode, topic, mistakes: r.mistakes.length, exprs: r.expressions.length });
+    }).then((ok) => { if (ok) { enState.mode = null; enState.topic = null; toast(`存好了：${r.mistakes.length} 个错句、${r.expressions.length} 个表达。${CHEER_ON.english}`); } });
+  };
+  const due = dueCards(d, today);
+  const month = today.slice(0, 7);
+  const prevMonth = addDays(`${month}-01`, -1).slice(0, 7);
+  const types = mistakeTypes(d, month);
+  const prevTypes = mistakeTypes(d, prevMonth);
+  const TYPE_CN = { tense: '时态', article: '冠词', preposition: '介词', 'word': '用词', grammar: '语法', other: '其他' };
+  const counts = { mistake: d.english.cards.filter((c) => c.kind === 'mistake').length, expr: d.english.cards.filter((c) => c.kind === 'expr').length };
   return h('div', {},
     headerSub('英语陪练', `这周练了 ${thisWeek} 次 · 一共 ${sessions.length} 次`, helpButton('英语陪练怎么用', EN_HELP)),
+    due.length ? h('a', { class: 'card link-card', href: '#/english/review' }, h('b', {}, `今天复习 ${due.length} 条`), h('span', { class: 'muted small block' }, '一两分钟')) : null,
+    d.english.next ? h('div', { class: 'card soft' }, h('p', { class: 'small' }, `上次 ChatGPT 说下次注意：${d.english.next}`)) : null,
     h('div', { class: 'card' },
       h('h3', {}, '今天的模式'),
       choiceRow('模式', Object.entries(EN_MODES).map(([k, v]) => [k, v.name]), mode, (v) => { enState.mode = v || autoMode; enState.topic = null; render(); }),
@@ -1143,8 +1251,473 @@ function englishView() {
       h('p', { class: 'topic' }, topic),
       h('button', { class: 'link small', onclick: () => { enState.mode = mode; enState.topic = pool[(pool.indexOf(topic) + 1) % pool.length]; render(); } }, '换一个话题')),
     h('div', { class: 'card' }, box, h('div', { class: 'actions' },
-      h('button', { onclick: () => copyText(text) }, icon('copy'), '复制'),
-      h('button', { class: 'secondary', onclick: done }, '练完了'))));
+      h('button', { onclick: () => copyText(text) }, icon('copy'), '复制'))),
+    h('div', { class: 'card' },
+      h('h3', {}, '练完了：贴回来'),
+      paste,
+      h('div', { class: 'actions' }, h('button', { onclick: savePaste }, '存进本子'), h('button', { class: 'secondary', onclick: () => done() }, '只记练了一次'))),
+    h('div', { class: 'card' },
+      h('h3', {}, '我的本子'),
+      h('p', { class: 'small' }, `错句 ${counts.mistake} 个 · 表达 ${counts.expr} 个`),
+      Object.keys(types).length ? h('p', { class: 'small' }, '这个月常错的：', Object.entries(types).sort((a, b) => b[1] - a[1]).map(([t, n]) => `${TYPE_CN[t] || t} ${n}${prevTypes[t] !== undefined ? `（上个月 ${prevTypes[t]}）` : ''}`).join('、')) : null,
+      d.english.cards.length ? h('a', { class: 'small', href: '#/english/cards' }, '翻看全部 ›') : h('p', { class: 'muted small' }, '贴回第一次的总结，这里就有东西了。')));
+}
+
+function englishDueCard(today) {
+  const n = dueCards(store.data, today).length;
+  if (!n) return null;
+  return h('a', { class: 'card line-card link-card', href: '#/english/review' }, icon('globe'), h('span', { class: 'grow' }, `英语复习 ${n} 条`), h('span', { class: 'muted small' }, '一两分钟'));
+}
+
+const reviewState = { shown: false };
+function englishReviewView() {
+  const d = store.data;
+  const today = dayKey();
+  const due = dueCards(d, today);
+  if (!due.length) {
+    return h('div', {}, header('复习'), h('div', { class: 'card center' }, h('p', {}, '今天的复习做完了 ✓'), h('p', { class: 'muted small' }, CHEER_ON.englishCards), h('a', { class: 'button secondary', href: '#/english' }, '回到英语陪练')));
+  }
+  const c = due[0];
+  const answer = (ok) => {
+    reviewState.shown = false;
+    save('英语复习', (data) => {
+      const i = data.english.cards.findIndex((x) => x.id === c.id);
+      if (i >= 0) data.english.cards[i] = reviewCard(data.english.cards[i], ok, today);
+    }).then(() => { render(); if (due.length === 1) toast(CHEER_ON.englishCards); }).catch(() => {});
+  };
+  const front = c.kind === 'mistake'
+    ? [h('div', { class: 'label-sm first' }, '你说的（哪里不对？）'), h('p', { class: 'card-front' }, c.front)]
+    : [h('div', { class: 'label-sm first' }, '英文怎么说？'), h('p', { class: 'card-front' }, c.cn || c.front)];
+  const back = c.kind === 'mistake'
+    ? [h('div', { class: 'label-sm' }, '更好的说法'), h('p', { class: 'card-back' }, c.back), c.type ? h('span', { class: 'badge' }, c.type) : null]
+    : [h('p', { class: 'card-back' }, c.front), c.back ? h('p', { class: 'muted small' }, c.back) : null];
+  return h('div', {},
+    headerSub('复习', `还有 ${due.length} 条`),
+    h('div', { class: 'card flash' }, front, reviewState.shown ? back : null),
+    reviewState.shown
+      ? h('div', { class: 'actions' }, h('button', { class: 'grow', onclick: () => answer(true) }, '记住了'), h('button', { class: 'secondary grow', onclick: () => answer(false) }, '还没记住'))
+      : h('button', { class: 'wide', onclick: () => { reviewState.shown = true; render(); } }, '看答案'),
+    h('p', { class: 'muted small center' }, `记住了会隔 ${REVIEW_STEPS.slice(0, 4).join('、')}… 天再出现`));
+}
+
+function englishCardsView() {
+  const d = store.data;
+  const del = (c) => saveUndoable('英语：删一张', (data) => { data.english.cards = data.english.cards.filter((x) => x.id !== c.id); }, '删掉了').then(render).catch(() => {});
+  const list = (kind) => d.english.cards.filter((c) => c.kind === kind).slice().reverse().map((c) => h('div', { class: 'event-row' },
+    h('span', { class: 'grow small' }, kind === 'mistake' ? [h('s', { class: 'muted' }, c.front), h('span', { class: 'block' }, c.back)] : [h('b', {}, c.front), c.cn ? ` · ${c.cn}` : '', c.back ? h('span', { class: 'muted block' }, c.back) : null]),
+    h('button', { class: 'link small muted', onclick: () => del(c) }, '删')));
+  return h('div', {},
+    headerSub('我的本子', '错句和表达'),
+    h('div', { class: 'section-title' }, '表达本'), h('div', { class: 'card' }, list('expr')),
+    h('div', { class: 'section-title' }, '错句本'), h('div', { class: 'card' }, list('mistake')));
+}
+
+// ---------- 生病 ----------
+// 一次生病 = sick.current：{ id, kind, start, temps: [{ at, t }], meds: [{ at, item, name }], water: { 日期: 杯 }, done: { 日期: { 第几项: true } },
+//   gut: { 日期: { d: 拉, v: 吐 } }, suspects: [文字], end?, how? }。好了以后移进 sick.history。
+
+const SICK_HELP = [
+  ['生病模式', [
+    '不舒服了在「今天」最下面点「我不舒服」，选感冒、发烧、肠胃。首页最上面会一直有一张生病卡片，运动先停。',
+    '这一页：量了体温就记，喝一杯水点一下，要做的事做了就勾。感冒时体温到 37.3°C 会问你要不要切到发烧模式。',
+    '吃药：药从物品档案里读（药品急救类）。点「吃了」会记下时间，算出下次最早几点能吃；第一次用某个药，点「说明书」把一次多少、几小时一次、一天最多几次抄进来。',
+    '同一种成分的两个药（比如两种感冒药里都有对乙酰氨基酚）一起吃会提醒你。抗生素、激素这类标着「医生判断」。',
+    '「什么时候去医院」一直在页面上；你记的体温、天数到了会变红。',
+    '好了点最下面的「好了」，这次生病会存进「生病手册」。之后两天是恢复期：运动先缓缓，早点睡。',
+  ]],
+  ['说明', ['这里写的是常识，不是医嘱。吃药以药盒上的说明书和医生说的为准。拿不准就去校医院。']],
+  ['提醒', ['生病的时候白天大概每 2 小时提醒一次喝水；发烧时也提醒量体温（在「设置」开启推送）。']],
+];
+
+function sickCard(today) {
+  const d = store.data;
+  const ep = d.sick.current;
+  if (!ep) {
+    const left = recoveryLeft(d, today);
+    if (!left) return null;
+    return h('div', { class: 'card soft' }, h('p', { class: 'small' }, `恢复期还有 ${left} 天：运动先缓缓，早点睡。身体刚打完一仗，对它好一点。`));
+  }
+  const ts = tempStats(ep);
+  const water = ep.water?.[today] || 0;
+  return h('a', { class: 'card sick-card', href: '#/sick' },
+    h('div', { class: 'row-line' }, h('b', { class: 'grow' }, `${SICK_KINDS[ep.kind].name} · 第 ${daysBetween(ep.start, today) + 1} 天`), icon('chev', 'i chev')),
+    h('span', { class: 'small block' }, [ts.last ? `体温 ${ts.last.t}°C（${hm(ts.last.at)}）` : '还没量体温', `喝水 ${water} 杯`].join(' · ')),
+    h('span', { class: 'muted small block' }, '好好休息，会好起来的。'));
+}
+
+function startSickSheet() {
+  const close = openSheet({
+    title: '哪里不舒服',
+    body: h('div', { class: 'group' }, Object.entries(SICK_KINDS).map(([k, v]) => cell({ title: `${v.icon} ${v.name}`, onclick: () => { close(); startSick(k); } }))),
+    confirmText: null, cancelText: '取消',
+  });
+}
+function startSick(kind) {
+  saveRender(`生病：${SICK_KINDS[kind].name}`, (data) => {
+    data.sick.current = { id: newId('sk'), kind, start: dayKey(), temps: [], meds: [], water: {}, done: {}, gut: {}, suspects: [] };
+  }).then((ok) => { if (ok) { toast('照顾好自己。这一页带着你一步一步来。'); go('#/sick'); } });
+}
+
+// 换季预防：每天查一次天气（Open-Meteo，不用密钥），存在 localStorage
+const WEATHER_KEY = 'life-weather';
+function seasonCard() {
+  const city = store.data.settings.city;
+  if (!city?.lat) return null;
+  const cached = readJson(WEATHER_KEY);
+  if (cached.day !== dayKey() || cached.city !== city.name) {
+    fetch(`https://api.open-meteo.com/v1/forecast?latitude=${city.lat}&longitude=${city.lon}&daily=temperature_2m_max,temperature_2m_min&timezone=Asia%2FShanghai&forecast_days=5`)
+      .then((r) => r.json()).then((j) => {
+        const daily = j.daily.time.map((date, i) => ({ date, min: j.daily.temperature_2m_min[i], max: j.daily.temperature_2m_max[i] }));
+        writeJson(WEATHER_KEY, { day: dayKey(), city: city.name, daily });
+        if (currentPath() === '/' && seasonWarning(daily)) render();
+      }).catch(() => {});
+    return null;
+  }
+  const w = seasonWarning(cached.daily);
+  if (!w) return null;
+  return h('div', { class: 'card season' },
+    h('h3', {}, w.kind === 'drop' ? '要降温了' : '早晚温差大'),
+    h('p', { class: 'small' }, `${city.name} ${w.text}。换季最容易感冒：加件衣服、早点睡、多喝水。`));
+}
+
+// 物品档案里的药（药品急救类，缓存 5 分钟）
+const medCache = { at: 0, items: null, error: '' };
+async function loadMeds() {
+  if (medCache.items && Date.now() - medCache.at < 300000) return;
+  const inv = readJson('inventory-settings');
+  const owner = (settings.repo || DEFAULT_REPO).split('/')[0];
+  const g = new GitHub({ token: inv.token || settings.token, repo: inv.repo || `${owner}/inventory-data` });
+  try {
+    const data = JSON.parse(await g.readText('inventory.json', 'main'));
+    const locs = Object.fromEntries((data.locations || []).map((l) => [l.id, l.name]));
+    medCache.items = (data.items || []).filter((i) => !i.archived && (i.tags || []).includes('药品急救'))
+      .map((i) => ({ id: i.id, name: i.name, where: (locs[i.location] || '').split(' ')[0], qty: i.quantity, expires: i.fields?.['保质期'] || '', left: i.fields?.['剩余'] || '' }));
+    medCache.error = '';
+  } catch (e) {
+    medCache.items = [];
+    medCache.error = e.message;
+  }
+  medCache.at = Date.now();
+}
+// 保质期「2027-08」「2026-12-15」→ 过期了 / 两个月内过期
+function expiryNote(s) {
+  if (!s) return '';
+  const end = /^\d{4}-\d{2}$/.test(s) ? `${s}-28` : s;
+  const left = daysBetween(dayKey(), end);
+  if (Number.isNaN(left)) return '';
+  return left < 0 ? '已经过期' : left <= 60 ? `${left} 天后过期` : '';
+}
+const KIND_USE = { cold: /感冒|退烧|咳嗽|流感/, fever: /退烧|感冒|流感/, gut: /拉肚子|消化|积食|补水/, other: /./ };
+
+function sickView() {
+  const d = store.data;
+  const ep = d.sick.current;
+  const today = dayKey();
+  if (!ep) {
+    return h('div', {},
+      headerSub('生病', '现在没有生病', helpButton('生病模式怎么用', SICK_HELP)),
+      h('div', { class: 'card' }, h('p', {}, '不舒服了点一下，网页带着你一步一步来。'),
+        h('div', { class: 'group' }, Object.entries(SICK_KINDS).map(([k, v]) => cell({ title: `${v.icon} ${v.name}`, onclick: () => startSick(k) })))),
+      h('a', { class: 'button secondary wide', href: '#/sick/book' }, '生病手册、预案和药箱'));
+  }
+  const ts = tempStats(ep);
+  const nth = daysBetween(ep.start, today) + 1;
+  const switchTo = (kind) => saveRender(`生病：换成${SICK_KINDS[kind].name}`, (data) => { data.sick.current.kind = kind; });
+  return h('div', {},
+    headerSub(`${SICK_KINDS[ep.kind].icon} ${SICK_KINDS[ep.kind].name}`, `第 ${nth} 天 · 从 ${ep.start.slice(5).replace('-', '/')} 开始`, helpButton('生病模式怎么用', SICK_HELP)),
+    h('p', { class: 'cheer' }, nth === 1 ? '先别着急，今天的任务就是休息。' : '身体在努力，你也在照顾它。会好起来的。'),
+    ep.kind === 'cold' && ts.feverNow ? h('div', { class: 'banner warn' }, `体温 ${ts.last.t}°C，发烧了。`, h('button', { class: 'small', style: 'margin-left:8px', onclick: () => switchTo('fever') }, '切到发烧模式')) : null,
+    ts.normal24 ? h('div', { class: 'card good-card' }, h('p', {}, '体温正常一天了。是不是好了？'), h('button', { onclick: endSickSheet }, '好了')) : null,
+    redFlagCard(ep, ts),
+    tempCard(ep, ts),
+    waterCard(ep, today),
+    planCardSick(ep, today),
+    ep.kind === 'gut' ? gutCard(ep, today) : null,
+    medsCard(ep),
+    h('div', { class: 'actions' },
+      h('button', { class: 'grow', onclick: endSickSheet }, '好了'),
+      h('button', { class: 'secondary', onclick: startSickSheet2 }, '换一种')),
+    h('a', { class: 'small', href: '#/sick/book' }, '生病手册、预案和药箱 ›'));
+}
+function startSickSheet2() {
+  const close = openSheet({
+    title: '换成', body: h('div', { class: 'group' }, Object.entries(SICK_KINDS).map(([k, v]) => cell({ title: `${v.icon} ${v.name}`, onclick: () => { close(); saveRender(`生病：换成${v.name}`, (data) => { data.sick.current.kind = k; }); } }))),
+    confirmText: null, cancelText: '取消',
+  });
+}
+
+function redFlagCard(ep, ts) {
+  const d = store.data;
+  const today = dayKey();
+  const gutToday = ep.gut?.[today] || {};
+  const hot = new Set();
+  if (ep.kind === 'fever' || ep.kind === 'cold') {
+    if (ts.max >= 39) hot.add(0);
+    if (ts.feverDays > 3) hot.add(1);
+  }
+  if (ep.kind === 'gut' && (gutToday.d || 0) + (gutToday.v || 0) >= 6) hot.add(0);
+  if (ep.kind === 'gut' && daysBetween(ep.start, today) >= 2) hot.add(4);
+  const c = d.sick.clinic || {};
+  return h('div', { class: `card${hot.size ? ' alert' : ''}` },
+    h('h3', {}, '什么时候必须去医院'),
+    hot.size ? h('p', { class: 'warn small' }, '你记的情况已经到了下面标红的那条，去看医生吧。') : null,
+    h('ul', { class: 'small flags' }, RED_FLAGS[ep.kind].map((x, i) => h('li', { class: hot.has(i) ? 'warn' : '' }, x))),
+    h('div', { class: 'clinic small' },
+      h('b', {}, c.name || '校医院'), c.address ? ` · ${c.address}` : '', c.hours ? ` · ${c.hours}` : '',
+      c.phone ? h('a', { class: 'block', href: `tel:${c.phone}` }, `电话 ${c.phone}`) : null,
+      c.er ? h('span', { class: 'block muted' }, `夜里 / 急诊：${c.er}`) : null,
+      h('a', { class: 'block', href: 'tel:120' }, '急救 120'),
+      !c.phone ? h('a', { class: 'block small', href: '#/sick/book' }, '在「生病手册」里把校医院电话、急诊医院填上') : null));
+}
+
+function tempCard(ep, ts) {
+  const input = h('input', { inputmode: 'decimal', placeholder: '比如 37.6', 'aria-label': '体温', class: 'temp-input' });
+  const add = () => {
+    const t = Number(input.value);
+    if (!(t >= 34 && t <= 43)) { toast('体温填 34 到 43 之间的数', 'error'); return; }
+    saveRender(`体温 ${t}`, (data) => { data.sick.current.temps.push({ at: nowIso(), t }); })
+      .then((ok) => ok && toast(t >= 39 ? '烧得比较高，按说明书吃退烧药、多喝水，看看下面什么时候要去医院。' : t >= FEVER_FROM ? '记好了。多喝水，躺下休息。' : '体温正常，很好。'));
+  };
+  const every = ep.kind === 'fever' ? 4 : 12;
+  const next = ts.last ? new Date(new Date(ts.last.at).getTime() + every * 3600000) : null;
+  return h('div', { class: 'card' },
+    h('h3', {}, '体温'),
+    h('div', { class: 'inline-add' }, input, h('button', { class: 'small', onclick: add }, '记')),
+    ts.temps.length ? tempChart(ts.temps) : null,
+    h('p', { class: 'muted small' }, ts.last ? `${ep.kind === 'fever' ? '每 4 小时' : '早晚各'}量一次${next ? `，下次大概 ${hm(next.toISOString())}` : ''}。最高 ${ts.max}°C。` : '先量一次。'));
+}
+function tempChart(temps) {
+  const NS = 'http://www.w3.org/2000/svg';
+  const W = 320; const H = 110; const pad = 18;
+  const list = temps.slice(-12);
+  const lo = Math.min(36, ...list.map((x) => x.t)); const hi = Math.max(39, ...list.map((x) => x.t));
+  const x = (i) => pad + (list.length === 1 ? (W - 2 * pad) / 2 : (i * (W - 2 * pad)) / (list.length - 1));
+  const y = (t) => 8 + ((hi - t) / (hi - lo)) * (H - 30);
+  const el = (tag, a, text) => { const e = document.createElementNS(NS, tag); for (const [k, v] of Object.entries(a)) e.setAttribute(k, v); if (text) e.textContent = text; return e; };
+  const svg = el('svg', { viewBox: `0 0 ${W} ${H}`, class: 'chart', role: 'img', 'aria-label': '体温曲线' });
+  svg.append(el('line', { x1: 0, x2: W, y1: y(FEVER_FROM), y2: y(FEVER_FROM), style: 'stroke:var(--amber)', 'stroke-dasharray': '4 4' }));
+  svg.append(el('text', { x: W - 2, y: y(FEVER_FROM) - 3, 'text-anchor': 'end', class: 'chart-label' }, '37.3'));
+  svg.append(el('polyline', { points: list.map((p, i) => `${x(i)},${y(p.t)}`).join(' '), fill: 'none', style: 'stroke:var(--accent)', 'stroke-width': 2 }));
+  list.forEach((p, i) => {
+    svg.append(el('circle', { cx: x(i), cy: y(p.t), r: 3, style: `fill:${p.t >= FEVER_FROM ? 'var(--danger)' : 'var(--accent)'}` }));
+    svg.append(el('text', { x: x(i), y: y(p.t) - 6, 'text-anchor': 'middle', class: 'chart-num' }, String(p.t)));
+    svg.append(el('text', { x: x(i), y: H - 4, 'text-anchor': 'middle', class: 'chart-label' }, hm(p.at)));
+  });
+  return svg;
+}
+
+const WATER_GOAL = 8;
+function waterCard(ep, today) {
+  const n = ep.water?.[today] || 0;
+  const add = (k) => saveRender('喝水', (data) => { const w = (data.sick.current.water ||= {}); w[today] = Math.max(0, (w[today] || 0) + k); })
+    .then((ok) => ok && k > 0 && n + 1 === WATER_GOAL && toast('今天的水喝够了，身体谢谢你。'));
+  return h('div', { class: 'card' },
+    h('h3', {}, '喝水'),
+    h('div', { class: 'water' },
+      h('div', { class: 'cups', 'aria-label': `喝了 ${n} 杯` }, Array.from({ length: Math.max(WATER_GOAL, n) }, (_, i) => h('span', { class: i < n ? 'on' : '' }))),
+      h('span', { class: 'small' }, `${n} / ${WATER_GOAL} 杯`)),
+    h('div', { class: 'actions' }, h('button', { onclick: () => add(1) }, '喝了一杯'), n ? h('button', { class: 'link small', onclick: () => add(-1) }, '点多了') : null),
+    h('p', { class: 'muted small' }, ep.kind === 'gut' ? '肠胃不舒服：小口小口地喝，温的。' : '一杯大概 250 毫升，温水最好。'));
+}
+
+function planCardSick(ep, today) {
+  const plan = store.data.sick.plans[ep.kind] || [];
+  const done = ep.done?.[today] || {};
+  return h('div', { class: 'card' },
+    h('div', { class: 'rec-top' }, h('h3', {}, '今天要做'), h('a', { class: 'small', href: '#/sick/book' }, '改预案')),
+    h('div', { class: 'chips' }, plan.map((x, i) => h('button', {
+      type: 'button', class: `chip check${done[i] ? ' on' : ''}`, 'aria-pressed': String(Boolean(done[i])),
+      onclick: () => saveRender(`生病：${x}`, (data) => { const dd = ((data.sick.current.done ||= {})[today] ||= {}); if (dd[i]) delete dd[i]; else dd[i] = true; }),
+    }, done[i] ? icon('check', 'i tiny') : null, x))));
+}
+
+// 肠胃：记次数；从账本里看昨天吃了什么，点「可能是这个」
+const foodCache = { day: '', list: null };
+function gutCard(ep, today) {
+  const g = ep.gut?.[today] || {};
+  const bump = (k) => saveRender('肠胃：记一次', (data) => { const x = ((data.sick.current.gut ||= {})[today] ||= {}); x[k] = (x[k] || 0) + 1; });
+  const box = h('div', { class: 'chips' });
+  const draw = () => {
+    const list = foodCache.list || [];
+    box.replaceChildren(...(list.length ? list.map((f) => {
+      const on = ep.suspects.includes(f.text);
+      return h('button', { type: 'button', class: `chip check${on ? ' on' : ''}`, onclick: () => saveRender('肠胃：可能是这个', (data) => {
+        const s = data.sick.current.suspects;
+        const i = s.indexOf(f.text);
+        if (i >= 0) s.splice(i, 1); else s.push(f.text);
+      }) }, f.text);
+    }) : [h('p', { class: 'muted small' }, foodCache.list ? '账本里昨天和今天没有吃饭的记录。' : '正在看账本……')]));
+  };
+  if (foodCache.day !== today) {
+    foodCache.day = today;
+    foodCache.list = null;
+    readFood(today).then((list) => { foodCache.list = list; if (box.isConnected) draw(); });
+  }
+  draw();
+  return h('div', { class: 'card' },
+    h('h3', {}, '今天'),
+    h('div', { class: 'actions' },
+      h('button', { class: 'secondary', onclick: () => bump('d') }, `拉肚子 ${g.d || 0} 次`),
+      h('button', { class: 'secondary', onclick: () => bump('v') }, `吐了 ${g.v || 0} 次`)),
+    h('h3', {}, '可能是吃了什么'),
+    h('p', { class: 'muted small' }, '从账本里找的昨天和今天吃的，觉得可疑的点一下。攒几次，「生病手册」里能看出规律。'),
+    box);
+}
+async function readFood(today) {
+  const lg = readJson('ledger-settings');
+  const owner = (settings.repo || DEFAULT_REPO).split('/')[0];
+  const g = new GitHub({ token: lg.token || settings.token, repo: lg.repo || `${owner}/finance-data` });
+  try {
+    const f = JSON.parse(await g.readText('finance.json', 'main'));
+    const food = new Set(f.categories.filter((c) => c.group === 'food').map((c) => c.id));
+    const name = Object.fromEntries(f.categories.map((c) => [c.id, c.name]));
+    const days = [addDays(today, -1), today];
+    return f.tx.filter((t) => t.type === 'expense' && food.has(t.category) && days.includes(t.date))
+      .map((t) => ({ text: `${t.date === today ? '今天' : '昨天'}${name[t.category] || ''}${t.note ? `：${t.note.slice(0, 20)}` : ''}` }))
+      .filter((x, i, arr) => arr.findIndex((y) => y.text === x.text) === i);
+  } catch {
+    return [];
+  }
+}
+
+function medsCard(ep) {
+  const d = store.data;
+  const box = h('div', {}, h('p', { class: 'muted small' }, '正在读物品档案里的药……'));
+  const draw = () => {
+    if (medCache.error) { box.replaceChildren(h('p', { class: 'muted small' }, `读不到物品档案：${medCache.error}`)); return; }
+    const use = KIND_USE[ep.kind];
+    const items = (medCache.items || []).map((m) => ({ ...m, info: medInfo(m.name) }));
+    const fit = items.filter((m) => use.test(m.info.use) && !m.info.rx);
+    const rest = items.filter((m) => !fit.includes(m));
+    box.replaceChildren(...[
+      ...fit.map((m) => medRow(ep, m)),
+      fit.length ? null : h('p', { class: 'muted small' }, '物品档案里没有对症的药。'),
+      rest.length ? h('details', { class: 'inner' }, h('summary', {}, `其他药（${rest.length}）`), rest.map((m) => medRow(ep, m))) : null,
+    ].filter(Boolean));
+  };
+  loadMeds().then(() => { if (box.isConnected) draw(); });
+  if (medCache.items) draw();
+  const taken = ep.meds.slice().sort((a, b) => b.at.localeCompare(a.at)).slice(0, 8);
+  return h('div', { class: 'card' },
+    h('h3', {}, '吃药'),
+    h('p', { class: 'muted small' }, '以药盒上的说明书为准。拿不准就问医生或药店。'),
+    box,
+    taken.length ? [h('h3', { style: 'margin-top:12px' }, '吃过的'), taken.map((m) => h('div', { class: 'event-row' },
+      h('span', { class: 'muted small ev-time' }, hm(m.at)), h('span', { class: 'grow small' }, m.name),
+      h('button', { class: 'link small', onclick: () => saveUndoable('删掉吃药记录', (data) => { data.sick.current.meds = data.sick.current.meds.filter((x) => x.at !== m.at || x.item !== m.item); }, '删掉了').then(render).catch(() => {}) }, '删掉')))] : null);
+}
+function medRow(ep, m) {
+  const cfg = store.data.sick.meds[m.id] || {};
+  const st = doseStatus(ep, m.id, cfg);
+  const exp = expiryNote(m.expires);
+  const line = [
+    m.info.use, m.where,
+    cfg.dose ? `${cfg.dose}${cfg.gapHours ? `，${cfg.gapHours} 小时一次` : ''}${cfg.perDay ? `，一天最多 ${cfg.perDay} 次` : ''}` : '还没抄说明书',
+  ].filter(Boolean).join(' · ');
+  const status = st.next ? `下次最早 ${hm(st.next.toISOString())}` : st.last ? `上次 ${hm(st.last.at)}` : '';
+  return h('div', { class: 'med-row' },
+    h('div', { class: 'grow' },
+      h('b', {}, m.name), m.info.rx ? h('span', { class: 'badge warn' }, '医生判断') : null, exp ? h('span', { class: 'badge warn' }, exp) : null,
+      h('span', { class: 'muted small block' }, line),
+      status || st.left !== null ? h('span', { class: `small block${st.next || st.left === 0 ? ' soon' : ''}` }, [status, st.left !== null ? `今天还能吃 ${st.left} 次` : ''].filter(Boolean).join(' · ')) : null),
+    h('div', { class: 'med-actions' },
+      h('button', { class: 'small', onclick: () => takeMed(ep, m, st) }, '吃了'),
+      h('button', { class: 'link small', onclick: () => medConfigSheet(m) }, '说明书')));
+}
+function takeMed(ep, m, st) {
+  const warns = [...medConflicts(ep, m.name, m.id)];
+  if (m.info.rx) warns.unshift(`${m.name}：${m.info.use}。医生让你吃了再吃。`);
+  if (st.next) warns.push(`按你抄的说明书，下次最早 ${hm(st.next.toISOString())} 才能吃。`);
+  if (st.left === 0) warns.push('今天已经吃到说明书写的最多次数了。');
+  if (expiryNote(m.expires) === '已经过期') warns.push('这盒药已经过期了，别吃。');
+  const doIt = () => saveRender(`吃药：${m.name}`, (data) => { data.sick.current.meds.push({ at: nowIso(), item: m.id, name: m.name }); })
+    .then((ok) => ok && toast('记好了。吃完药好好躺一会儿。'));
+  if (!warns.length) return doIt();
+  openSheet({ title: '先看一下', body: h('ul', { class: 'small flags' }, warns.map((w) => h('li', { class: 'warn' }, w))), confirmText: '还是记上', cancelText: '先不吃', onConfirm: doIt });
+}
+function medConfigSheet(m) {
+  const cfg = store.data.sick.meds[m.id] || {};
+  const dose = h('input', { value: cfg.dose || '', placeholder: '一次多少，比如「1 片」「1 袋」', 'aria-label': '一次多少' });
+  const gap = h('input', { inputmode: 'decimal', value: cfg.gapHours || '', placeholder: '几小时一次（可以不填）', 'aria-label': '几小时一次' });
+  const per = h('input', { inputmode: 'numeric', value: cfg.perDay || '', placeholder: '一天最多几次', 'aria-label': '一天最多几次' });
+  const info = medInfo(m.name);
+  openSheet({
+    title: m.name,
+    body: h('div', { class: 'form' },
+      h('p', { class: 'small' }, info.use ? `管什么：${info.use}` : '', info.ingredients.length ? h('span', { class: 'block muted' }, `主要成分：${info.ingredients.join('、')}`) : null),
+      h('p', { class: 'muted small' }, '照着药盒里的说明书抄：成人一次多少、一天几次。说明书写「一日 3 次」，一般就是 6–8 小时一次。'),
+      dose, gap, per,
+      m.left ? h('p', { class: 'muted small' }, `物品档案里记着：${m.left}${m.expires ? `，保质期 ${m.expires}` : ''}`) : null),
+    confirmText: '存好',
+    onConfirm: () => saveRender(`药箱：${m.name}`, (data) => {
+      const x = { ...(dose.value.trim() ? { dose: dose.value.trim() } : {}), ...(Number(gap.value) > 0 ? { gapHours: Number(gap.value) } : {}), ...(Number(per.value) > 0 ? { perDay: Number(per.value) } : {}) };
+      if (Object.keys(x).length) data.sick.meds[m.id] = x; else delete data.sick.meds[m.id];
+    }),
+  });
+}
+
+function endSickSheet() {
+  const how = h('textarea', { rows: 3, placeholder: '这次怎么好的？什么管用？（可以不写，下次生病能翻出来看）', 'aria-label': '怎么好的' });
+  openSheet({
+    title: '好了 🎉', body: [h('p', { class: 'small' }, '辛苦了。接下来两天是恢复期：运动先缓缓，早点睡。'), how], confirmText: '好了',
+    onConfirm: () => saveRender('生病：好了', (data) => {
+      const ep = data.sick.current;
+      if (!ep) return false;
+      data.sick.history.push({ ...ep, end: dayKey(), ...(how.value.trim() ? { how: how.value.trim() } : {}) });
+      data.sick.current = null;
+    }).then((ok) => { if (ok) { toast('欢迎回来，身体比你想的更坚强。'); go('#/'); } }),
+  });
+}
+
+// 生病手册：以前的每一次、预案、药箱、校医院
+function sickBookView() {
+  const d = store.data;
+  const hist = d.sick.history.slice().reverse();
+  const year = dayKey().slice(0, 4);
+  const thisYear = d.sick.history.filter((x) => x.start.startsWith(year));
+  const months = {};
+  for (const x of d.sick.history) months[Number(x.start.slice(5, 7))] = (months[Number(x.start.slice(5, 7))] || 0) + 1;
+  const suspects = {};
+  for (const x of d.sick.history) for (const s of x.suspects || []) { const k = s.replace(/^(昨天|今天)/, ''); suspects[k] = (suspects[k] || 0) + 1; }
+  const editPlan = (kind) => {
+    const ta = h('textarea', { rows: 8, 'aria-label': '预案' });
+    ta.value = (d.sick.plans[kind] || []).join('\n');
+    openSheet({
+      title: `${SICK_KINDS[kind].name}的预案`, body: [h('p', { class: 'muted small' }, '一行一件事。生病时会变成可以打勾的清单。你自己习惯的做法（比如喝姜汤）都可以加。'), ta], confirmText: '存好',
+      onConfirm: () => saveRender('生病预案', (data) => { data.sick.plans[kind] = ta.value.split('\n').map((x) => x.trim()).filter(Boolean); }),
+    });
+  };
+  const editClinic = () => {
+    const c = d.sick.clinic || {};
+    const f = {};
+    const field = (k, label, ph) => { f[k] = h('input', { value: c[k] || '', placeholder: ph, 'aria-label': label }); return h('label', {}, label, f[k]); };
+    openSheet({
+      title: '看病去哪', body: h('div', { class: 'form' }, field('name', '校医院', '比如「中心校区校医院」'), field('address', '在哪', '楼名、位置'), field('hours', '门诊时间', '比如 8:00–17:00'), field('phone', '电话', ''), field('er', '夜里 / 急诊去哪', '最近的医院急诊')),
+      confirmText: '存好',
+      onConfirm: () => saveRender('看病去哪', (data) => { data.sick.clinic = Object.fromEntries(Object.entries(f).map(([k, el]) => [k, el.value.trim()]).filter(([, v]) => v)); }),
+    });
+  };
+  return h('div', {},
+    headerSub('生病手册', `${year} 年病了 ${thisYear.length} 次`, helpButton('生病手册', [['这一页', ['每次生病好了以后会存在这里：几号到几号、最高几度、吃了什么、怎么好的。下次生病翻出来参考。', '预案：每种情况你要做的事，生病时变成打勾清单，可以改。', '看病去哪：校医院和急诊的信息，生病页上一直显示。']]])),
+    h('div', { class: 'card' },
+      h('h3', {}, '看病去哪'),
+      d.sick.clinic?.name ? h('p', { class: 'small' }, [d.sick.clinic.name, d.sick.clinic.address, d.sick.clinic.hours, d.sick.clinic.phone].filter(Boolean).join(' · ')) : h('p', { class: 'muted small' }, '还没填。'),
+      h('button', { class: 'secondary small', onclick: editClinic }, '改')),
+    h('div', { class: 'section-title' }, '预案'),
+    h('div', { class: 'group' }, Object.entries(SICK_KINDS).map(([k, v]) => cell({ title: `${v.icon} ${v.name}`, sub: (d.sick.plans[k] || []).join('、'), onclick: () => editPlan(k) }))),
+    Object.keys(months).length ? h('div', { class: 'card' }, h('h3', {}, '哪几个月容易生病'),
+      h('p', { class: 'small' }, Object.entries(months).sort((a, b) => a[0] - b[0]).map(([m, n]) => `${m} 月 ${n} 次`).join(' · '))) : null,
+    Object.keys(suspects).length ? h('div', { class: 'card' }, h('h3', {}, '肠胃不舒服前吃过的'),
+      Object.entries(suspects).sort((a, b) => b[1] - a[1]).map(([k, n]) => h('div', { class: 'small' }, `${k}${n > 1 ? ` · ${n} 次` : ''}`))) : null,
+    h('div', { class: 'section-title' }, '以前的每一次'),
+    hist.length ? hist.map((x) => {
+      const ts = tempStats(x);
+      const meds = [...new Set(x.meds.map((m) => m.name))];
+      return h('div', { class: 'card' },
+        h('b', {}, `${SICK_KINDS[x.kind].icon} ${SICK_KINDS[x.kind].name}`), h('span', { class: 'muted small' }, ` · ${x.start.slice(5).replace('-', '/')}–${x.end.slice(5).replace('-', '/')}，${daysBetween(x.start, x.end) + 1} 天`),
+        h('p', { class: 'small' }, [ts.max ? `最高 ${ts.max}°C` : '', meds.length ? `吃了 ${meds.join('、')}` : ''].filter(Boolean).join(' · ') || '没记体温和吃药'),
+        x.how ? h('p', { class: 'small' }, `怎么好的：${x.how}`) : null);
+    }) : h('p', { class: 'muted small center' }, '还没有生过病的记录。愿它一直这么少。'));
 }
 
 // ---------- 小记 ----------
@@ -1364,10 +1937,11 @@ function moreView() {
       cell({ href: '#/night', ic: 'moon', title: '睡前复盘' }),
       cell({ href: '#/english', ic: 'globe', color: 'var(--blue)', title: '英语陪练', sub: '复制提示词，和 ChatGPT 语音聊' }),
       cell({ href: '#/periodic', ic: 'calendar', color: 'var(--sage)', title: '定期打理', sub: '剪指甲、换床单、理发……' }),
+      cell({ href: '#/sick/book', ic: 'shield', color: 'var(--danger)', title: '生病手册', sub: '以前的每一次、预案、看病去哪' }),
       cell({ href: '#/history', ic: 'list', color: 'var(--amber)', title: '最近的记录' })),
     h('div', { class: 'group' },
       cell({ href: '#/settings', ic: 'gear', color: 'var(--muted)', title: '设置' })),
-    h('p', { class: 'muted small center' }, '以后还会加：生病模式、分析、想去的地方、爱好。'));
+    h('p', { class: 'muted small center' }, '以后还会加：分析、想去的地方、爱好。'));
 }
 
 // ---------- 设置 ----------

@@ -1,4 +1,6 @@
-"""每晚 22:30 左右（北京时间）：今天的一句话还没写、还没祷告就提醒；周日加一句写这周的感恩。合成一条推送，都做了就不发。
+"""每晚 22:30 左右（北京时间）：今天的一句话还没写、还没祷告就提醒；周日加一句写这周的感恩；生病时加一句早点睡；
+要降温了加一句。合成一条推送，都做了就不发。
+白天（10–20 点每 2 小时一次）：只在生病时提醒喝水、发烧时提醒量体温。
 
 在数据仓库 life-data 的定时任务里运行（那边的 workflow 每次从公开仓库下载这个文件）：
 订阅在 config/push.json，私钥在 secret VAPID_PRIVATE_KEY。规则和网页 js/life.js 一致（一天从凌晨 4 点开始）。
@@ -39,9 +41,55 @@ def message(data, now):
         if not ((data.get("weeks") or {}).get(monday) or {}).get("thanks"):
             lines.append("周日了，写一下这周的感恩")
             url = url or f"{APP}#/pray"
+    if (data.get("sick") or {}).get("current"):
+        lines.append("身体在恢复，今晚早点睡")
+        url = url or f"{APP}#/sick"
     if not lines:
         return None
     return {"title": "睡前", "body": "；".join(lines), "url": url, "tag": f"life-{t}"}
+
+
+FEVER_FROM = 37.3
+WATER_GOAL = 8
+
+
+def day_message(data, now):
+    """白天生病时：喝水跟不上就提醒；发烧了 4 小时没量体温就提醒。没生病返回 None"""
+    ep = (data.get("sick") or {}).get("current")
+    if not ep:
+        return None
+    t = day_key(now).isoformat()
+    lines = []
+    expected = WATER_GOAL * max(0, min(1, (now.hour - 8) / 14))
+    if (ep.get("water") or {}).get(t, 0) + 1 < expected:
+        lines.append("喝杯温水吧")
+    temps = sorted(ep.get("temps") or [], key=lambda x: x["at"])
+    feverish = ep.get("kind") == "fever" or (temps and temps[-1]["t"] >= FEVER_FROM)
+    if feverish:
+        last = datetime.fromisoformat(temps[-1]["at"].replace("Z", "+00:00")) + timedelta(hours=8) if temps else None
+        if not last or (now - last.replace(tzinfo=None)) >= timedelta(hours=4):
+            lines.append("该量一次体温了")
+    if not lines:
+        return None
+    return {"title": "照顾自己", "body": "；".join(lines), "url": f"{APP}#/sick", "tag": f"life-day-{t}-{now.hour}"}
+
+
+def season_line(data, now):
+    """要降温了（三天内最低温比今天低 8°C 以上）：返回一句话。规则和网页 seasonWarning 一样"""
+    city = (data.get("settings") or {}).get("city") or {}
+    if not city.get("lat"):
+        return None
+    try:
+        import urllib.request
+        url = (f"https://api.open-meteo.com/v1/forecast?latitude={city['lat']}&longitude={city['lon']}"
+               "&daily=temperature_2m_max,temperature_2m_min&timezone=Asia%2FShanghai&forecast_days=5")
+        j = json.load(urllib.request.urlopen(url, timeout=20))["daily"]
+    except Exception as e:  # noqa: BLE001 天气查不到就不提
+        print("天气查不到：", e)
+        return None
+    mins = j["temperature_2m_min"]
+    drop = round(mins[0] - min(mins[1:4]))
+    return f"这几天要降温 {drop}°C，加件衣服、早点睡" if drop >= 8 else None
 
 
 def send(msg):
@@ -117,13 +165,25 @@ def mark_sent(key, now):
 
 def main():
     now = (datetime.now(timezone.utc) + timedelta(hours=8)).replace(tzinfo=None)
-    if not once("night", now, 23):
+    night = now.hour >= 21 or os.environ.get("MODE") == "night"
+    key = "night" if night else f"day{now.hour // 2}"
+    if not once(key, now, 23):
         return
+    data = json.load(open("life.json", encoding="utf-8"))
     if os.environ.get("TEST") == "true":
         msg = {"title": "测试推送", "body": "看到这条说明「生活」的提醒能用了", "url": APP, "tag": "life-test"}
+    elif night:
+        msg = message(data, now)
+        extra = season_line(data, now)
+        if extra:
+            msg = msg or {"title": "睡前", "body": "", "url": f"{APP}#/", "tag": f"life-{day_key(now)}"}
+            msg["body"] = "；".join(x for x in [msg["body"], extra] if x)
     else:
-        msg = message(json.load(open("life.json", encoding="utf-8")), now)
-    mark_sent("night", now)
+        msg = day_message(data, now)
+        if not msg:
+            print("没生病，白天不提醒")
+            return
+    mark_sent(key, now)
     if not msg:
         print("今晚不用提醒")
         return

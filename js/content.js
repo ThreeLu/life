@@ -100,6 +100,13 @@ export const STEPS = [
   },
 
   {
+    id: 'g-scent', track: 'makeup', name: '喷香水',
+    why: '香味是看不见的妆：经过身边时有一点干净的香味，会让人觉得这个人很讲究。书卷气适合皂感、木质、茶香这类安静的味道。',
+    how: ['先去柜台或买小样试：喷在手腕上，过半小时再闻（前调和后面的味道不一样）。', '出门前最后一步，喷 1–2 下，手腕或者脖子后面，宁少勿多：别人靠近才闻到最好。', '口气也算：刷牙时刷一下舌头，饭后漱口。'],
+    buy: '香水小样先试，喜欢再买正装',
+    routine: [{ name: '出门前喷香水', when: 'am', optional: true }],
+  },
+  {
     id: 'g-nails', track: 'grace', name: '指甲和手',
     why: '精致讲究最容易被看到的细节：递东西、打字的时候，别人第一眼看的就是手。',
     how: ['每周剪一次，剪完用锉刀磨圆，别留尖角。', '指甲缝保持干净。', '冬天手干就擦护手霜。'],
@@ -111,13 +118,6 @@ export const STEPS = [
     how: ['衣服洗完挂起来晾，皱了用挂烫机或蒸汽熨斗过一下。', '起球了用去球器打一打。', '鞋两周擦一次，白鞋脏了马上擦。', '买新衣服时先想：和这几种颜色搭不搭。'],
     buy: '去球器 ¥20–40；挂烫机 ¥80–200（可以以后再买）',
     periodic: [{ name: '擦鞋', every: 14 }],
-  },
-  {
-    id: 'g-scent', track: 'grace', name: '淡淡的香味',
-    why: '经过身边时有一点干净的香味，会让人觉得这个人很讲究。书卷气适合皂感、木质、茶香这类安静的味道。',
-    how: ['出门前喷 1–2 下，手腕或者脖子后面，宁少勿多：别人靠近才闻到最好。', '口气也算：刷牙时刷一下舌头，饭后漱口。'],
-    buy: '香水小样先试，喜欢再买正装',
-    routine: [{ name: '出门前喷香水', when: 'am', optional: true }],
   },
   {
     id: 'g-hair', track: 'grace', name: '柔和的发型',
@@ -303,11 +303,11 @@ export const EN_TOPICS = {
   ],
 };
 
-export function englishPrompt(mode, topic) {
+export function englishPrompt(mode, topic, lastTime = '') {
   return `You are my English speaking partner. I'm a Chinese PhD student (you know about my research from our past chats). My goals: live and work in the US someday, and talk comfortably with people at international conferences. I read English well, but my speaking and listening are weak. This is a voice conversation.
 
 Today's mode: ${EN_MODES[mode].en}
-Today's topic: ${topic}
+Today's topic: ${topic}${lastTime ? `\nLast time you told me to focus on: ${lastTime} Notice whether I do better, and tell me in the summary.` : ''}
 
 Modes:
 - Chat: talk with me like a friend about my day, my life, my feelings and opinions. Ask me to tell stories and describe things in detail.
@@ -330,3 +330,159 @@ NEXT TIME
 - one thing to focus on
 === END ===`;
 }
+
+// ---------- 鼓励的话 ----------
+// 首页每天一句（按日期轮换）。温和、具体，不喊口号。
+
+export const CHEERS = [
+  '你不用一下子变得完美，每天好一点点就够了。',
+  '精致不是花很多钱，是对自己认真。',
+  '你正在一点点成为自己想成为的那个人。',
+  '慢慢来，比较快。',
+  '你值得被好好对待，先从你自己开始。',
+  '认真生活的样子，本身就很好看。',
+  '你做的每一件小事都算数。',
+  '温柔不是软弱，是一种很强的力量。',
+  '不用和别人比，和昨天的自己比就好。',
+  '你身上的细腻和温柔，是很珍贵的东西。',
+  '你不需要变成别人喜欢的样子，做舒服的自己就很好。',
+  '研究会卡住，卡住不代表你不行，只说明你在做难的事。',
+  '休息不是偷懒，是为了走得更远。',
+  '回头看看，你已经走了很远了。',
+  '允许自己有不在状态的日子。',
+  '好习惯会悄悄改变你，有一天别人会先看出来。',
+  '你今天的用心，将来的你会感谢。',
+  '能照顾好自己的人，也能照顾好身边的人。',
+  '小小的坚持，叠起来就是很大的改变。',
+  '今天也对自己说一声：辛苦了，做得不错。',
+  '你比你以为的更有能力。',
+  '难的事情，一步一步拆开来做。',
+  '自信不是觉得自己什么都行，是相信自己能慢慢学会。',
+  '你在用心生活，这已经很了不起。',
+  '把背挺直，带上一点笑，今天会是好的一天。',
+  '你的价值不取决于今天的效率。',
+  '一个人也可以把日子过得很好看。',
+  '每一次开口说英语，都是在为将来的自己铺路。',
+  '读书、护肤、祷告，你在同时打理自己的里面和外面。',
+  '你走的每一步，神都看见了。',
+  '不完美也没关系，真实的你就很好。',
+  '今天比昨天多做到一点点，就是胜利。',
+];
+export const CHEER_VERSES = [
+  { ref: '诗篇 139:14', text: '我要称谢你，因我受造，奇妙可畏；你的作为奇妙，这是我心深知道的。' },
+  { ref: '以赛亚书 43:4（节选）', text: '因我看你为宝为尊；又因我爱你。' },
+  { ref: '腓立比书 4:13', text: '我靠着那加给我力量的，凡事都能做。' },
+  { ref: '约书亚记 1:9（节选）', text: '你当刚强壮胆！不要惧怕，也不要惊惶；因为你无论往哪里去，耶和华你的神必与你同在。' },
+  { ref: '西番雅书 3:17', text: '耶和华你的神是施行拯救、大有能力的主。他在你中间必因你欢欣喜乐，默然爱你，且因你喜乐而欢呼。' },
+  { ref: '哥林多后书 12:9（节选）', text: '我的恩典够你用的，因为我的能力是在人的软弱上显得完全。' },
+  { ref: '以弗所书 2:10（节选）', text: '我们原是他的工作，在基督耶稣里造成的。' },
+  { ref: '耶利米书 29:11', text: '耶和华说：我知道我向你们所怀的意念是赐平安的意念，不是降灾祸的意念，要叫你们末后有指望。' },
+  { ref: '彼得前书 3:4', text: '只要以里面存着长久温柔、安静的心为妆饰；这在神面前是极宝贵的。' },
+];
+
+// 做完一件事时的一句话
+export const CHEER_ON = {
+  am: '早上的护肤做完了。干干净净出门，今天会顺利的。',
+  pm: '晚上的护肤做完了。你睡觉的时候，皮肤在慢慢变好。',
+  shower: '洗完澡、护理好了，舒服又精致。',
+  sport: '动起来的你很棒，身体会记住每一次。',
+  planYes: '说到做到，这就是靠谱的人。',
+  planPart: '做了一部分也是在往前走。',
+  planNo: '没关系，明天再来，计划本来就可以调整。',
+  stepStart: '开始是最难的一步，你已经迈出来了。',
+  stepHabit: '🎉 又养成了一个好习惯。精致不是天生的，是你一点点做出来的。',
+  english: '又开口说了一次。说得越多，越敢说。',
+  englishCards: '复习完了。这些表达正在变成你自己的。',
+  prayer: '晚安。你被神记念着，也被爱着。',
+  morning: '今天交给神了。放心去过吧。',
+  read: '读了。愿这些话陪你一整天。',
+  sleepGood: '睡得好，今天会更有精神。',
+  periodic: '打理好了，精致就藏在这些细节里。',
+};
+export function cheerNight(mood) {
+  if (!mood) return '记好了。今天辛苦了。';
+  if (mood >= 8) return '今天真不错，记住这种感觉。';
+  if (mood >= 5) return '今天辛苦了。平平稳稳，也是好日子。';
+  return '今天不太容易，但你还是把它过完了。好好睡一觉，明天会好一点。';
+}
+
+// 里程碑：第一次 / 累计到一些数。{ key, text }
+export const MILESTONE_TEXT = {
+  'care-1': '第一次把一天的护肤都做完了。好的开始！',
+  'care-7': '护肤做满 7 天了。这已经是一个习惯的样子了。',
+  'care-30': '护肤做满 30 天。皮肤会悄悄记住你的用心。',
+  'care-100': '护肤 100 天。你真的在认真对待自己。',
+  'pray-1': '第一次在这里祷告。神一直在等你。',
+  'pray-10': '祷告了 10 个晚上。和神说话，正在变成日常。',
+  'pray-30': '祷告 30 个晚上了。这份亲近会一直陪着你。',
+  'pray-100': '祷告 100 个晚上。感谢神，也谢谢坚持的你。',
+  'sport-10': '运动满 10 次了，身体在变得更好。',
+  'sport-50': '运动 50 次！',
+  'english-10': '和 ChatGPT 练了 10 次英语。开口越来越不难了吧？',
+  'english-50': '英语练了 50 次。离站在国际会议上自如地说话，又近了一大步。',
+  'habit-1': '养成了第一个形象习惯。',
+  'habit-5': '已经养成 5 个形象习惯了。别人一定看得出来。',
+  'night-30': '写了 30 天的「今天的一句话」。这是你一点一点的生活。',
+};
+
+// ---------- 生病 ----------
+// 通用常识，不是医嘱。用户自己的做法（预案）存在 life.json 的 sick.plans，可以改。
+
+export const SICK_KINDS = {
+  cold: { name: '感冒', icon: '🤧' },
+  fever: { name: '发烧', icon: '🌡️' },
+  gut: { name: '肠胃不舒服', icon: '🫄' },
+  other: { name: '其他不舒服', icon: '🩹' },
+};
+export const DEFAULT_PLANS = {
+  cold: ['泡脚（温水，15 分钟）', '多喝水', '早点睡、多休息', '早晚量一次体温', '运动先停几天'],
+  fever: ['每 4 小时量一次体温', '多喝水（发烧很耗水）', '躺下休息，别硬撑', '温水擦脖子、腋下帮着降温', '跟导师说一声，先请假', '泡脚只用温水、别太久；烧得高就先不泡'],
+  gut: ['少量多次地喝温水', '吃清淡的：粥、面条、馒头', '记一下拉了 / 吐了几次', '想一想昨天吃了什么', '这两天别吃辣、油、凉的'],
+  other: ['多休息', '多喝水', '不见好就去校医院'],
+};
+export const RED_FLAGS = {
+  cold: ['体温超过 37.3°C：切到发烧模式', '咳得厉害、胸口疼、喘不上气', '一周还不见好'],
+  fever: ['39°C 以上，吃了退烧药也降不下来', '烧了超过 3 天', '喘不上气、胸口疼', '头剧烈疼、脖子发硬', '身上出疹子', '迷迷糊糊、叫不醒', '喝不进水、尿很少'],
+  gut: ['拉或吐到喝不进水、尿很少、头晕', '大便有血或者发黑', '肚子剧烈疼、按着更疼', '同时发高烧', '两三天还不见好'],
+  other: ['越来越重', '两三天不见好'],
+};
+export const RECOVERY_DAYS = 2; // 好了以后的恢复期：运动先缓缓、早点睡
+export const FEVER_FROM = 37.3;
+
+// 常见感冒药的成分：名字里有这些字就认出来。用来提醒「同一种成分别一起吃」。
+export const MED_KNOWLEDGE = [
+  { match: /感康|复方氨酚烷胺/, ingredients: ['对乙酰氨基酚', '金刚烷胺', '氯苯那敏', '咖啡因'], use: '感冒综合症状' },
+  { match: /感冒灵/, ingredients: ['对乙酰氨基酚', '氯苯那敏', '咖啡因'], use: '感冒综合症状（中西药复方）' },
+  { match: /快克/, ingredients: ['对乙酰氨基酚', '金刚烷胺', '氯苯那敏', '咖啡因'], use: '感冒综合症状' },
+  { match: /白加黑|日夜百服/, ingredients: ['对乙酰氨基酚', '伪麻黄碱', '右美沙芬', '苯海拉明'], use: '感冒综合症状' },
+  { match: /新康泰克/, ingredients: ['伪麻黄碱', '氯苯那敏'], use: '鼻塞流涕' },
+  { match: /泰诺|对乙酰氨基酚|扑热息痛|必理通/, ingredients: ['对乙酰氨基酚'], use: '退烧止痛' },
+  { match: /布洛芬|芬必得/, ingredients: ['布洛芬'], use: '退烧止痛' },
+  { match: /甲氧那明|阿斯美/, ingredients: ['甲氧那明', '那可丁', '氨茶碱', '氯苯那敏'], use: '咳嗽' },
+  { match: /感冒清热/, ingredients: [], use: '中成药：风寒感冒' },
+  { match: /小柴胡/, ingredients: [], use: '中成药：忽冷忽热、口苦' },
+  { match: /连花清瘟/, ingredients: [], use: '中成药：流感、发热' },
+  { match: /奥司他韦|达菲/, ingredients: ['奥司他韦'], use: '流感（出现症状 48 小时内）', rx: true },
+  { match: /沙星|霉素|西林|头孢|阿莫/, ingredients: [], use: '抗生素：只有医生判断是细菌感染才吃，普通感冒没用', rx: true },
+  { match: /地塞米松|泼尼松|激素/, ingredients: [], use: '激素', rx: true },
+  { match: /蒙脱石/, ingredients: ['蒙脱石'], use: '拉肚子' },
+  { match: /保赤丸|健胃消食|多潘立酮|吗丁啉/, ingredients: [], use: '积食、消化不良' },
+  { match: /补液盐/, ingredients: [], use: '拉肚子、吐了以后补水补盐' },
+  { match: /酮替芬|氯雷他定|西替利嗪/, ingredients: [], use: '过敏' },
+  { match: /风油精|清凉油/, ingredients: [], use: '外用：蚊虫叮咬、提神' },
+];
+// 两种退烧药自己别混着吃
+export const FEVER_INGREDIENTS = ['对乙酰氨基酚', '布洛芬'];
+
+// ---------- 读经计划 ----------
+
+export const BIBLE_BOOKS = {
+  PSA: { name: '诗篇', chapters: 150, note: '一天一篇，读完用一句话开始祷告' },
+  PRO: { name: '箴言', chapters: 31, byDate: true, note: '几号就读第几章，一个月一遍' },
+  JHN: { name: '约翰福音', chapters: 21, note: '再读一遍福音书，可以试试英文' },
+  MRK: { name: '马可福音', chapters: 16, note: '最短的福音书，节奏快' },
+  ACT: { name: '使徒行传', chapters: 28, note: '福音书之后的故事' },
+  PHP: { name: '腓立比书', chapters: 4, note: '喜乐的书信，四章' },
+  ROM: { name: '罗马书', chapters: 16, note: '信仰的根基，慢慢读' },
+  JAS: { name: '雅各书', chapters: 5, note: '很实际的生活智慧' },
+};

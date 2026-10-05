@@ -287,7 +287,16 @@ def _(c):
     assert p.get_by_role("link", name="打开 Bible App").get_attribute("href") == "https://www.bible.com/bible/48/PSA.1"
     p.get_by_role("button", name="读了").click()
     c.wait(lambda d: d["prayer"]["next"] == 1 and d["days"][TODAY]["read"] == 0, "读经")
-    expect(p.get_by_text("下一篇：诗篇第 2 篇")).to_be_visible()
+    expect(p.get_by_text("下一次：诗篇第 2 篇")).to_be_visible()
+    # 换成箴言：几号读第几章；诗篇读到哪还记着
+    p.get_by_role("button", name="换一卷").click()
+    c.sheet().get_by_role("button", name="箴言").click()
+    c.sheet().get_by_role("checkbox").check()
+    c.sheet().get_by_role("button", name="好了").click()
+    c.wait(lambda d: d["prayer"]["book"] == "PRO" and d["settings"]["bibleVersionEn"] == 116, "换箴言")
+    dom = int(TODAY[8:])
+    expect(p.get_by_text("今天读过了 ✓")).to_be_visible()  # 今天已经读过诗篇
+    assert p.get_by_role("link", name="英文版").get_attribute("href") == f"https://www.bible.com/bible/116/PRO.{dom}"
 
 
 @step("每周：感恩、皮肤状态")
@@ -404,7 +413,7 @@ def _(c):
     p.get_by_role("button", name="美国生活").click()
     assert "Today's mode: Life in the US" in p.get_by_label("英语提示词").input_value()
     p.get_by_role("button", name="复制").click()
-    p.get_by_role("button", name="练完了").click()
+    p.get_by_role("button", name="只记练了一次").click()
     c.wait(lambda d: events(d, "english") and events(d, "english")[0]["mode"] == "us", "英语")
     expect(p.get_by_text("这周练了 1 次")).to_be_visible()
 
@@ -429,22 +438,199 @@ def _(c):
     c.wait(lambda d: any(e.get("kind") == "奶茶" for e in d["events"]) and any(n["id"] == "n-other" for n in d["notes"]), "合并")
 
 
+@step("鼓励：每天一句、早上护肤做完夸一句、第一次做完一天护肤有里程碑")
+def _(c):
+    p = c.page
+    c.go("#/")
+    expect(p.locator(".cheer").first).not_to_be_empty()
+    d = c.data()
+    am = [r for r in d["look"]["routine"] if r["when"] == "am" and not r.get("optional")]
+    pm = [r for r in d["look"]["routine"] if r["when"] == "pm" and not r.get("optional")]
+    care = d["days"][TODAY].get("care", {})
+    for r in am:
+        if not care.get(r["id"]):
+            p.locator(".care-group", has_text="早上").get_by_role("button", name=r["name"]).click()
+            c.wait(lambda d, r=r: d["days"][TODAY]["care"].get(r["id"]), "早上打卡")
+    expect(p.get_by_text("早上的护肤做完了")).to_be_visible()
+    for r in pm:
+        p.locator(".care-group", has_text="晚上").get_by_role("button", name=r["name"]).click()
+        c.wait(lambda d, r=r: d["days"][TODAY]["care"].get(r["id"]), "晚上打卡")
+    c.wait(lambda d: "care-1" in d["milestones"], "里程碑")
+    expect(p.get_by_text("第一次把一天的护肤都做完了")).to_be_visible()
+    p.locator(".milestone").get_by_role("button", name="好").click()
+    c.wait(lambda d: d["milestones"].get("seen", {}).get("care-1"), "看过里程碑")
+    expect(p.get_by_text("这周的你")).to_be_visible()
+    # 喷香水在化妆这条线
+    c.go("#/look")
+    expect(p.locator(".track", has_text="化妆").get_by_role("link", name="喷香水")).to_be_visible()
+
+
+@step("生病：感冒→量到 37.8 切发烧、喝水、预案打勾、吃药（说明书、下次几点、同成分提醒）、去医院的情况变红、好了进手册")
+def _(c):
+    p = c.page
+    c.go("#/")
+    p.get_by_role("button", name="我不舒服").click()
+    c.sheet().get_by_role("button", name="感冒").click()
+    expect(p.get_by_role("heading", name="🤧 感冒")).to_be_visible()
+    c.wait(lambda d: d["sick"]["current"]["kind"] == "cold", "开始感冒")
+    p.get_by_label("体温", exact=True).fill("37.8")
+    p.get_by_role("button", name="记", exact=True).click()
+    c.wait(lambda d: d["sick"]["current"]["temps"][0]["t"] == 37.8, "体温")
+    p.get_by_role("button", name="切到发烧模式").click()
+    c.wait(lambda d: d["sick"]["current"]["kind"] == "fever", "切发烧")
+    p.get_by_role("button", name="喝了一杯").click()
+    c.wait(lambda d: d["sick"]["current"]["water"][TODAY] == 1, "喝水")
+    p.get_by_role("button", name="多喝水（发烧很耗水）").click()
+    c.wait(lambda d: d["sick"]["current"]["done"][TODAY], "预案打勾")
+    # 药：从物品档案读；先抄说明书
+    row = p.locator(".med-row", has_text="编的感冒灵颗粒")
+    row.get_by_role("button", name="说明书").click()
+    c.sheet().get_by_label("一次多少").fill("1 袋")
+    c.sheet().get_by_label("几小时一次").fill("6")
+    c.sheet().get_by_label("一天最多几次").fill("3")
+    c.sheet().get_by_role("button", name="存好").click()
+    c.wait(lambda d: d["sick"]["meds"]["inv-m2"] == {"dose": "1 袋", "gapHours": 6, "perDay": 3}, "说明书")
+    p.locator(".med-row", has_text="编的感冒灵颗粒").get_by_role("button", name="吃了").click()
+    c.wait(lambda d: len(d["sick"]["current"]["meds"]) == 1, "吃药")
+    expect(p.locator(".med-row", has_text="编的感冒灵颗粒")).to_contain_text("下次最早")
+    expect(p.locator(".med-row", has_text="编的感冒灵颗粒")).to_contain_text("今天还能吃 2 次")
+    # 再吃感康：同成分提醒
+    p.locator(".med-row", has_text="编的感康").get_by_role("button", name="吃了").click()
+    expect(c.sheet()).to_contain_text("对乙酰氨基酚")
+    c.sheet().get_by_role("button", name="先不吃").click()
+    assert len(c.data()["sick"]["current"]["meds"]) == 1
+    # 抗生素标「医生判断」，放在「其他药」里
+    p.get_by_text("其他药（2）").click()
+    expect(p.locator(".med-row", has_text="编的左氧氟沙星")).to_contain_text("医生判断")
+    # 39.2：去医院那条变红
+    p.get_by_label("体温", exact=True).fill("39.2")
+    p.get_by_role("button", name="记", exact=True).click()
+    expect(p.locator(".card.alert")).to_contain_text("39°C 以上")
+    # 首页：生病卡片
+    c.go("#/")
+    expect(p.locator(".sick-card")).to_contain_text("发烧 · 第 1 天")
+    expect(p.get_by_role("button", name="我不舒服")).to_have_count(0)
+    # 好了
+    c.go("#/sick")
+    p.get_by_role("button", name="好了").first.click()
+    c.sheet().get_by_label("怎么好的").fill("编的办法")
+    c.sheet().get_by_role("button", name="好了").click()
+    c.wait(lambda d: d["sick"]["current"] is None and d["sick"]["history"][0]["how"] == "编的办法", "好了")
+    expect(p.get_by_text("恢复期还有")).to_be_visible()
+    c.go("#/sick/book")
+    expect(p.get_by_text("最高 39.2°C")).to_be_visible()
+    expect(p.get_by_text("怎么好的：编的办法")).to_be_visible()
+    # 改预案、填校医院
+    p.get_by_role("button", name="🤧 感冒").click()
+    c.sheet().get_by_label("预案").fill("编的做法一\n编的做法二")
+    c.sheet().get_by_role("button", name="存好").click()
+    c.wait(lambda d: d["sick"]["plans"]["cold"] == ["编的做法一", "编的做法二"], "预案")
+    p.locator(".card", has_text="看病去哪").get_by_role("button", name="改").click()
+    c.sheet().get_by_label("电话").fill("12345")
+    c.sheet().get_by_role("button", name="存好").click()
+    c.wait(lambda d: d["sick"]["clinic"]["phone"] == "12345", "校医院")
+
+
+@step("肠胃：记次数，从账本里找昨天吃了什么，点可能是这个")
+def _(c):
+    p = c.page
+    c.go("#/sick")
+    p.get_by_role("button", name="肠胃不舒服").click()
+    c.wait(lambda d: d["sick"]["current"]["kind"] == "gut", "肠胃")
+    p.get_by_role("button", name="拉肚子 0 次").click()
+    c.wait(lambda d: d["sick"]["current"]["gut"][TODAY]["d"] == 1, "拉肚子")
+    p.get_by_role("button", name="昨天午餐：编的盖饭").click()
+    c.wait(lambda d: d["sick"]["current"]["suspects"] == ["昨天午餐：编的盖饭"], "可疑的")
+    expect(p.locator(".med-row", has_text="编的蒙脱石散")).to_be_visible()
+    p.get_by_role("button", name="好了").first.click()
+    c.sheet().get_by_role("button", name="好了").click()
+    c.wait(lambda d: d["sick"]["current"] is None, "肠胃好了")
+    c.go("#/sick/book")
+    expect(p.get_by_text("午餐：编的盖饭")).to_be_visible()
+
+
+@step("换季：要降温了首页提醒")
+def _(c):
+    p = c.page
+    c.write(lambda d: d["settings"].update(city={"name": "编的城", "lat": 1, "lon": 2}))
+    p.evaluate("localStorage.removeItem('life-weather')")
+    c.go("#/")
+    p.reload()
+    expect(p.get_by_text("要降温了")).to_be_visible()
+    expect(p.locator(".season")).to_contain_text("比今天低 10°C")
+
+
+@step("英语：贴回总结存进错句本表达本、下次注意写进提示词、复习")
+def _(c):
+    p = c.page
+    c.go("#/english")
+    p.get_by_label("ChatGPT 的总结").fill("""=== SUMMARY ===
+MISTAKES
+- I said: I go there yesterday | Better: I went there yesterday | Type: tense
+- I said: He have a cat | Better: He has a cat | Type: grammar
+EXPRESSIONS
+- grab a coffee | 去喝杯咖啡 | Want to grab a coffee later?
+NEXT TIME
+- Use past tense for stories.
+=== END ===""")
+    p.get_by_role("button", name="存进本子").click()
+    c.wait(lambda d: len(d["english"]["cards"]) == 3 and d["english"]["next"] == "Use past tense for stories.", "存进本子")
+    assert events(c.data(), "english")[-1]["mistakes"] == 2
+    expect(p.get_by_text("上次 ChatGPT 说下次注意：Use past tense for stories.")).to_be_visible()
+    assert "Last time you told me to focus on: Use past tense for stories." in p.get_by_label("英语提示词").input_value()
+    # 明天才复习：改成今天到期
+    c.write(lambda d: [x.update(due=TODAY) for x in d["english"]["cards"]])
+    c.go("#/")
+    p.reload()
+    p.get_by_role("link", name="英语复习 3 条").click()
+    p.get_by_role("button", name="看答案").click()
+    expect(p.locator(".card-back")).to_have_text("I went there yesterday")
+    p.get_by_role("button", name="记住了").click()
+    p.get_by_role("button", name="看答案").click()
+    p.get_by_role("button", name="还没记住").click()
+    p.get_by_role("button", name="看答案").click()
+    p.get_by_role("button", name="记住了").click()
+    expect(p.get_by_text("今天的复习做完了")).to_be_visible()
+    cards = c.data()["english"]["cards"]
+    assert sorted(x["level"] for x in cards) == [0, 1, 1] and all(x["due"] > TODAY for x in cards), cards
+
+
 def inventory_seed():
     inv = {
         "version": 1, "locations": [{"id": "L1", "name": "洗手池 Sink"}], "tags": ["洗漱护肤", "零食食品"],
         "items": [
             {"id": "inv-1", "name": "编的洗面奶", "location": "L1", "tags": ["洗漱护肤"], "quantity": 1, "archived": False},
             {"id": "inv-2", "name": "编的零食", "location": "L1", "tags": ["零食食品"], "quantity": 1, "archived": False},
+            {"id": "inv-m1", "name": "编的布洛芬片", "location": "L1", "tags": ["药品急救"], "quantity": 1, "archived": False, "fields": {"保质期": "2030-01"}},
+            {"id": "inv-m2", "name": "编的感冒灵颗粒", "location": "L1", "tags": ["药品急救"], "quantity": 1, "archived": False},
+            {"id": "inv-m3", "name": "编的感康片", "location": "L1", "tags": ["药品急救"], "quantity": 1, "archived": False},
+            {"id": "inv-m4", "name": "编的左氧氟沙星片", "location": "L1", "tags": ["药品急救"], "quantity": 1, "archived": False},
+            {"id": "inv-m5", "name": "编的蒙脱石散", "location": "L1", "tags": ["药品急救"], "quantity": 1, "archived": False},
         ],
     }
     return {"inventory.json": json.dumps(inv, ensure_ascii=False).encode()}
+
+
+def ledger_seed():
+    f = {"categories": [{"id": "c-lunch", "name": "午餐", "group": "food"}, {"id": "c-bus", "name": "公交地铁", "group": "daily"}],
+         "tx": [{"id": "t1", "type": "expense", "date": YESTERDAY, "category": "c-lunch", "amount": 15, "note": "编的盖饭"},
+                {"id": "t2", "type": "expense", "date": YESTERDAY, "category": "c-bus", "amount": 2, "note": "编的公交"}]}
+    return {"finance.json": json.dumps(f, ensure_ascii=False).encode()}
+
+
+def fake_weather(page):
+    """天气接口用假数据：后天比今天冷 10°C"""
+    import datetime as dt
+    days = [(datetime.fromisoformat(TODAY) + dt.timedelta(days=i)).date().isoformat() for i in range(5)]
+    body = json.dumps({"daily": {"time": days, "temperature_2m_min": [15, 12, 5, 6, 7], "temperature_2m_max": [24, 20, 12, 13, 14]}})
+    page.route("https://api.open-meteo.com/**", lambda route: route.fulfill(status=200, content_type="application/json", body=body, headers={"Access-Control-Allow-Origin": "*"}))
 
 
 def main():
     only = sys.argv[1:]
     ART.mkdir(exist_ok=True)
     repo = FakeRepo({"README.md": b"# life-data\n"})
-    serve({REPO: repo, "x/inventory-data": FakeRepo(inventory_seed())}, API_PORT)
+    serve({REPO: repo, "x/inventory-data": FakeRepo(inventory_seed()), "test/finance-data": FakeRepo(ledger_seed())}, API_PORT)
     class Quiet(SimpleHTTPRequestHandler):
         def log_message(self, *a):
             pass
@@ -461,6 +647,7 @@ def main():
         page = ctx.new_page()
         page.on("pageerror", lambda e: errors.append(str(e)))
         page.on("dialog", lambda d: d.accept())
+        fake_weather(page)
         c = Ctx(page, repo)
         for i, (name, fn) in enumerate(STEPS):
             if i and only and not any(k in name for k in only):
