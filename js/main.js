@@ -2438,6 +2438,7 @@ function privateView() {
     rulesCard(),
     sessionsCard(dayKey()),
     callNamesCard(),
+    begsCard(),
     mediaCard(),
     suppliesCard(ui),
     limitsCard());
@@ -2565,8 +2566,11 @@ function beep() {
 // 称呼：{称呼} 换成用户自己定的称呼里随机一个
 function callName(text, seed) {
   const names = store.data.private.callNames || [];
+  const begs = store.data.private.begs || [];
   let k = 0;
-  return String(text).replace(/\{称呼\}/g, () => pickOne(names.length ? names : [''], `${seed}-${k++}`) || '');
+  return String(text)
+    .replace(/\{称呼\}/g, () => pickOne(names.length ? names : [''], `${seed}-${k++}`) || '')
+    .replace(/\{求\}/g, () => pickOne(begs.length ? begs : ['求求你，允许我'], `${seed}-b${k++}`));
 }
 const taskText = (t) => fillText(callName(t.text, `${sess.seed}-${t.id}`), `${sess.seed}-${t.id}`);
 // 任务里的第一个时长：「3 分钟」「30 秒」→ 秒数
@@ -2786,19 +2790,18 @@ function rulesCard() {
     h('div', { class: 'inline-add' }, input, h('button', { class: 'small', onclick: add }, '加')));
 }
 
-// 称呼：语音和任务里 {称呼} 会换成这里随机一个
-function callNamesCard() {
-  const d = store.data;
-  const ui = pp();
-  const list = d.private.callNames || [];
-  const input = h('input', { placeholder: '加一个称呼', 'aria-label': '新的称呼' });
-  const add = () => { const v = input.value.trim(); if (v) saveRender('小记：称呼', (data) => { (data.private.callNames ||= []).push(v); }); };
+// 一组自己写的词：称呼（{称呼}）、求的话（{求}），任务和语音里随机用一个
+function wordsCard(key, title, hint, placeholder) {
+  const list = store.data.private[key] || [];
+  const input = h('input', { placeholder, 'aria-label': placeholder });
+  const add = () => { const v = input.value.trim(); if (v) saveRender(`小记：${title}`, (data) => { (data.private[key] ||= []).push(v); }); };
   return h('div', { class: 'card' },
-    h('h3', {}, ui.callTitle || '称呼'),
-    h('p', { class: 'muted small' }, '任务和语音里会从这些里面随机叫你。'),
-    h('div', { class: 'chips' }, list.map((x, i) => h('button', { type: 'button', class: 'chip', onclick: () => saveRender('小记：删称呼', (data) => { data.private.callNames.splice(i, 1); }) }, `${x} ×`))),
+    h('h3', {}, title), h('p', { class: 'muted small' }, hint),
+    h('div', { class: 'chips' }, list.map((x, i) => h('button', { type: 'button', class: 'chip', onclick: () => saveRender(`小记：删${title}`, (data) => { data.private[key].splice(i, 1); }) }, `${x} ×`))),
     h('div', { class: 'inline-add' }, input, h('button', { class: 'small', onclick: add }, '加')));
 }
+const callNamesCard = () => wordsCard('callNames', pp().callTitle || '称呼', '任务和语音里会从这些里面随机叫你。点一个可以删掉。', '新的称呼');
+const begsCard = () => wordsCard('begs', pp().begTitle || '求的话', '任务里要「求」的时候，从这里随机挑一句。你自己写。', '新的一句');
 
 function sessionsCard(today) {
   const d = store.data;

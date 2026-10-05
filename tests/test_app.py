@@ -437,12 +437,13 @@ def _(c):
     mon = (datetime.fromisoformat(TODAY) - timedelta(days=datetime.fromisoformat(TODAY).weekday())).date().isoformat()
     def seed(d):
         d["private"]["program"] = {"start": mon, "weeks": [{"title": "编的周", "tasks": [
-            {"id": "k1", "track": "c", "text": "{称呼}，保持 2 秒", "level": 1, "rule": "编的规矩甲"},
+            {"id": "k1", "track": "c", "text": "{称呼}，保持 2 秒，{求}", "level": 1, "rule": "编的规矩甲"},
             {"id": "k2", "track": "b", "text": "编的第二张", "level": 2}]}],
             "checks": ["编的突击命令"], "checkEvery": [0.1, 0.1],
             "levels": [{"name": "编的一级", "min": 0}, {"name": "编的二级", "min": 30, "text": "编的升级仪式"}],
             "rewards": [{"text": "编的奖励撤规矩", "unrule": True}]}
         d["private"]["callNames"] = ["编的称呼"]
+        d["private"]["begs"] = ["编的求"]
         d["private"]["sessions"] = []
         d["private"]["ui"]["trackC"] = "编的宠物"
     c.write(seed)
@@ -457,7 +458,7 @@ def _(c):
     # 突击检查（测试里间隔设成 6 秒）
     expect(p.locator(".check-card")).to_contain_text("编的突击命令", timeout=12000)
     p.get_by_role("button", name="做到了").click()
-    expect(p.locator(".task-text")).to_have_text("编的称呼，保持 2 秒")
+    expect(p.locator(".task-text")).to_have_text("编的称呼，保持 2 秒，编的求")
     expect(p.locator(".task-card")).to_contain_text("编的宠物")
     expect(p.get_by_text("这条会加进规矩手册：编的规矩甲")).to_be_visible()
     p.get_by_role("button", name="开始计时").click()
