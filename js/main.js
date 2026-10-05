@@ -7,7 +7,7 @@ import {
   dailyCheer, weekHighlights, newMilestones, careFullDay,
   sickActive, recoveryLeft, tempStats, medInfo, doseStatus, medConflicts, seasonWarning,
   sickDid, sickSymptoms, sickLessons, similarSick, planMissing, sickKinds,
-  boilerStatus, lowLessons, goodDays, identityLines, lineOfDay, tipOfDay, identityVotes, weekVotes,
+  boilerStatus, solarTerm, lowLessons, goodDays, identityLines, lineOfDay, tipOfDay, identityVotes, weekVotes,
   parseSummary, reviewCard, dueCards, mistakeTypes, REVIEW_STEPS,
 } from './life.js';
 import {
@@ -186,6 +186,12 @@ function render() {
     break;
   }
   view.replaceChildren(...[content || notFound(), store?.data && !NO_WHISPER.test(path) ? whisper(path) : null].filter(Boolean));
+  if (path !== lastPath) { view.classList.remove('enter'); void view.offsetWidth; view.classList.add('enter'); lastPath = path; }
+  if (tapped && Date.now() - tapped.at < 4000) {
+    for (const el of view.querySelectorAll('.chip.check.on, .ring')) if (el.textContent.trim() === tapped.text) el.classList.add('pop');
+    tapped = null;
+  }
+  document.documentElement.dataset.season = solarTerm(dayKey()).season;
   renderedData = store?.data ? JSON.stringify(store.data) : '';
   for (const a of nav.querySelectorAll('a[href]')) {
     const target = a.getAttribute('href').slice(1);
@@ -195,12 +201,20 @@ function render() {
 
 // ---------- 通用组件 ----------
 
+// 换页淡入只在真的换了页时；点打勾的按钮记一下是哪个，存好重画后在它身上弹一下
+let lastPath = null;
+let tapped = null;
+document.addEventListener('click', (e) => {
+  const b = e.target.closest?.('.chip.check');
+  if (b && !b.classList.contains('on')) tapped = { text: b.textContent.trim(), at: Date.now() };
+}, true);
+
 // 各页最下面角落的一句话（活出自己）：每页每天一句，同一天不变。小记、难受的时候一步一步、带着祷告、设置不放
 const NO_WHISPER = /^\/(p|p\/s|low\/go|pray\/go|settings)$/;
 function whisper(path) {
   const n = [...`${dayKey()}${path || '/'}`].reduce((a, c) => (a * 31 + c.charCodeAt(0)) >>> 0, 11);
   const x = SELF_LINES[n % SELF_LINES.length];
-  return h('p', { class: 'whisper' }, x.text, x.ref ? h('span', { class: 'whisper-ref' }, ` — ${x.ref}`) : null);
+  return h('div', { class: 'whisper' }, h('p', {}, x.text), h('small', {}, x.ref || '今天的一句'));
 }
 
 function toast(message, kind = 'ok') {
@@ -361,7 +375,7 @@ function todayView(day) {
   const rec = d.days[day] || {};
   const lockBtn = isToday ? h('a', { class: 'icon-btn quiet', href: '#/p', 'aria-label': '小记' }, icon('leaf')) : null;
   return h('div', {},
-    headerSub(isToday ? '今天' : relDay(day), dayLabel(day), lockBtn, helpButton('今天这一页怎么用', TODAY_HELP)),
+    isToday ? todayHeader(day, lockBtn) : headerSub(relDay(day), dayLabel(day), helpButton('今天这一页怎么用', TODAY_HELP)),
     isToday ? cheerCard(day) : null,
     isToday ? milestoneCard() : null,
     isToday ? sickCard(today) : null,
@@ -385,6 +399,31 @@ function todayView(day) {
       !sickActive(d) ? h('button', { class: 'link small unwell', onclick: startSickSheet }, '我不舒服') : null,
       h('a', { class: 'small unwell', href: '#/low', onclick: () => resetLow() }, '有点难受')) : null,
     !isToday ? h('a', { class: 'button secondary wide', href: '#/' }, '回到今天') : null);
+}
+
+// 首页开头：日期、问候（按时间）、节气和今天的天气；一天的事都做完了盖一个章
+function todayHeader(today, lockBtn) {
+  const d = store.data;
+  const hr = new Date().getHours();
+  const hi = hr < 4 ? '夜深了，早点睡' : hr < 11 ? '早上好' : hr < 13 ? '中午好' : hr < 18 ? '下午好' : hr < 23 ? '晚上好' : '夜深了，早点睡';
+  const st = solarTerm(today);
+  const term = st.today ? `今天${st.name}` : st.left <= 7 ? `${st.name} · ${st.next}还有 ${st.left} 天` : `${st.name}时节`;
+  const w = readJson(WEATHER_KEY);
+  const city = d.settings.city;
+  const wx = w.day === today && w.daily?.[0] ? `${city?.name || ''} ${Math.round(w.daily[0].min)}–${Math.round(w.daily[0].max)}°C` : null;
+  return h('header', { class: 'page-head today-head' },
+    h('div', {},
+      h('div', { class: 'sub' }, dayLabel(today)),
+      h('h1', { class: 'greet' }, hi),
+      h('div', { class: 'head-tags' }, h('span', { class: 'tag' }, term), wx ? h('span', { class: 'tag' }, wx.trim()) : null)),
+    h('div', { class: 'head-actions' }, dayComplete(today) ? h('span', { class: 'seal', title: '今天护肤、复盘、祷告都做了' }, '圆', h('br'), '满') : null,
+      lockBtn, helpButton('今天这一页怎么用', TODAY_HELP)));
+}
+// 护肤（早晚）、睡前复盘、祷告都做了
+function dayComplete(day) {
+  const d = store.data;
+  const r = d.days[day] || {};
+  return careFullDay(d, day) && Boolean(r.mood || r.note) && Boolean(r.prayer?.night);
 }
 
 // 最近几天状态不对：轻轻提一句
@@ -525,12 +564,17 @@ function careCard(day) {
       if (CHEER_ON[r.when] && after.total && after.done === after.total && before.done < before.total) toast(CHEER_ON[r.when]);
     });
   };
+  const rings = ['am', 'shower', 'pm'].map((when) => {
+    const { done, total } = careDone(d, day, when);
+    if (!total) return null;
+    return h('div', { class: `ring${done === total ? ' full' : ''}`, style: `--v:${Math.round((done / total) * 100)}%`, 'aria-label': `${WHEN[when]} ${done}/${total}` },
+      h('div', {}, h('b', {}, done === total ? '✓' : `${done}/${total}`), WHEN[when]));
+  }).filter(Boolean);
   const groups = ['am', 'shower', 'pm', 'week'].map((when) => {
     const items = routineOf(d, when);
     if (!items.length) return null;
-    const { done, total } = careDone(d, day, when);
     return h('div', { class: 'care-group' },
-      h('div', { class: 'care-head' }, h('span', {}, WHEN[when]), when !== 'week' && total ? h('span', { class: `muted small${done === total ? ' good-text' : ''}` }, done === total ? '都做了' : `${done}/${total}`) : null),
+      h('div', { class: 'care-head' }, h('span', {}, WHEN[when])),
       h('div', { class: 'chips' }, items.map((r) => {
         const on = Boolean(care[r.id]);
         const label = when === 'week' ? `${r.name} · 本周 ${weekCount(d, r.id, day)}/${r.times || 1}` : r.name;
@@ -540,6 +584,7 @@ function careCard(day) {
   }).filter(Boolean);
   return h('div', { class: 'card' },
     h('h3', {}, '护肤和打理'),
+    rings.length ? h('div', { class: 'rings' }, rings) : null,
     groups.length ? groups : h('p', { class: 'muted small' }, '还没有打卡项。到「形象」开始学第一步，这里就会出现。'),
     h('a', { class: 'small', href: '#/look' }, '形象路线图 ›'));
 }
@@ -2210,7 +2255,7 @@ function seasonCard() {
       .then((r) => r.json()).then((j) => {
         const daily = j.daily.time.map((date, i) => ({ date, min: j.daily.temperature_2m_min[i], max: j.daily.temperature_2m_max[i] }));
         writeJson(WEATHER_KEY, { day: dayKey(), city: city.name, daily });
-        if (currentPath() === '/' && seasonWarning(daily)) render();
+        if (currentPath() === '/') render();
       }).catch(() => {});
     return null;
   }

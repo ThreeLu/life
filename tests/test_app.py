@@ -105,7 +105,7 @@ def _(c):
     p.goto(URL)
     expect(p.get_by_role("heading", name="开始记录")).to_be_visible()
     p.get_by_role("button", name="开始", exact=True).click()
-    expect(p.get_by_role("heading", name="今天")).to_be_visible()
+    expect(p.locator(".today-head")).to_be_visible()
     d = c.data()
     assert d["startDate"] == TODAY, d["startDate"]
     assert d["prayer"]["stage"] == 1
@@ -994,6 +994,11 @@ def _(c):
     expect(p.locator(".identity-line")).to_have_text(re.compile("编的句子"))
     # 角落里的一句话：首页有，小记那一页没有
     expect(p.locator(".whisper")).to_have_count(1)
+    # 首页开头：问候 + 节气；护肤圆环
+    expect(p.locator(".today-head .greet")).to_have_text(re.compile("好|夜深"))
+    expect(p.locator(".head-tags .tag").first).to_have_text(re.compile("时节|还有|今天"))
+    expect(p.locator(".ring").first).to_be_visible()
+    p.wait_for_timeout(3000); p.screenshot(path=ART / "look-home.png", full_page=True)
     c.go("#/p")
     expect(p.locator(".whisper")).to_have_count(0)
 

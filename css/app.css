@@ -676,6 +676,51 @@ button.cell .grow { display: block; }
 .low-lesson p { margin: 4px 0 0; }
 .hotline h3 { color: var(--danger); }
 
-/* 角落里的一句话 */
-.whisper { margin: 28px 8px 8px; text-align: center; font-family: "Songti SC", "STSong", serif; font-size: 14px; line-height: 1.7; color: color-mix(in srgb, var(--accent) 70%, var(--muted)); opacity: .9; }
-.whisper-ref { font-family: inherit; font-size: 12px; color: var(--muted); }
+
+/* ---------- 外观 2026-10：标题宋体、首页问候、圆环、引号小卡、小细节 ---------- */
+:root { --serif: "Songti SC", "STSong", "Noto Serif SC", "Source Han Serif SC", serif; }
+
+/* 标题用宋体（正文还是苹方） */
+.page-head h1 { font-family: var(--serif); font-weight: 600; letter-spacing: 0.02em; }
+.card h3 { font-family: var(--serif); font-size: 15px; font-weight: 600; color: var(--text); letter-spacing: 0.03em; }
+
+/* 首页开头：日期 → 问候（宋体）→ 节气、天气 */
+.today-head .sub { margin: 0 0 2px; font-size: 13px; }
+.today-head .greet { font-size: 30px; }
+.head-tags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.head-tags .tag { font-size: 12px; padding: 3px 10px; border-radius: 99px; background: var(--accent-soft); color: var(--accent); }
+.seal { display: inline-grid; place-items: center; width: 38px; height: 38px; border: 1.5px solid var(--accent); color: var(--accent); border-radius: 7px; font: 600 12px/1.05 var(--serif); text-align: center; transform: rotate(-8deg); opacity: .9; animation: seal-in .5s ease-out both; }
+@keyframes seal-in { from { transform: rotate(-8deg) scale(1.6); opacity: 0; } to { transform: rotate(-8deg) scale(1); opacity: .9; } }
+
+/* 护肤圆环 */
+.rings { display: flex; gap: 18px; margin: 2px 0 12px; }
+.ring { width: 60px; height: 60px; border-radius: 50%; position: relative; display: grid; place-items: center; font-size: 11px; color: var(--muted); text-align: center; line-height: 1.15; }
+.ring::before { content: ""; position: absolute; inset: 0; border-radius: 50%; background: conic-gradient(var(--accent) var(--v), var(--chip) 0); -webkit-mask: radial-gradient(circle, transparent 58%, #000 59%); mask: radial-gradient(circle, transparent 58%, #000 59%); transition: background .4s; }
+.ring b { display: block; font-size: 14px; color: var(--text); font-weight: 600; }
+.ring.full b { color: var(--accent); }
+
+/* 角落那句话：引号小卡 */
+.whisper { margin: 28px 0 8px; position: relative; padding: 16px 16px 14px 40px; background: var(--accent-soft); border-radius: 14px; }
+.whisper::before { content: "\201C"; position: absolute; left: 12px; top: 0; font: 46px/1 Georgia, "Times New Roman", serif; color: var(--accent); }
+.whisper p { margin: 0; font-family: var(--serif); font-size: 15px; line-height: 1.7; color: var(--text); }
+.whisper small { display: block; margin-top: 4px; font-size: 11px; color: var(--muted); }
+
+/* 打勾的小动画 */
+.chip.check.pop { animation: pop .45s cubic-bezier(.3, 1.6, .5, 1); }
+@keyframes pop { 0% { transform: scale(.9); box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 45%, transparent); } 60% { transform: scale(1.06); } 100% { transform: scale(1); box-shadow: 0 0 0 10px transparent; } }
+
+/* 换页淡入 */
+#view.enter > * { animation: enter .28s ease-out both; }
+@keyframes enter { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+
+/* 跟着节气，底色微微变（只在浅色） */
+@media (prefers-color-scheme: light) {
+  :root[data-season="spring"] { --bg: #f3f4ec; }
+  :root[data-season="summer"] { --bg: #f5f5ee; }
+  :root[data-season="autumn"] { --bg: #f7f2ea; }
+  :root[data-season="winter"] { --bg: #f3f3f1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #view.enter > *, .chip.check.pop, .seal { animation: none; }
+}
