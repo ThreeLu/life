@@ -3,7 +3,7 @@
 //
 // 代码是公开的：这里只放通用的默认值。用的什么产品、祷告事项、密码（只存哈希）都在私有仓库的 life.json 里。
 
-import { STEPS, stepById, CHEERS, CHEER_VERSES, MILESTONE_TEXT, DEFAULT_PLANS, MED_KNOWLEDGE, FEVER_INGREDIENTS, FEVER_FROM, RECOVERY_DAYS, BIBLE_BOOKS } from './content.js';
+import { STEPS, stepById, CHEERS, CHEER_VERSES, MILESTONE_TEXT, DEFAULT_PLANS, LOW_PLANS, IDENTITY, REFINED_TIPS, MED_KNOWLEDGE, FEVER_INGREDIENTS, FEVER_FROM, RECOVERY_DAYS, BIBLE_BOOKS } from './content.js';
 
 export const DAY_START_HOUR = 4; // 凌晨 4 点前还算前一天（熬夜到 1 点洗的澡算「昨天」）
 
@@ -48,7 +48,7 @@ export function defaultData(today) {
     },
     days: {}, // { 日期: { mood, note, energy, stress, did, plan, planDone, sleep: { bed, wake, q }, care: { 打卡项 id: true }, prayer: { night, morning }, read } }
     events: [], // 洗澡、运动、喝的、小记……：{ id, day, at, type, ... }
-    look: { direction: [], steps: {}, routine: [], products: {}, hide: [] },
+    look: { direction: [], steps: {}, routine: [], products: {}, hide: [], identity: null, moments: [] }, // identity：「我是这样的人」自己改过的句子；moments：精致时刻 { id, day, text }
     notes: [], // 我学到的：{ id, title, text, track, link, at }
     periodic: DEFAULT_PERIODIC.map((p) => ({ ...p, last: null })),
     weeks: {}, // { 周一的日期: { skin: { score, tags, note }, thanks } }
@@ -56,6 +56,8 @@ export function defaultData(today) {
     // 小记：ui 是这一页上的文字（名字、按钮、说明），program 是按周解锁的任务，都只在私有仓库里
     private: { supplies: [], ui: {}, program: null, sessions: [], media: [], limits: [], custom: [], minutes: 60, latest: '23:30', perWeek: 1 },
     sick: { current: null, history: [], plans: structuredClone(DEFAULT_PLANS), meds: {}, clinic: {} },
+    // 难受的时候：plans 每种难受的清单，notes 写给难受时的自己 { id, text, at }，log 每一次 { id, day, at, kind, before, after, did, helped, note }
+    low: { plans: structuredClone(LOW_PLANS), notes: [], log: [] },
     english: { cards: [], next: '' },
     milestones: {}, // { key: 达到的日期 }，seen: { key: true }
     places: [], // 想去的地方，见 places.js
@@ -85,6 +87,8 @@ export function migrate(data) {
   data.sick = { ...d.sick, ...(data.sick || {}) };
   data.sick.plans = { ...DEFAULT_PLANS, ...(data.sick.plans || {}) };
   data.english = { ...d.english, ...(data.english || {}) };
+  data.low = { ...d.low, ...(data.low || {}) };
+  data.low.plans = { ...LOW_PLANS, ...(data.low.plans || {}) };
   data.milestones ||= {};
   data.places ||= [];
   data.letters ||= {};
@@ -589,4 +593,53 @@ export function boilerStatus(fetch = {}, minutes) {
   if (open) return { open: true, text: `开水房开着，${clock(open.to)} 关`, slot: open.slot };
   const next = todo[0];
   return next ? { open: false, text: `${next.name} ${clock(next.from)}–${clock(next.to)} 开`, slot: next.slot } : null;
+}
+
+// ---------- 难受的时候 ----------
+// 某一种难受以前记过几次、做完以后平均好了多少、什么管用
+export function lowLessons(log, kind) {
+  const list = (log || []).filter((x) => x.kind === kind);
+  if (!list.length) return null;
+  const both = list.filter((x) => x.before && x.after);
+  const helped = {};
+  for (const x of list) for (const t of new Set(x.helped || [])) helped[t] = (helped[t] || 0) + 1;
+  return {
+    n: list.length,
+    better: both.length ? Math.round((both.reduce((a, x) => a + (x.before - x.after), 0) / both.length) * 10) / 10 : null,
+    helped: Object.entries(helped).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).map(([text, n]) => ({ text, n })),
+    last: list[list.length - 1],
+  };
+}
+// 状态好的日子（心情 8 分以上、写了一句话）：难受的时候拿出来给自己看
+export function goodDays(data, today, n = 3) {
+  return Object.entries(data.days)
+    .filter(([d, r]) => d < today && r.mood >= 8 && r.note)
+    .sort((a, b) => b[1].mood - a[1].mood || b[0].localeCompare(a[0]))
+    .slice(0, n).map(([day, r]) => ({ day, mood: r.mood, note: r.note }));
+}
+
+// ---------- 我是这样的人 ----------
+export function identityLines(data) {
+  if (data.look.identity?.length) return data.look.identity;
+  const dirs = (data.look.direction || []).filter((k) => IDENTITY[k]);
+  return [...(dirs.length ? dirs : ['refined', 'bookish']).flatMap((k) => IDENTITY[k]), ...IDENTITY.all];
+}
+export const lineOfDay = (lines, day) => lines[Math.floor(seeded(`id${day}`)() * lines.length)] || '';
+export const tipOfDay = (day) => REFINED_TIPS[Math.floor(seeded(`tip${day}`)() * REFINED_TIPS.length)];
+// 这一天为「想成为的自己」投的票：护肤打卡、洗澡、定期打理、默念、精致时刻
+export function identityVotes(data, day) {
+  const out = [];
+  const care = data.days[day]?.care || {};
+  for (const r of data.look.routine) if (care[r.id]) out.push(r.name);
+  if ((data.events || []).some((e) => e.day === day && e.type === 'shower')) out.push('洗澡');
+  for (const p of data.periodic || []) if (p.last === day) out.push(p.name);
+  if (data.days[day]?.affirm) out.push('默念「我是这样的人」');
+  for (const m of data.look.moments || []) if (m.day === day) out.push(m.text);
+  return out;
+}
+export function weekVotes(data, today) {
+  const mon = weekOf(today);
+  let n = 0;
+  for (let d = mon; d <= today; d = addDays(d, 1)) n += identityVotes(data, d).length;
+  return n;
 }

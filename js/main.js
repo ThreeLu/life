@@ -7,14 +7,14 @@ import {
   dailyCheer, weekHighlights, newMilestones, careFullDay,
   sickActive, recoveryLeft, tempStats, medInfo, doseStatus, medConflicts, seasonWarning,
   sickDid, sickSymptoms, sickLessons, similarSick, planMissing, sickKinds,
-  boilerStatus,
+  boilerStatus, lowLessons, goodDays, identityLines, lineOfDay, tipOfDay, identityVotes, weekVotes,
   parseSummary, reviewCard, dueCards, mistakeTypes, REVIEW_STEPS,
 } from './life.js';
 import {
   TRACKS, STEPS, stepById, DIRECTIONS, SKIN_TAGS, VERSES, MORNING_VERSES, CONFESS_VERSE, verseFor, LORDS_PRAYER,
   STAGES, PRAISE_HINTS, THANKS_HINTS, CONFESS_HINT, ASK_HINT, ENTRUST_HINT, NEAR, prayerPrompt,
   EN_MODES, EN_CYCLE, EN_TOPICS, englishPrompt,
-  CHEER_ON, cheerNight, MILESTONE_TEXT, SICK_KINDS, SYMPTOMS, RED_FLAGS, FEVER_FROM, BIBLE_BOOKS,
+  CHEER_ON, cheerNight, MILESTONE_TEXT, SICK_KINDS, SYMPTOMS, LOW_KINDS, LOW_VERSES, HOTLINES, RED_FLAGS, FEVER_FROM, BIBLE_BOOKS,
 } from './content.js';
 import { pushSupport, subscribe, currentSubscription, deviceName, PUSH_FILE } from './push.js';
 import { h, compressImage, blobToBase64 } from './util.js';
@@ -150,12 +150,14 @@ const routes = [
   [/^\/p$/, () => privateView()],
   [/^\/p\/s$/, () => sessionView()],
   [/^\/periodic$/, () => periodicView()],
+  [/^\/low$/, () => lowView()],
+  [/^\/low\/go$/, () => lowGoView()],
   [/^\/history$/, () => historyView()],
   [/^\/more$/, () => moreView()],
   [/^\/settings$/, () => settingsView()],
 ];
 const NAV_GROUPS = {
-  '/': [/^\/?$/, /^\/day\//, /^\/night/, /^\/sick/],
+  '/': [/^\/?$/, /^\/day\//, /^\/night/, /^\/sick/, /^\/low/],
   '/look': [/^\/look/, /^\/step\//],
   '/pray': [/^\/pray/],
   '/more': [/^\/more/, /^\/english/, /^\/periodic/, /^\/history/, /^\/settings/, /^\/places?/, /^\/stats/, /^\/report/, /^\/ask/],
@@ -357,6 +359,7 @@ function todayView(day) {
     isToday ? sickCard(today) : null,
     isToday ? seasonCard() : null,
     isToday ? fetchCard(today) : null,
+    isToday ? identityCard(today) : null,
     isToday ? morningPrayerCard(day) : null,
     planCard(day),
     sleepCard(day),
@@ -370,14 +373,31 @@ function todayView(day) {
     isToday ? englishDueCard(today) : null,
     isToday ? yearAgoCard(today) : null,
     isToday ? weekCardToday(today) : null,
-    isToday && !sickActive(d) ? h('button', { class: 'link small center block unwell', onclick: startSickSheet }, '我不舒服') : null,
+    isToday ? h('div', { class: 'unwell-row' },
+      !sickActive(d) ? h('button', { class: 'link small unwell', onclick: startSickSheet }, '我不舒服') : null,
+      h('a', { class: 'small unwell', href: '#/low', onclick: () => resetLow() }, '有点难受')) : null,
     !isToday ? h('a', { class: 'button secondary wide', href: '#/' }, '回到今天') : null);
 }
 
 // 最近几天状态不对：轻轻提一句
 function gentleCard(today) {
-  const t = gentleNote(store.data, today);
-  return t ? h('div', { class: 'card soft' }, h('p', { class: 'small' }, t)) : null;
+  const d = store.data;
+  const t = gentleNote(d, today);
+  const lowRecent = [today, addDays(today, -1)].some((x) => d.days[x]?.mood && d.days[x].mood <= 3)
+    && !d.low.log.some((x) => x.day >= addDays(today, -1));
+  const r = d.days[today] || {};
+  const wrote = d.low.notes.some((x) => x.at.slice(0, 10) >= addDays(today, -14));
+  if (t || lowRecent) {
+    return h('div', { class: 'card soft' },
+      h('p', { class: 'small' }, t || '这两天心情很低。不用一个人硬扛，我们一步一步来。'),
+      lowRecent || /心情/.test(t || '') ? h('a', { class: 'button small secondary', href: '#/low', onclick: () => resetLow() }, '打开「难受的时候」') : null);
+  }
+  if (r.mood >= 8 && !wrote) {
+    return h('div', { class: 'card soft' },
+      h('p', { class: 'small' }, '今天状态不错。写一句话给以后难受时的自己？到时候会翻出来给你看。'),
+      h('button', { class: 'small secondary', onclick: lowNoteSheet }, '写一句'));
+  }
+  return null;
 }
 
 // 每天一句鼓励的话
@@ -675,6 +695,19 @@ function periodicCard(today) {
       h('button', { class: 'small secondary', onclick: () => done(p) }, '做了'))));
 }
 
+// 我是这样的人：每天一句（默念一下）、一条小讲究、今天投了几票
+function identityCard(today) {
+  const d = store.data;
+  const line = lineOfDay(identityLines(d), today);
+  const votes = identityVotes(d, today);
+  const read = d.days[today]?.affirm;
+  return h('div', { class: 'card identity' },
+    h('div', { class: 'rec-top' }, h('h3', {}, '我是这样的人'), h('a', { class: 'small', href: '#/look' }, votes.length ? `今天 ${votes.length} 票 ›` : '形象 ›')),
+    h('p', { class: 'identity-line' }, line),
+    read ? null : h('button', { class: 'small secondary', onclick: () => saveRender('默念', (data) => { dayOf(data, today).affirm = true; }).then((ok) => ok && toast('记住了。你就是这样的人。')) }, '默念了'),
+    h('p', { class: 'small tip' }, h('span', { class: 'muted' }, '今天的小讲究：'), tipOfDay(today)));
+}
+
 // 每周问一次皮肤状态：首页周五到周日出现，「形象」页一直有
 function skinWeekCard(today, onlyWeekend = false) {
   const mon = weekOf(today);
@@ -780,6 +813,7 @@ function lookView() {
   const today = dayKey();
   return h('div', {},
     headerSub('形象', '精致的生活，一步一步来', helpButton('形象这一页怎么用', LOOK_HELP)),
+    identityLookCard(today),
     directionCard(),
     h('div', { class: 'section-title' }, '路线图'),
     Object.entries(TRACKS).map(([track, name]) => trackCard(track, name, today)),
@@ -793,6 +827,46 @@ function lookView() {
 function nextDueText(p, today) {
   const left = p.every - daysBetween(p.last, today);
   return left <= 0 ? '该做了' : `${left} 天后`;
+}
+
+// 「我是这样的人」：句子（可以改）、这周投的票、精致时刻
+function identityLookCard(today) {
+  const d = store.data;
+  const lines = identityLines(d);
+  const votes = identityVotes(d, today);
+  const grouped = Object.entries(votes.reduce((m, v) => ({ ...m, [v]: (m[v] || 0) + 1 }), {})).map(([k, n]) => (n > 1 ? `${k}×${n}` : k));
+  const moments = (d.look.moments || []).slice().sort((a, b) => b.day.localeCompare(a.day));
+  const edit = () => {
+    const ta = h('textarea', { rows: 9, 'aria-label': '我是这样的人' });
+    ta.value = lines.join('\n');
+    openSheet({
+      title: '我是这样的人',
+      body: [h('p', { class: 'muted small' }, '一行一句。用「我」开头，写成现在已经是的样子，不写「我要」「我会」。用你自己的话最好。'), ta],
+      confirmText: '存好',
+      onConfirm: () => saveRender('我是这样的人', (data) => { const l = ta.value.split('\n').map((x) => x.trim()).filter(Boolean); data.look.identity = l.length ? l : null; }),
+    });
+  };
+  return h('div', { class: 'card identity' },
+    h('div', { class: 'rec-top' }, h('h3', {}, '我是这样的人'), h('button', { class: 'link small', onclick: edit }, '改')),
+    h('ul', { class: 'identity-list' }, lines.map((l) => h('li', {}, l))),
+    h('div', { class: 'vote-box' },
+      h('div', { class: 'stat-grid' }, stat('今天', `${votes.length} 票`), stat('这周', `${weekVotes(d, today)} 票`)),
+      h('p', { class: 'muted small' }, votes.length ? `今天：${grouped.join('、')}` : '护肤、洗澡、打理、默念、精致时刻，做一件就是投一票。'),
+      h('p', { class: 'small' }, '你做的每一件小事，都是在给「这样的自己」投一票。票攒多了，你就不用再说服自己——你本来就是。')),
+    h('div', { class: 'rec-top', style: 'margin-top:12px' }, h('h3', {}, '精致时刻'), h('button', { class: 'link small', onclick: momentSheet }, '＋ 记一个')),
+    moments.length ? moments.slice(0, 5).map((m) => h('div', { class: 'event-row' }, h('span', { class: 'muted small ev-time' }, m.day.slice(5).replace('-', '/')), h('span', { class: 'grow small' }, m.text)))
+      : h('p', { class: 'muted small' }, '哪一刻觉得自己很精致、很温柔，就记一句。比如「今天衬衫熨得很平」「在图书馆安安静静读完一章」。'));
+}
+function momentSheet() {
+  const ta = h('textarea', { rows: 3, placeholder: '比如「今天衬衫熨得很平」', 'aria-label': '精致时刻' });
+  openSheet({
+    title: '精致时刻', body: ta, confirmText: '记下',
+    onConfirm: () => {
+      const t = ta.value.trim();
+      if (!t) return false;
+      return saveRender('精致时刻', (data) => { (data.look.moments ||= []).push({ id: newId('mo'), day: dayKey(), text: t }); }).then((ok) => { if (ok) toast('又是一票。'); return ok; });
+    },
+  });
 }
 
 function directionCard() {
@@ -2576,6 +2650,182 @@ function sickBookView() {
     }));
 }
 
+// ---------- 难受的时候 ----------
+// 像生病的预案：先呼吸 → 有多难受 → 哪一种 → 一件一件做 → 给你的话 → 现在呢。每一次记进 low.log，攒成「什么管用」。
+
+const LOW_HELP = [
+  ['这一页', [
+    '难受的时候点「现在开始」，网页带着你一步一步来：先慢慢呼吸一分钟，然后选是哪一种难受，照着清单一件一件做。',
+    '清单是你的预案，可以改成你自己知道管用的事。',
+    '做完会问你现在好一点没有、哪件事管用。记得越多，下次越知道先做什么。',
+    '「写给难受时的自己」：状态好的时候写一句，难受的时候会翻出来给你看。',
+  ]],
+  ['如果很难受', ['有伤害自己的念头、或者觉得撑不下去了，请马上打下面的热线，或者告诉身边的人。这不丢人，打电话是在照顾自己。']],
+];
+const lowState = { step: 0, kind: null, before: null, after: null, did: new Set(), helped: new Set(), words: 0, wordStart: null };
+function resetLow() { Object.assign(lowState, { step: 0, kind: null, before: null, after: null, did: new Set(), helped: new Set(), words: 0, wordStart: null }); }
+
+function hotlineCard() {
+  return h('div', { class: 'card hotline' },
+    h('h3', {}, '很难受、有伤害自己的念头时'),
+    h('p', { class: 'small' }, '马上打电话，或者告诉身边的人。你不用一个人扛。'),
+    HOTLINES.map((x) => h('div', { class: 'kv-row' }, h('span', { class: 'small' }, x.name), h('a', { href: `tel:${x.phone}` }, x.show || x.phone))));
+}
+function lowNoteSheet() {
+  const ta = h('textarea', { rows: 4, placeholder: '比如「你上次也觉得过不去，后来都过去了。先去洗个热水澡。」', 'aria-label': '写给难受时的自己' });
+  openSheet({
+    title: '写给难受时的自己', body: [h('p', { class: 'muted small' }, '现在的你最了解那时候的你。写一句真心话。'), ta], confirmText: '存好',
+    onConfirm: () => {
+      const t = ta.value.trim();
+      if (!t) return false;
+      return saveRender('写给难受时的自己', (data) => { data.low.notes.push({ id: newId('ln'), text: t, at: nowIso() }); }).then((ok) => { if (ok) toast('存好了。到时候它会在。'); return ok; });
+    },
+  });
+}
+
+function lowView() {
+  const d = store.data;
+  const lessons = Object.keys(LOW_KINDS).map((k) => [k, lowLessons(d.low.log, k)]).filter(([, l]) => l);
+  const editPlan = (kind) => {
+    const ta = h('textarea', { rows: 8, 'aria-label': '预案' });
+    ta.value = (d.low.plans[kind] || []).join('\n');
+    openSheet({
+      title: `${LOW_KINDS[kind].name}的时候`, body: [h('p', { class: 'muted small' }, '一行一件事，写你知道对自己管用的。到时候会变成可以打勾的清单。'), ta], confirmText: '存好',
+      onConfirm: () => saveRender('难受的预案', (data) => { data.low.plans[kind] = ta.value.split('\n').map((x) => x.trim()).filter(Boolean); }),
+    });
+  };
+  const log = d.low.log.slice().reverse();
+  return h('div', {},
+    headerSub('难受的时候', '你打开这一页，已经是在照顾自己了', helpButton('难受的时候', LOW_HELP)),
+    h('a', { class: 'button wide', href: '#/low/go', onclick: () => resetLow() }, '现在开始'),
+    h('div', { class: 'card' },
+      h('div', { class: 'rec-top' }, h('h3', {}, '写给难受时的自己'), h('button', { class: 'link small', onclick: lowNoteSheet }, '＋ 写一句')),
+      d.low.notes.length ? d.low.notes.slice().reverse().map((n) => h('div', { class: 'low-note' },
+        h('p', {}, n.text),
+        h('div', { class: 'rec-top' }, h('span', { class: 'muted small' }, n.at.slice(0, 10)),
+          h('button', { class: 'link small', onclick: () => saveUndoable('删掉一句', (data) => { data.low.notes = data.low.notes.filter((x) => x.id !== n.id); }, '删掉了').then(render).catch(() => {}) }, '删掉'))))
+        : h('p', { class: 'muted small' }, '状态好的时候写一句给难受时的自己。到时候会翻出来给你看。')),
+    lessons.length ? [h('div', { class: 'section-title' }, '以前的经验'), h('div', { class: 'card' }, lessons.map(([k, l]) => h('div', { class: 'low-lesson' },
+      h('b', {}, `${LOW_KINDS[k].icon} ${LOW_KINDS[k].name}`), h('span', { class: 'muted small' }, ` · ${l.n} 次${l.better ? ` · 做完平均好了 ${l.better} 分` : ''}`),
+      l.helped.length ? h('p', { class: 'small' }, `管用：${l.helped.slice(0, 5).map((x) => `${x.text}${x.n > 1 ? `×${x.n}` : ''}`).join('、')}`) : null)))] : null,
+    h('div', { class: 'section-title' }, '我的预案'),
+    h('div', { class: 'group' }, Object.entries(LOW_KINDS).map(([k, v]) => cell({ title: `${v.icon} ${v.name}`, sub: (d.low.plans[k] || []).join('、'), onclick: () => editPlan(k) }))),
+    log.length ? [h('div', { class: 'section-title' }, '以前的每一次'), h('div', { class: 'card list-card' }, log.slice(0, 12).map((x) => h('div', { class: 'event-row' },
+      h('span', { class: 'muted small ev-time' }, x.day.slice(5).replace('-', '/')),
+      h('span', { class: 'grow small' }, `${LOW_KINDS[x.kind]?.name || ''}${x.note ? ` · ${x.note}` : ''}`),
+      x.before && x.after ? h('span', { class: 'small' }, `${x.before} → ${x.after}`) : null)))] : null,
+    hotlineCard());
+}
+
+// 一步一步
+let breathTimer = null;
+function breathBox() {
+  const label = h('div', { class: 'breath-label' }, '吸气');
+  const circle = h('div', { class: 'breath-circle' }, label);
+  requestAnimationFrame(() => requestAnimationFrame(() => circle.classList.add('in')));
+  let phase = 'in'; let left = 6;
+  const count = h('p', { class: 'muted small center' }, `还有 ${left} 次`);
+  clearInterval(breathTimer);
+  const tick = () => {
+    if (!circle.isConnected) { clearInterval(breathTimer); return; }
+    phase = phase === 'in' ? 'out' : 'in';
+    if (phase === 'in') { left -= 1; count.textContent = left > 0 ? `还有 ${left} 次` : '好了。可以下一步了'; }
+    if (left <= 0) { clearInterval(breathTimer); label.textContent = '好'; circle.className = 'breath-circle'; return; }
+    circle.className = `breath-circle ${phase}`;
+    label.textContent = phase === 'in' ? '吸气' : '慢慢呼气';
+    clearInterval(breathTimer);
+    breathTimer = setInterval(tick, phase === 'in' ? 4000 : 6000);
+  };
+  breathTimer = setInterval(tick, 4000);
+  return h('div', { class: 'breath' }, circle, count);
+}
+function lowGoView() {
+  const d = store.data;
+  const st = lowState;
+  const next = (step) => { st.step = step; render(); window.scrollTo(0, 0); };
+  const top = (title, sub) => headerSub(title, sub, h('a', { class: 'icon-btn quiet', href: '#/low', 'aria-label': '回去' }, '×'));
+  if (st.step === 0) {
+    return h('div', { class: 'low-go' },
+      top('先慢慢呼吸', '跟着圆圈：吸气 4 秒，呼气 6 秒'),
+      breathBox(),
+      h('div', { class: 'actions' }, h('button', { class: 'grow', onclick: () => next(1) }, '下一步'), h('button', { class: 'secondary', onclick: () => next(1) }, '跳过')));
+  }
+  if (st.step === 1) {
+    return h('div', { class: 'low-go' },
+      top('现在有多难受？', '1 是还好，10 是非常难受'),
+      h('div', { class: 'card' }, scoreRow('有多难受', 10, st.before, (v) => { st.before = v; render(); })),
+      st.before >= 9 ? hotlineCard() : null,
+      h('div', { class: 'actions' }, h('button', { class: 'grow', onclick: () => next(2) }, '下一步')));
+  }
+  if (st.step === 2) {
+    return h('div', { class: 'low-go' },
+      top('是哪一种难受？', '选最接近的就好'),
+      h('div', { class: 'group' }, Object.entries(LOW_KINDS).map(([k, v]) => cell({ title: `${v.icon} ${v.name}`, onclick: () => { st.kind = k; next(3); } }))));
+  }
+  if (st.step === 3) {
+    const kind = st.kind || 'unclear';
+    const plan = d.low.plans[kind] || [];
+    const items = [...new Set([...plan, ...st.did])];
+    const l = lowLessons(d.low.log, kind);
+    const input = h('input', { placeholder: '还做了别的', 'aria-label': '还做了' });
+    return h('div', { class: 'low-go' },
+      top(LOW_KINDS[kind].name, '一件一件来，做一件点一件。不用全做完'),
+      l?.helped.length ? h('div', { class: 'card soft' }, h('p', { class: 'small' }, `以前这种时候，「${l.helped[0].text}」最管用${l.helped[0].n > 1 ? `（${l.helped[0].n} 次）` : ''}。先从它开始？`)) : null,
+      h('div', { class: 'card' },
+        h('div', { class: 'chips col' }, items.map((x) => h('button', {
+          type: 'button', class: `chip check${st.did.has(x) ? ' on' : ''}`, 'aria-pressed': String(st.did.has(x)),
+          onclick: () => { if (st.did.has(x)) st.did.delete(x); else st.did.add(x); render(); },
+        }, st.did.has(x) ? icon('check', 'i tiny') : null, x))),
+        h('div', { class: 'inline-add' }, input, h('button', { class: 'small secondary', onclick: () => { const t = input.value.trim(); if (t) { st.did.add(t); render(); } } }, '加'))),
+      h('div', { class: 'actions' }, h('button', { class: 'grow', onclick: () => next(4) }, '下一步')));
+  }
+  if (st.step === 4) {
+    const notes = d.low.notes;
+    const good = goodDays(d, dayKey());
+    const words = [
+      ...notes.map((n) => ({ who: `你在 ${n.at.slice(0, 10)} 写给现在的自己`, text: n.text })),
+      ...good.map((g) => ({ who: `${g.day.slice(5).replace('-', '/')} 那天你心情 ${g.mood} 分，写了`, text: g.note })),
+      ...LOW_VERSES.map((v) => ({ who: v.ref, text: v.text })),
+    ];
+    // 先给自己写的话，再是状态好的日子、经文；第一次打开时定一个起点，「再看一句」往后翻
+    st.wordStart ??= Math.floor(Math.random() * (notes.length || words.length));
+    const w = words[(st.wordStart + st.words) % words.length];
+    const pastLow = d.low.log.filter((x) => x.before && x.after && x.after < x.before).length;
+    return h('div', { class: 'low-go' },
+      top('给你的话', ''),
+      h('div', { class: 'card words' }, h('p', { class: 'words-text' }, w.text), h('p', { class: 'muted small' }, `— ${w.who}`)),
+      h('button', { class: 'link small block', style: 'margin:0 4px 14px', onclick: () => { st.words += 1; render(); } }, '再看一句 ›'),
+      pastLow ? h('p', { class: 'small cheer' }, `以前你在这里记过 ${pastLow} 次，做完都好了一些。这一次也会过去。`) : h('p', { class: 'small cheer' }, '难受是真的，但它会过去。你现在做的，就是在帮它过去。'),
+      h('div', { class: 'actions' }, h('button', { class: 'grow', onclick: () => next(5) }, '下一步')));
+  }
+  if (st.step === 5) {
+    const note = h('textarea', { rows: 2, placeholder: '想写点什么（可以不写）', 'aria-label': '想写点什么' });
+    const finish = () => saveRender('难受的时候：记一次', (data) => {
+      data.low.log.push({
+        id: newId('lo'), day: dayKey(), at: nowIso(), kind: st.kind || 'unclear',
+        ...(st.before ? { before: st.before } : {}), ...(st.after ? { after: st.after } : {}),
+        did: [...st.did], helped: [...st.helped], ...(note.value.trim() ? { note: note.value.trim() } : {}),
+      });
+    }).then((ok) => { if (ok) next(6); });
+    return h('div', { class: 'low-go' },
+      top('现在呢？', '1 是还好，10 是非常难受'),
+      h('div', { class: 'card' }, scoreRow('现在有多难受', 10, st.after, (v) => { st.after = v; render(); }),
+        st.before ? h('p', { class: 'muted small' }, `开始的时候是 ${st.before}`) : null),
+      st.did.size ? h('div', { class: 'card' }, h('h3', {}, '哪些有点用？'),
+        h('div', { class: 'chips' }, [...st.did].map((x) => h('button', { type: 'button', class: `chip check${st.helped.has(x) ? ' on' : ''}`, 'aria-pressed': String(st.helped.has(x)),
+          onclick: () => { if (st.helped.has(x)) st.helped.delete(x); else st.helped.add(x); render(); } }, x)))) : null,
+      h('div', { class: 'card' }, note),
+      h('div', { class: 'actions' }, h('button', { class: 'grow', onclick: finish }, '记下')));
+  }
+  const still = st.after >= 8;
+  return h('div', { class: 'low-go' },
+    top(still ? '还是很难受' : '辛苦了', ''),
+    still ? [h('div', { class: 'card soft' }, h('p', {}, '还是很难受的话，不要一个人扛着。找一个人说说：家里人、同学、老师，或者打下面的电话。')), hotlineCard()]
+      : h('div', { class: 'card soft' }, h('p', {}, st.before && st.after && st.after < st.before ? `从 ${st.before} 到 ${st.after}，你把自己照顾好了一点。` : '你没有放着不管，你在照顾自己。'),
+        h('p', { class: 'small muted' }, '今晚早点睡。明天醒来，又是新的一天。')),
+    h('div', { class: 'actions' }, h('a', { class: 'button grow', href: '#/', onclick: () => resetLow() }, '回到今天'), h('button', { class: 'secondary', onclick: lowNoteSheet }, '写给下次的自己')));
+}
+
 // ---------- 小记 ----------
 // 单独有 6 位密码：只存「加盐哈希」（PBKDF2），存在私有仓库里。离开网站就锁上。
 // 代码是公开的，这一页上的文字（名字、按钮、说明）都从私有仓库的 private.ui 读，这里只有中性的默认值。
@@ -3215,7 +3465,8 @@ function moreView() {
       cell({ href: '#/night', ic: 'moon', title: '睡前复盘' }),
       cell({ href: '#/english', ic: 'globe', color: 'var(--blue)', title: '英语陪练', sub: '复制提示词，和 ChatGPT 语音聊' }),
       cell({ href: '#/periodic', ic: 'calendar', color: 'var(--sage)', title: '定期打理', sub: '剪指甲、换床单、理发……' }),
-      cell({ href: '#/sick/book', ic: 'shield', color: 'var(--danger)', title: '生病手册', sub: '以前的每一次、预案、看病去哪' }),
+      cell({ href: '#/sick/book', ic: 'shield', color: 'var(--danger)', title: '生病手册', sub: '我的经验、预案、以前的每一次' }),
+      cell({ href: '#/low', ic: 'leaf', color: 'var(--sage)', title: '难受的时候', sub: '一步一步来、写给难受时的自己' }),
       cell({ href: '#/history', ic: 'list', color: 'var(--amber)', title: '最近的记录' })),
     h('div', { class: 'group' },
       cell({ href: '#/settings', ic: 'gear', color: 'var(--muted)', title: '设置' })),

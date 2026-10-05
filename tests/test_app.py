@@ -8,6 +8,7 @@
 """
 
 import json
+import re
 import sys
 import threading
 import traceback
@@ -541,7 +542,7 @@ def _(c):
     c.sheet().get_by_role("button", name="存好").click()
     c.wait(lambda d: d["notes"][0]["title"] == "编的知识" and d["notes"][0]["track"] == "makeup", "卡片")
     expect(p.get_by_text("先这样再那样")).to_be_visible()
-    p.get_by_role("button", name="改", exact=True).click()
+    p.locator(".card.direction").get_by_role("button", name="改", exact=True).click()
     c.sheet().get_by_role("button", name="精致讲究").click()
     c.sheet().get_by_role("button", name="温柔书卷气").click()
     c.sheet().get_by_role("button", name="好了").click()
@@ -910,6 +911,87 @@ def _(c):
     c.go("#/")
     p.reload()
     expect(p.get_by_text("最近几天心情都不太好")).to_be_visible()
+
+
+@step("难受的时候：首页进去、写给难受时的自己、呼吸→有多难受→哪一种→清单→给你的话→现在呢、记下来、以前的经验")
+def _(c):
+    p = c.page
+    c.go("#/")
+    p.get_by_role("link", name="打开「难受的时候」").click()
+    expect(p.get_by_role("heading", name="难受的时候")).to_be_visible()
+    expect(p.get_by_text("400-161-9995")).to_be_visible()
+    p.get_by_role("button", name="＋ 写一句").click()
+    c.sheet().get_by_label("写给难受时的自己").fill("编的给自己的话")
+    c.sheet().get_by_role("button", name="存好").click()
+    c.wait(lambda d: d["low"]["notes"][0]["text"] == "编的给自己的话", "写一句")
+    # 改预案
+    p.get_by_role("button", name="🌙 孤单").click()
+    c.sheet().get_by_label("预案").fill("编的办法甲\n编的办法乙")
+    c.sheet().get_by_role("button", name="存好").click()
+    c.wait(lambda d: d["low"]["plans"]["lonely"] == ["编的办法甲", "编的办法乙"], "难受的预案")
+    for round_ in (1, 2):
+        p.get_by_role("link", name="现在开始").click()
+        expect(p.get_by_role("heading", name="先慢慢呼吸")).to_be_visible()
+        expect(p.locator(".breath-circle")).to_be_visible()
+        p.get_by_role("button", name="跳过").click()
+        p.get_by_role("group", name="有多难受").get_by_role("button", name="9", exact=True).click()
+        expect(p.locator(".hotline")).to_be_visible()  # 9 分以上马上给热线
+        p.get_by_role("button", name="下一步").click()
+        p.get_by_role("button", name="🌙 孤单").click()
+        if round_ == 2:
+            expect(p.get_by_text("以前这种时候，「编的办法乙」最管用")).to_be_visible()
+        p.get_by_role("button", name="编的办法乙").click()
+        p.get_by_role("button", name="下一步").click()
+        expect(p.locator(".words")).to_be_visible()
+        p.get_by_role("button", name="下一步").click()
+        p.get_by_role("group", name="现在有多难受").get_by_role("button", name="5", exact=True).click()
+        p.locator(".card", has_text="哪些有点用").get_by_role("button", name="编的办法乙").click()
+        p.get_by_role("button", name="记下").click()
+        c.wait(lambda d: len(d["low"]["log"]) == round_, "记一次")
+        expect(p.get_by_text("从 9 到 5")).to_be_visible()
+        if round_ == 1:
+            p.get_by_role("link", name="回到今天").click()
+            p.get_by_role("link", name="有点难受").click()
+    x = c.data()["low"]["log"][0]
+    assert x["kind"] == "lonely" and x["before"] == 9 and x["after"] == 5 and x["helped"] == ["编的办法乙"], x
+    c.go("#/low")
+    expect(p.get_by_text("做完平均好了 4 分")).to_be_visible()
+    # 给你的话里有写给自己的那句（多翻几句一定会出现）
+    p.get_by_role("link", name="现在开始").click()
+    p.get_by_role("button", name="跳过").click()
+    p.get_by_role("button", name="下一步").click()
+    p.get_by_role("button", name="🌧️ 低落、提不起劲").click()
+    p.get_by_role("button", name="下一步").click()
+    texts = set()
+    for _ in range(12):
+        texts.add(p.locator(".words-text").inner_text())
+        p.get_by_role("button", name="再看一句 ›").click()
+    assert "编的给自己的话" in texts, texts
+
+
+@step("我是这样的人：首页一句（默念了）、小讲究、投票；形象页改句子、记精致时刻")
+def _(c):
+    p = c.page
+    c.go("#/")
+    card = p.locator(".card.identity")
+    expect(card).to_contain_text("今天的小讲究")
+    card.get_by_role("button", name="默念了").click()
+    c.wait(lambda d: d["days"][TODAY].get("affirm") is True, "默念")
+    expect(p.locator(".card.identity").get_by_role("button", name="默念了")).to_have_count(0)
+    c.go("#/look")
+    look = p.locator(".card.identity")
+    expect(look).to_contain_text("默念「我是这样的人」")
+    look.get_by_role("button", name="改").click()
+    c.sheet().get_by_label("我是这样的人").fill("编的句子一\n编的句子二")
+    c.sheet().get_by_role("button", name="存好").click()
+    c.wait(lambda d: d["look"]["identity"] == ["编的句子一", "编的句子二"], "改句子")
+    p.get_by_role("button", name="＋ 记一个").click()
+    c.sheet().get_by_label("精致时刻").fill("编的精致时刻")
+    c.sheet().get_by_role("button", name="记下").click()
+    c.wait(lambda d: d["look"]["moments"][0]["text"] == "编的精致时刻", "精致时刻")
+    expect(p.locator(".card.identity")).to_contain_text("编的精致时刻")
+    c.go("#/")
+    expect(p.locator(".identity-line")).to_have_text(re.compile("编的句子"))
 
 
 def inventory_seed():

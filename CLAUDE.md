@@ -15,10 +15,11 @@
 { version, startDate,
   settings: { rhythmDays, checks, bibleVersion, bibleVersionEn?, sportKinds, drinkKinds, pin: { salt, iter, hash }, city?: { name, lat, lon, districts: [] } },
   days: { 日期: { mood 1–10, note, energy 1–5, stress 1–5, did, plan, planDone: yes|part|no,
-                  sleep: { bed, wake, q }, fetch: { mid, eve }（打水）, care: { 打卡项id: true }, prayer: { night: { at, mode, near, note, summary }, morning: { at } }, read, readBook } },
+                  sleep: { bed, wake, q }, fetch: { mid, eve }（打水）, affirm（默念了）, care: { 打卡项id: true }, prayer: { night: { at, mode, near, note, summary }, morning: { at } }, read, readBook } },
   events: [{ id, day, at, type: shower|sport|drink|english|p|p2, kind?, minutes?, km?, level?, note?, mode?, topic?, mistakes?, exprs?, score?, flag?, checks?: { c1, c2, c3 } }],
   look: { direction: [refined|bookish|clean|crisp], steps: { 步骤id: { status: learning|habit, since, habitAt } },
-          routine: [{ id, step, name, when: am|pm|shower|week, times?, optional? }], products: { 物品档案id: { opened, verdict, note } }, hide: [物品档案id] },
+          routine: [{ id, step, name, when: am|pm|shower|week, times?, optional? }], products: { 物品档案id: { opened, verdict, note } }, hide: [物品档案id],
+          identity: null | [句子]（「我是这样的人」，null 用 IDENTITY 按方向的默认）, moments: [{ id, day, text }]（精致时刻） },
   notes: [{ id, title, text, track, link, at }],
   periodic: [{ id, name, every, last }],
   weeks: { 周一日期: { skin: { score, tags }, thanks } },
@@ -26,6 +27,7 @@
   private: { supplies: [{ id, name, low? }], ui: { title, main, alt, score, flag, checks: { c1, c2, c3 }, checksTitle, help, programTitle, sessionStart, safety: [], aftercare: [], … },
              program: { start: 第一周周一, weeks: [{ title, intro, buy?, tasks: [{ id, track: a|b, text, level, note? }] }], pool: [任务 + from 第几周起], draw: 每次抽几张, scenes: [情景], rewards: [文字 | { text, unrule }], penalties: [惩罚], checks: [突击检查], checkEvery: [最少, 最多分钟], levels: [{ name, min, text }] }, rules: [{ id, text, at }], callNames: [称呼], begs: [求的话], voiceLines: { before: [], after: [] }, custom: [任务], limits: [字],
              sessions: [{ id, day, start, end, minutes, week, tasks: { id: done|skip }, score, after, note }], media: [{ id, day, title, link, minutes, after, note }], minutes, latest, perWeek },
+  low: { plans: { down|anxious|lonely|hurt|tired|unclear: [一行一件事] }, notes: [{ id, text, at }]（写给难受时的自己）, log: [{ id, day, at, kind, before 1–10, after, did: [], helped: [], note }] },
   sick: { current: null | { id, kind: cold|fever|gut|other, start, path?: [{ day, kind }]（换过种类才有）, temps: [{ at, t }], meds: [{ at, item, name }], water: { 日期: 杯 },
                             sym: { 日期: [症状] }, done: { 日期: { 做的事文字: true } }（老数据键是预案序号）, extra: [自己加的事], gut: { 日期: { d, v } }, suspects: [] },
           history: [同上 + end, helped: [觉得管用的], how], plans: { kind: [一行一件事] }, meds: { 物品档案id: { dose, gapHours, perDay } } },
@@ -43,6 +45,8 @@
 - 鼓励（用户要求「让我感到自信、有激励」）：首页每天一句（`CHEERS` / `CHEER_VERSES`）、做完一件事一句（`CHEER_ON`、`cheerNight` 按心情）、「这周的你」只数做到的（`weekHighlights`）、里程碑（`MILESTONE_TEXT`，首页祝贺 3 天）、状态不对轻轻提一句（`gentleNote`）。温和具体，不喊口号、不说教。
 - 小记（`#/p`，首页右上角叶子图标）：单独 6 位密码，PBKDF2 哈希存 `settings.pin`，离开网站就锁。**这一页的文字（名字、按钮、勾选项、说明）都在 `private.ui`，公开代码里只有中性默认值（`P_DEFAULT`），不要把具体用途写进代码、提交说明或这份文件。** 只做中性记录和统计，不要「减少 / 坚持天数」之类；节奏只在这一页提，不推送；别的页面不出现（「问问我的记录」只在这一页开着锁时才带上它的数字）。忘了密码：在数据仓库里删掉 `settings.pin` 让用户重设。这一页还有按周解锁的任务（`programWeek` / `weekTasks`，每周一换；超过最后一周就是最后一周 + 自己写的）和计时的一段时间 `#/p/s`（开始前安全提醒 → 任务一张一张做或跳过，含「绝对不要」里的字的任务不出现 → 收尾清单 + 感受），任务文字里 `{3-6}` 随机整数、`{甲|乙}` 随机选一个（`fillText`，同一次时间里不变）；每次开始抽一个情景；收尾有得分（做到的按强度 10/20/30），全做到抽奖励卡、跳过两张以上抽惩罚卡（可以不做）；任务可以带 `rule`（做到了加进规矩手册 `private.rules`），track 有 a / b / c（显示名 `ui.trackA/B/C`），`{称呼}` 换成 `private.callNames`、`{求}` 换成 `private.begs` 里随机一个（都是用户自己写的）；一段时间里可以开语音（浏览器中文朗读，建议耳机；声音、语速、音调在小记页面选，存在这台设备的 localStorage `life-voice`，默认挑女声；任务和突击检查前后会随机加 `private.voiceLines.before/after` 里的一句）、黑暗模式（body.dark-session），任务里出现「N 分钟 / N 秒」就有计时按钮，突击检查按 `checkEvery` 随机出现；等级按累计得分（`levels`）；以及 `privateNote`（这周次数超过 `perWeek`、最近几次结束后心情低、老超时 → 只在这一页轻轻提）。任务内容只写在私有仓库。
 - 生病（`#/sick`、`#/sick/book`）：体温曲线（37.3 起问切发烧）、喝水 8 杯、预案打勾、什么时候去医院（`RED_FLAGS`，到了自动变红）、药从物品档案「药品急救」读（只读），`MED_KNOWLEDGE` 认成分：同成分 / 两种退烧药提醒、抗生素激素「医生判断」；用户自己抄说明书（`sick.meds`）算下次几点能吃。肠胃从账本读昨天今天吃的（只读）。好了进 `history`（勾哪些管用 → `helped`），之后 2 天恢复期。**只写常识，不替用户定剂量。** 攒经验（用户要的「记多了，下次同样情况就有预案」）：每天点症状（`SYMPTOMS`）、做了什么（预案 + `extra`），`sickLessons` 按种类算几天好、感冒几次转发烧第几天、常见症状、管用的（n/做过次数），`similarSick` 找症状最像的一次，`planMissing` 一键加进预案；生病页最上面「以前的经验」、手册「我的经验」。不要「看病去哪」（用户说不需要），只留急救 120。
+- 我是这样的人（用户要「强化认知、坚定地相信精致讲究」）：首页每天一句（`lineOfDay`）+ 默念了 + 一条小讲究（`REFINED_TIPS`、`tipOfDay`）；形象页最上面能改句子、看「投票」（`identityVotes`：护肤打卡、洗澡、定期打理、默念、精致时刻，一件一票，`weekVotes`）、记精致时刻。思路是身份认同 + 自己的证据，不喊空口号；和小记完全分开。
+- 难受的时候（`#/low`、`#/low/go`，用户说「很关键」）：首页底部「有点难受」、心情低时 `gentleCard` 也给入口；一步一页：呼吸（吸 4 呼 6，6 次）→ 有多难受 1–10（9 以上马上给热线 `HOTLINES`）→ 哪一种（`LOW_KINDS`）→ 预案清单（`LOW_PLANS`，可改；`lowLessons` 说以前什么最管用）→ 给你的话（先自己写的 `low.notes`，再是心情 8 分以上那天写的 `goodDays`、经文 `LOW_VERSES`）→ 现在呢 + 哪些有用 → 存进 `low.log`。心情 8 分以上且两周没写过，首页请他写一句给难受时的自己。不推送、不进「问问我的记录」。
 - 打水：开水房早上 7–8、中午 11–13、晚上 17–19；两个暖壶，一天两回：上午或中午一回（`mid`，早上打了中午就不用）、晚上一回（`eve`）。首页「打水」卡片（`boilerStatus`），两回都打了或 19 点以后不显示；推送 `fetch_message`：这一回没打就在刚开（11:05 / 17:05）和快关（12:20 / 18:20）各提醒一次。
 - 换季：`settings.city` 有经纬度时用 Open-Meteo 查天气（每天一次存 localStorage，`seasonWarning`），睡前推送也加一句。
 - 英语：贴回 ChatGPT「wrap up」总结（`parseSummary`）进错句本 / 表达本，`english.next` 写进下一次提示词；复习间隔 1/3/7/14/30/60 天（`reviewCard`）。

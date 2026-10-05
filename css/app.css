@@ -647,3 +647,31 @@ button.cell .grow { display: block; }
 .card.fetch.open { box-shadow: inset 3px 0 0 var(--blue), var(--shadow); }
 .fetch-open { color: var(--blue); font-weight: 600; }
 .card.fetch .chips { margin-top: 6px; }
+
+/* 首页底部：我不舒服 / 有点难受 */
+.unwell-row { display: flex; justify-content: center; gap: 22px; margin-top: 6px; }
+.unwell-row .unwell { margin: 0; color: var(--muted); }
+
+/* 我是这样的人 */
+.identity-line { font-family: "Songti SC", "STSong", serif; font-size: 19px; line-height: 1.6; margin: 6px 0 10px; color: var(--text); }
+.identity .tip { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line); }
+.identity-list { padding-left: 18px; margin: 6px 0; font-family: "Songti SC", "STSong", serif; font-size: 16px; line-height: 1.8; }
+.vote-box { margin-top: 10px; padding: 12px; border-radius: 12px; background: color-mix(in srgb, var(--accent) 8%, var(--card)); }
+.vote-box p { margin: 6px 0 0; }
+
+/* 难受的时候 */
+.low-go .chips.col { flex-direction: column; align-items: stretch; }
+.low-go .chips.col .chip { justify-content: flex-start; text-align: left; min-height: 44px; padding: 8px 14px; border-radius: 12px; }
+.breath { display: grid; place-items: center; padding: 24px 0 8px; }
+.breath-circle { width: 120px; height: 120px; border-radius: 50%; background: color-mix(in srgb, var(--accent) 22%, var(--card)); display: grid; place-items: center; transition: transform 4s ease-in-out; transform: scale(.75); }
+.breath-circle.in { transform: scale(1.25); transition-duration: 4s; }
+.breath-circle.out { transform: scale(.75); transition-duration: 6s; }
+.breath-label { font-size: 15px; color: var(--accent); font-weight: 600; }
+.breath p { margin-top: 36px; }
+.words-text { font-family: "Songti SC", "STSong", serif; font-size: 18px; line-height: 1.7; margin: 4px 0 8px; }
+.low-note { padding: 8px 0; border-bottom: 1px solid var(--line); }
+.low-note:last-child { border-bottom: 0; }
+.low-note p { margin: 0 0 4px; }
+.low-lesson { padding: 6px 0; }
+.low-lesson p { margin: 4px 0 0; }
+.hotline h3 { color: var(--danger); }

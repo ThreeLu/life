@@ -183,7 +183,7 @@ export function gentleNote(data, today) {
   const lowMood = last3.every((r) => r.mood && r.mood <= 4);
   const shortSleep = [0, 1, 2].map((i) => sleepHours(data.days[addDays(today, -i)]?.sleep)).every((h) => h !== null && h < 6);
   if (lowMood && shortSleep) return '最近几天睡得少，心情也低一些。今晚早点睡？对自己温柔一点。';
-  if (lowMood) return '最近几天心情都不太好。想说说的话，可以在「分析 → 问问我的记录」里聊聊，或者找个信任的人说说。';
+  if (lowMood) return '最近几天心情都不太好。不用一个人硬扛，打开「难受的时候」一步一步来，或者找个信任的人说说。';
   if (shortSleep) return '这几天都没睡够 6 小时。今晚早点放下手机吧。';
   return null;
 }
