@@ -5,7 +5,7 @@ from datetime import datetime
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "tools"))
-from life_push import day_message, message  # noqa: E402
+from life_push import day_message, fetch_key, fetch_message, message  # noqa: E402
 
 SAT = datetime(2026, 10, 10, 22, 31)  # 周六
 SUN = datetime(2026, 10, 11, 22, 31)  # 周日
@@ -42,3 +42,16 @@ m = message({"days": {"2026-10-09": {"mood": 6, "prayer": {"night": {"at": "x"}}
 assert m["body"] == "周末可以去：编的书店、编的公园" and m["url"].endswith("#/places"), m
 assert message({"days": {"2026-10-10": {"mood": 6, "prayer": {"night": {"at": "x"}}}}, "places": places}, SAT) is None
 print("推送规则 ✓")
+
+# 打水：中午、晚上各两次（刚开、快关），这一回打了就不提醒；早上打了算上午这回
+D = "2026-10-10"
+assert fetch_key(datetime(2026, 10, 10, 10, 7)) is None and fetch_key(datetime(2026, 10, 10, 19, 5)) is None
+assert fetch_key(datetime(2026, 10, 10, 11, 20)) == "fetch-mid1" and fetch_key(datetime(2026, 10, 10, 12, 30)) == "fetch-mid2"
+m = fetch_message({"days": {}}, datetime(2026, 10, 10, 11, 20))
+assert m["title"] == "打水" and "13:00" in m["body"], m
+assert fetch_message({"days": {D: {"fetch": {"mid": True}}}}, datetime(2026, 10, 10, 12, 30)) is None
+m = fetch_message({"days": {D: {"fetch": {"mid": True}}}}, datetime(2026, 10, 10, 18, 30))
+assert m["body"] == "开水房 19:00 关门，水还没打", m
+assert fetch_message({"days": {D: {"fetch": {"mid": True, "eve": True}}}}, datetime(2026, 10, 10, 17, 20)) is None
+print("打水提醒 ✓")
+

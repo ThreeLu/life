@@ -642,3 +642,8 @@ button.cell .grow { display: block; }
 .cand-num { flex: none; width: 22px; height: 22px; border-radius: 50%; background: var(--accent); color: var(--accent-text); font-size: 12px; display: grid; place-items: center; margin-top: 1px; }
 .num-pin { width: 22px; height: 22px; border-radius: 50%; background: var(--accent, #7a68b0); color: #fff; font: 600 12px/22px system-ui; text-align: center; box-shadow: 0 1px 4px rgba(0,0,0,.35); }
 .lessons p { margin: 4px 0; }
+
+/* 打水 */
+.card.fetch.open { box-shadow: inset 3px 0 0 var(--blue), var(--shadow); }
+.fetch-open { color: var(--blue); font-weight: 600; }
+.card.fetch .chips { margin-top: 6px; }

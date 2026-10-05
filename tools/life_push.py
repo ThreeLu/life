@@ -1,6 +1,7 @@
 """每晚 22:30 左右（北京时间）：今天的一句话还没写、还没祷告就提醒；周日加一句写这周的感恩；生病时加一句早点睡；
 要降温了加一句。合成一条推送，都做了就不发。
 白天（10–20 点每 2 小时一次）：只在生病时提醒喝水、发烧时提醒量体温。
+打水：开水房中午 11–13、晚上 17–19 开，这一回还没打就在刚开的时候和快关的时候各提醒一次。
 
 在数据仓库 life-data 的定时任务里运行（那边的 workflow 每次从公开仓库下载这个文件）：
 订阅在 config/push.json，私钥在 secret VAPID_PRIVATE_KEY。规则和网页 js/life.js 一致（一天从凌晨 4 点开始）。
@@ -100,6 +101,39 @@ def day_message(data, now):
     return {"title": "照顾自己", "body": "；".join(lines), "url": f"{APP}#/sick", "tag": f"life-day-{t}-{now.hour}"}
 
 
+# 打水：(第几回, 提醒几, 从几点几分, 到几点几分, 文字)。上午 / 中午算一回（早上 7–8 打了，中午就不提醒）
+FETCH_REMIND = [
+    ("mid", 1, (11, 0), (12, 15), "开水房开着（到 13:00），记得打水"),
+    ("mid", 2, (12, 15), (12, 50), "开水房 13:00 关门，水还没打"),
+    ("eve", 1, (17, 0), (18, 15), "开水房开着（到 19:00），晚上洗漱要用水"),
+    ("eve", 2, (18, 15), (18, 50), "开水房 19:00 关门，水还没打"),
+]
+
+
+def fetch_key(now):
+    """现在是哪一次打水提醒（不在提醒时间里返回 None）"""
+    hm = (now.hour, now.minute)
+    for slot, n, start, end, _ in FETCH_REMIND:
+        if start <= hm < end:
+            return f"fetch-{slot}{n}"
+    return None
+
+
+def fetch_message(data, now):
+    """这一回还没打水就提醒；打了返回 None"""
+    key = fetch_key(now)
+    if not key:
+        return None
+    t = day_key(now).isoformat()
+    done = ((data.get("days") or {}).get(t) or {}).get("fetch") or {}
+    for slot, n, _, _, text in FETCH_REMIND:
+        if key == f"fetch-{slot}{n}":
+            if done.get(slot):
+                return None
+            return {"title": "打水", "body": text, "url": f"{APP}#/", "tag": f"life-{key}-{t}"}
+    return None
+
+
 def season_line(data, now):
     """要降温了（三天内最低温比今天低 8°C 以上）：返回一句话。规则和网页 seasonWarning 一样"""
     city = (data.get("settings") or {}).get("city") or {}
@@ -192,6 +226,17 @@ def mark_sent(key, now):
 def main():
     now = (datetime.now(timezone.utc) + timedelta(hours=8)).replace(tzinfo=None)
     night = now.hour >= 21 or os.environ.get("MODE") == "night"
+    if not night and os.environ.get("TEST") != "true":
+        data = json.load(open("life.json", encoding="utf-8"))
+        fkey = fetch_key(now)
+        if fkey and once(fkey, now, 24):
+            msg = fetch_message(data, now)
+            mark_sent(fkey, now)
+            if msg:
+                print(msg["title"], "|", msg["body"])
+                send(msg)
+            else:
+                print("水打过了")
     key = "night" if night else f"day{now.hour // 2}"
     if not once(key, now, 23):
         return

@@ -571,3 +571,22 @@ export function fillText(text, seed) {
 export const pickOne = (list, seed) => (list?.length ? list[Math.floor(seeded(seed)() * list.length)] : null);
 // 得分：做到的任务按强度算（1 级 10 分，2 级 20 分，3 级 30 分）
 export const sessionPoints = (results, tasks) => tasks.reduce((a, t) => a + (results[t.id] === 'done' ? (t.level || 1) * 10 : 0), 0);
+
+// ---------- 打水 ----------
+// 开水房：早上 7–8、中午 11–13、晚上 17–19。两个暖壶，一天打两回：上午或中午一回（早上打了中午就不用），晚上一回。
+// 记在 days[日期].fetch = { mid: true, eve: true }
+export const BOILER = [
+  { slot: 'mid', from: 7 * 60, to: 8 * 60, name: '早上' },
+  { slot: 'mid', from: 11 * 60, to: 13 * 60, name: '中午' },
+  { slot: 'eve', from: 17 * 60, to: 19 * 60, name: '晚上' },
+];
+export const fetchSlot = (minutes) => (minutes < 15 * 60 ? 'mid' : 'eve');
+const clock = (m) => `${Math.floor(m / 60)}:${String(m % 60).padStart(2, '0')}`;
+// 现在开着吗、下一回什么时候开（只看还没打的那一回）。minutes = 一天里的第几分钟
+export function boilerStatus(fetch = {}, minutes) {
+  const todo = BOILER.filter((w) => !fetch[w.slot] && w.to > minutes);
+  const open = todo.find((w) => w.from <= minutes);
+  if (open) return { open: true, text: `开水房开着，${clock(open.to)} 关`, slot: open.slot };
+  const next = todo[0];
+  return next ? { open: false, text: `${next.name} ${clock(next.from)}–${clock(next.to)} 开`, slot: next.slot } : null;
+}

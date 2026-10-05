@@ -492,6 +492,23 @@ def _(c):
     assert p.evaluate("JSON.parse(localStorage.getItem('life-voice')).rate") == 0.8
 
 
+@step("打水：首页点上午 / 中午、晚上（开水房关了就不显示）")
+def _(c):
+    p = c.page
+    c.go("#/")
+    hour = p.evaluate("new Date().getHours()")
+    if not 4 <= hour < 19:
+        expect(p.locator(".card.fetch")).to_have_count(0)
+        return
+    card = p.locator(".card.fetch")
+    expect(card).to_be_visible()
+    card.get_by_role("button", name="上午 / 中午").click()
+    c.wait(lambda d: d["days"][TODAY].get("fetch") == {"mid": True}, "打水")
+    p.locator(".card.fetch").get_by_role("button", name="晚上").click()
+    c.wait(lambda d: d["days"][TODAY].get("fetch") == {"mid": True, "eve": True}, "晚上打水")
+    expect(p.locator(".card.fetch")).to_have_count(0)
+
+
 @step("定期打理：到日子出现在今天，点做了")
 def _(c):
     p = c.page

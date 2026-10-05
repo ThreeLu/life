@@ -7,6 +7,7 @@ import {
   dailyCheer, weekHighlights, newMilestones, careFullDay,
   sickActive, recoveryLeft, tempStats, medInfo, doseStatus, medConflicts, seasonWarning,
   sickDid, sickSymptoms, sickLessons, similarSick, planMissing, sickKinds,
+  boilerStatus,
   parseSummary, reviewCard, dueCards, mistakeTypes, REVIEW_STEPS,
 } from './life.js';
 import {
@@ -355,6 +356,7 @@ function todayView(day) {
     isToday ? milestoneCard() : null,
     isToday ? sickCard(today) : null,
     isToday ? seasonCard() : null,
+    isToday ? fetchCard(today) : null,
     isToday ? morningPrayerCard(day) : null,
     planCard(day),
     sleepCard(day),
@@ -636,6 +638,27 @@ function nightCard(day, rec) {
     day === dayKey() ? h('a', { class: 'line-link', href: '#/pray/go' },
       icon('candle'), h('span', { class: 'grow' }, prayed ? `祷告了 · ${NEAR[prayed.near] || ''}` : '今晚的祷告'),
       prayed ? icon('check', 'i good-text') : icon('chev', 'i chev')) : null);
+}
+
+// 打水：两回（上午或中午一回、晚上一回）。今天都打了、或者晚上开水房关了就不显示
+function fetchCard(today) {
+  const now = new Date();
+  const minutes = now.getHours() * 60 + now.getMinutes();
+  if (now.getHours() < 4) return null;
+  const f = store.data.days[today]?.fetch || {};
+  const st = boilerStatus(f, minutes);
+  if (!st) return null;
+  const toggle = (slot) => saveRender(f[slot] ? '打水：没打' : '打水', (data) => {
+    const r = dayOf(data, today);
+    r.fetch ||= {};
+    if (r.fetch[slot]) delete r.fetch[slot]; else r.fetch[slot] = true;
+    if (!Object.keys(r.fetch).length) delete r.fetch;
+  }).then((ok) => ok && !f[slot] && toast(slot === 'mid' ? '水打好了，晚上再打一回。' : '水打好了，今晚洗漱够用了。'));
+  const chip = (slot, label) => h('button', { type: 'button', class: `chip check${f[slot] ? ' on' : ''}`, 'aria-pressed': String(Boolean(f[slot])), onclick: () => toggle(slot) },
+    f[slot] ? icon('check', 'i tiny') : null, label);
+  return h('div', { class: `card fetch${st.open ? ' open' : ''}` },
+    h('div', { class: 'rec-top' }, h('h3', {}, '打水'), h('span', { class: `small${st.open ? ' fetch-open' : ' muted'}` }, st.text)),
+    h('div', { class: 'chips' }, chip('mid', '上午 / 中午'), chip('eve', '晚上')));
 }
 
 function periodicCard(today) {
