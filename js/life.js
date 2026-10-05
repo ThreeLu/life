@@ -338,6 +338,70 @@ export function recoveryLeft(data, today) {
   return left > 0 ? left : 0;
 }
 
+// ---- 从以前生病的记录里攒经验 ----
+// 一次生病：path = [{ day, kind }]（换过种类才有，第一个是开始时的种类），sym = { 日期: [症状] }，
+// done = { 日期: { 做的事: true } }（老数据的键是预案里的序号），extra = [自己加的事]，helped = [觉得管用的]
+export const sickStartKind = (ep) => ep.path?.[0]?.kind || ep.kind;
+export const sickKinds = (ep) => [...new Set([...(ep.path || []).map((x) => x.kind), ep.kind])];
+export const sickSymptoms = (ep) => [...new Set(Object.values(ep.sym || {}).flat())];
+export function sickDid(ep, plans = {}) {
+  const plan = plans[sickStartKind(ep)] || plans[ep.kind] || [];
+  const out = new Set();
+  for (const dd of Object.values(ep.done || {})) for (const k of Object.keys(dd)) out.add(/^\d+$/.test(k) ? plan[Number(k)] : k);
+  for (const x of ep.extra || []) out.add(x);
+  for (const m of ep.meds || []) out.add(m.name);
+  out.delete(undefined);
+  return [...out];
+}
+function tally(lists) {
+  const m = {};
+  for (const l of lists) for (const x of new Set(l)) m[x] = (m[x] || 0) + 1;
+  return Object.entries(m).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).map(([text, n]) => ({ text, n }));
+}
+// 某一种（感冒 / 发烧 / 肠胃……）的经验：经过这一种的每一次都算
+export function sickLessons(history, kind, plans = {}) {
+  const eps = history.filter((e) => e.end && sickKinds(e).includes(kind));
+  if (!eps.length) return null;
+  const days = eps.map((e) => daysBetween(e.start, e.end) + 1);
+  const maxes = eps.map((e) => tempStats(e).max).filter(Boolean);
+  let toFever = null;
+  if (kind === 'cold') {
+    const colds = eps.filter((e) => sickStartKind(e) === 'cold');
+    const turned = colds.filter((e) => sickKinds(e).includes('fever'));
+    const at = turned.map((e) => daysBetween(e.start, e.path.find((x) => x.kind === 'fever').day) + 1);
+    if (colds.length) toFever = { n: colds.length, turned: turned.length, day: at.length ? Math.round(at.reduce((a, x) => a + x, 0) / at.length) : null };
+  }
+  const did = tally(eps.map((e) => sickDid(e, plans)));
+  const helped = tally(eps.map((e) => e.helped || []));
+  const didN = Object.fromEntries(did.map((x) => [x.text, x.n]));
+  return {
+    n: eps.length,
+    avgDays: Math.round((days.reduce((a, x) => a + x, 0) / days.length) * 10) / 10,
+    maxTemp: maxes.length ? Math.max(...maxes) : null,
+    toFever,
+    symptoms: tally(eps.map(sickSymptoms)),
+    did,
+    helped: helped.map((x) => ({ ...x, of: Math.max(x.n, didN[x.text] || 0) })),
+    hows: eps.filter((e) => e.how).slice(-3).reverse().map((e) => ({ start: e.start, how: e.how })),
+  };
+}
+// 以前最像这一次的（症状重合最多的那次），没有足够像的就 null
+export function similarSick(history, ep) {
+  const mine = new Set(sickSymptoms(ep));
+  if (!mine.size) return null;
+  let best = null;
+  for (const e of history) {
+    if (!e.end || !sickKinds(e).some((k) => sickKinds(ep).includes(k))) continue;
+    const theirs = new Set(sickSymptoms(e));
+    const common = [...mine].filter((x) => theirs.has(x));
+    const score = common.length / new Set([...mine, ...theirs]).size;
+    if (common.length && score >= 0.34 && (!best || score > best.score || (score === best.score && e.start > best.ep.start))) best = { ep: e, common, score };
+  }
+  return best;
+}
+// 经验里觉得管用、但预案里还没有的
+export const planMissing = (lessons, plan) => (lessons?.helped || []).filter((x) => !(plan || []).includes(x.text)).map((x) => x.text);
+
 export function tempStats(ep, now = new Date()) {
   const temps = (ep.temps || []).slice().sort((a, b) => a.at.localeCompare(b.at));
   const last = temps[temps.length - 1] || null;

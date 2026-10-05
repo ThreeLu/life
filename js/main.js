@@ -6,18 +6,19 @@ import {
   prayedOn, prayerStats, stageReady, readingToday, markRead, bibleLink, programWeek, weekTasks, privateNote, fillText, pickOne, sessionPoints,
   dailyCheer, weekHighlights, newMilestones, careFullDay,
   sickActive, recoveryLeft, tempStats, medInfo, doseStatus, medConflicts, seasonWarning,
+  sickDid, sickSymptoms, sickLessons, similarSick, planMissing, sickKinds,
   parseSummary, reviewCard, dueCards, mistakeTypes, REVIEW_STEPS,
 } from './life.js';
 import {
   TRACKS, STEPS, stepById, DIRECTIONS, SKIN_TAGS, VERSES, MORNING_VERSES, CONFESS_VERSE, verseFor, LORDS_PRAYER,
   STAGES, PRAISE_HINTS, THANKS_HINTS, CONFESS_HINT, ASK_HINT, ENTRUST_HINT, NEAR, prayerPrompt,
   EN_MODES, EN_CYCLE, EN_TOPICS, englishPrompt,
-  CHEER_ON, cheerNight, MILESTONE_TEXT, SICK_KINDS, RED_FLAGS, FEVER_FROM, BIBLE_BOOKS,
+  CHEER_ON, cheerNight, MILESTONE_TEXT, SICK_KINDS, SYMPTOMS, RED_FLAGS, FEVER_FROM, BIBLE_BOOKS,
 } from './content.js';
 import { pushSupport, subscribe, currentSubscription, deviceName, PUSH_FILE } from './push.js';
 import { h, compressImage, blobToBase64 } from './util.js';
 import { askJson } from './ai.js';
-import { PLACE_KINDS, parseShare, visited, lastVisit, bestScore, weekendPicks, districtProgress, footprints, weekendDays, wgsToGcj } from './places.js';
+import { PLACE_KINDS, parseShare, cleanCandidates, visited, lastVisit, bestScore, weekendPicks, districtProgress, footprints, weekendDays, wgsToGcj } from './places.js';
 import {
   MIN_DAYS, influences, influenceText, moodDays, series, sleepPattern, sleepHours, bedMinutes, bedLabel, rhythm, careRates, planRates,
   beforeSick, gentleNote, periodSummary, rangeDays,
@@ -1548,6 +1549,19 @@ function placeEditView(id) {
     if (r.url) { link.value = r.url; x.link = r.url; }
   });
   const pick = (k, v) => { x[k] = x[k] === v ? null : v; render(); };
+  const ai = placeDraft.ai ||= { busy: false, note: '' };
+  const aiFill = async () => {
+    if (!x.name?.trim()) { toast('先写名字', 'error'); return; }
+    ai.busy = true; ai.note = ''; render();
+    try {
+      const list = await findPlace(x.name.trim());
+      ai.busy = false;
+      if (!list.length) { ai.note = 'DeepSeek 不认识这个地方。在地图上点一下就好。'; render(); return; }
+      if (list.length === 1) { applyCandidate(x, list[0]); ai.note = aiNote(list[0]); render(); return; }
+      render();
+      chooseCandidates(list, x, old);
+    } catch (e) { ai.busy = false; ai.note = ''; render(); toast(e.message, 'error'); }
+  };
   const mapEl = h('div', { class: 'map-box small-map' });
   loadLeaflet().then((L) => {
     if (!mapEl.isConnected) return;
@@ -1572,7 +1586,7 @@ function placeEditView(id) {
       for (const k of Object.keys(p)) if (p[k] === null || p[k] === '' || p[k] === undefined) delete p[k];
       const i = data.places.findIndex((y) => y.id === pid);
       if (i >= 0) data.places[i] = p; else data.places.push(p);
-    }).then((ok) => { if (ok) { placeDraft.id = null; toast(old ? '改好了' : '记下了。想去的地方又多了一个。'); go(old ? `#/place/${pid}` : '#/places'); } });
+    }).then((ok) => { if (ok) { placeDraft.id = null; placeDraft.ai = null; toast(old ? '改好了' : '记下了。想去的地方又多了一个。'); go(old ? `#/place/${pid}` : '#/places'); } });
   };
   const districts = d.settings.city?.districts || [];
   return h('div', { class: 'form' },
@@ -1580,13 +1594,105 @@ function placeEditView(id) {
     old ? null : h('div', { class: 'card' }, share, h('p', { class: 'muted small' }, '在小红书点「分享 → 复制链接」，粘贴到这里。')),
     h('div', { class: 'card' },
       name,
+      h('div', { class: 'ai-fill' },
+        h('button', { class: 'small secondary', disabled: ai.busy, onclick: aiFill }, ai.busy ? '正在找……' : '让 DeepSeek 帮我填'),
+        h('span', { class: 'muted small' }, '类型、区、地图上的位置')),
+      ai.note ? h('p', { class: 'small muted' }, ai.note) : null,
+      x.address ? h('p', { class: 'small' }, `📍 ${x.address}`) : null,
       h('div', { class: 'label-sm' }, '类型'), choiceRow('类型', Object.entries(PLACE_KINDS).map(([k, v]) => [k, v.name]), x.kind, (v) => pick('kind', v)),
       districts.length ? [h('div', { class: 'label-sm' }, '在哪个区'), choiceRow('区', [...districts, '外地'].map((v) => [v, v]), x.district, (v) => pick('district', v))] : null,
       h('div', { class: 'label-sm' }, '有多想去'), choiceRow('有多想去', [[1, '★'], [2, '★★'], [3, '★★★']], x.want, (v) => pick('want', v))),
     h('div', { class: 'card' }, h('h3', {}, '位置：在地图上点一下'), mapEl,
       h('button', { class: 'link small', onclick: () => mapEl.useHere?.() }, '用我现在的位置')),
     h('div', { class: 'card' }, why, link, cost, season),
-    h('div', { class: 'actions sticky' }, h('button', { class: 'grow', onclick: submit }, '存好'), h('a', { class: 'button secondary', href: old ? `#/place/${old.id}` : '#/places', onclick: () => { placeDraft.id = null; } }, '取消')));
+    h('div', { class: 'actions sticky' }, h('button', { class: 'grow', onclick: submit }, '存好'), h('a', { class: 'button secondary', href: old ? `#/place/${old.id}` : '#/places', onclick: () => { placeDraft.id = null; placeDraft.ai = null; } }, '取消')));
+}
+
+// 让 DeepSeek 按名字找：类型、区、坐标（高德坐标）。连锁店会列出这个城市的每一家
+async function findPlace(name) {
+  const city = store.data.settings.city || { name: '济南' };
+  const districts = city.districts || [];
+  const kinds = Object.entries(PLACE_KINDS).map(([k, v]) => `${k} ${v.name}`).join('、');
+  const system = `你帮他把想去的地方标在地图上。他在${city.name}。根据他给的名字，用你知道的信息找出这个地方。`
+    + `如果是连锁店（比如 MUJI、星巴克）或者同名的有好几个，把${city.name}的每一家都列出来（最多 8 个，名字带上分店名或者所在商场）。`
+    + '坐标用高德地图的坐标（GCJ-02），保留 6 位小数；不知道确切位置就给你最有把握的估计，并把 sure 写成 false。'
+    + `不认识这个地方、或者${city.name}没有，就返回空列表，绝对不要编。`
+    + `kind 只能从这些里选：${kinds}。district 只能从这些里选：${districts.join('、') || '（没有，写空字符串）'}，在${city.name}以外就写「外地」。`
+    + '返回 JSON：{"places": [{"name": "完整名字", "address": "地址或者在哪个商场", "district": "区", "kind": "类型", "lat": 纬度, "lng": 经度, "sure": true}]}';
+  const out = await askJson(await aiConfig(), system, `名字：${name}`, { maxTokens: 6000, timeout: 90000 });
+  return cleanCandidates(out.places, { center: city.lat ? [city.lat, city.lon] : null, districts });
+}
+function applyCandidate(x, c, withName = false) {
+  if (withName) x.name = c.name;
+  x.kind = c.kind;
+  if (c.district) x.district = c.district;
+  if (c.address) x.address = c.address;
+  if (c.lat) { x.lat = c.lat; x.lng = c.lng; }
+}
+const aiNote = (c) => (c.lat
+  ? `DeepSeek 认的是「${c.name}」。位置是它估计的，${c.sure ? '可能差一点' : '它也不太确定'}：打开地图看一下，不对就点一下正确的地方。`
+  : `DeepSeek 认的是「${c.name}」，但不知道具体位置，在地图上点一下吧。`);
+
+// 找到好几个（连锁店）：地图上标号，勾选要哪几个。新建时可以一次加好几个
+function chooseCandidates(list, x, old) {
+  const chosen = new Set();
+  const multi = !old;
+  const mapEl = h('div', { class: 'map-box small-map' });
+  const rows = h('div', {});
+  let close;
+  const label = () => (chosen.size > 1 ? `加这 ${chosen.size} 个` : '用这一个');
+  const draw = () => {
+    rows.replaceChildren(...list.map((c, i) => h('label', { class: 'cand' },
+      h('input', { type: 'checkbox', checked: chosen.has(i), 'aria-label': c.name, onchange: (e) => {
+        if (!multi) chosen.clear();
+        if (e.target.checked) chosen.add(i); else chosen.delete(i);
+        draw();
+      } }),
+      c.lat ? h('span', { class: 'cand-num' }, String(i + 1)) : null,
+      h('span', { class: 'grow' }, c.name,
+        h('span', { class: 'muted small block' }, [c.address, c.district, PLACE_KINDS[c.kind].name, c.lat ? (c.sure ? '' : '位置不太准') : '没有位置'].filter(Boolean).join(' · '))))));
+    const btn = document.querySelector('.sheet-overlay:last-child .sheet > .actions button');
+    if (btn) btn.textContent = label();
+  };
+  draw();
+  loadLeaflet().then((L) => {
+    if (!mapEl.isConnected) return;
+    const pts = list.map((c, i) => [c, i]).filter(([c]) => c.lat);
+    const map = baseMap(mapEl, L, pts.length ? [pts[0][0].lat, pts[0][0].lng] : cityCenter(), 12);
+    for (const [c, i] of pts) L.marker([c.lat, c.lng], { icon: L.divIcon({ className: '', html: `<div class="num-pin">${i + 1}</div>`, iconSize: [22, 22], iconAnchor: [11, 11] }) }).addTo(map);
+    if (pts.length > 1) map.fitBounds(pts.map(([c]) => [c.lat, c.lng]), { padding: [24, 24], maxZoom: 15 });
+  }).catch(() => mapEl.remove());
+  close = openSheet({
+    title: `找到 ${list.length} 个「${x.name}」`,
+    body: h('div', {},
+      h('p', { class: 'muted small' }, multi ? '想去哪几个就勾哪几个，可以勾好几个，会分开记。位置是 DeepSeek 估计的，之后可以在地图上改。' : '是哪一个？位置是 DeepSeek 估计的，之后可以在地图上改。'),
+      mapEl, rows),
+    confirmText: label(),
+    onConfirm: async () => {
+      if (!chosen.size) { toast('勾一个', 'error'); return false; }
+      const picked = [...chosen].sort((a, b) => a - b).map((i) => list[i]);
+      if (picked.length === 1) {
+        applyCandidate(x, picked[0], true);
+        placeDraft.ai.note = aiNote(picked[0]);
+        render();
+        return true;
+      }
+      const base = { want: x.want || 2, ...(x.why ? { why: x.why } : {}), ...(x.link ? { link: x.link } : {}), ...(x.cost ? { cost: x.cost } : {}), ...(x.season ? { season: x.season } : {}) };
+      const ok = await saveRender(`想去：${picked.map((c) => c.name).join('、')}`, (data) => {
+        for (const c of picked) {
+          const p = { ...base, id: newId('pl'), name: c.name, kind: c.kind, at: dayKey(), visits: [] };
+          applyCandidate(p, c);
+          data.places.push(p);
+        }
+      });
+      if (!ok) return false;
+      placeDraft.id = null; placeDraft.ai = null;
+      toast(`记下了 ${picked.length} 个地方。`);
+      go('#/places');
+      return true;
+    },
+  });
+  void close;
 }
 
 const photoUrls = {};
@@ -1614,6 +1720,7 @@ function placeView(id) {
   return h('div', {},
     headerSub(p.name, [k.name, p.district, !visited(p) && p.want ? stars(p.want) : ''].filter(Boolean).join(' · ')),
     h('div', { class: 'card' },
+      p.address ? h('p', { class: 'small' }, `📍 ${p.address}`) : null,
       p.why ? h('p', {}, p.why) : null,
       [p.cost ? `大概 ¥${p.cost}` : '', p.season ? `最好：${p.season}` : ''].filter(Boolean).length ? h('p', { class: 'small muted' }, [p.cost ? `大概 ¥${p.cost}` : '', p.season ? `最好：${p.season}` : ''].filter(Boolean).join(' · ')) : null,
       h('div', { class: 'actions' },
@@ -1944,11 +2051,15 @@ function askView() {
 const SICK_HELP = [
   ['生病模式', [
     '不舒服了在「今天」最下面点「我不舒服」，选感冒、发烧、肠胃。首页最上面会一直有一张生病卡片，运动先停。',
-    '这一页：量了体温就记，喝一杯水点一下，要做的事做了就勾。感冒时体温到 37.3°C 会问你要不要切到发烧模式。',
+    '这一页：量了体温就记，喝一杯水点一下，今天有哪些症状点一下，要做的事做了就勾（预案里没有的，在下面「还做了」里加）。感冒时体温到 37.3°C 会问你要不要切到发烧模式。',
     '吃药：药从物品档案里读（药品急救类）。点「吃了」会记下时间，算出下次最早几点能吃；第一次用某个药，点「说明书」把一次多少、几小时一次、一天最多几次抄进来。',
     '同一种成分的两个药（比如两种感冒药里都有对乙酰氨基酚）一起吃会提醒你。抗生素、激素这类标着「医生判断」。',
     '「什么时候去医院」一直在页面上；你记的体温、天数到了会变红。',
-    '好了点最下面的「好了」，这次生病会存进「生病手册」。之后两天是恢复期：运动先缓缓，早点睡。',
+    '好了点最下面的「好了」，勾一下这次什么管用，存进「生病手册」。之后两天是恢复期：运动先缓缓，早点睡。',
+  ]],
+  ['攒经验', [
+    '记得越多，下次越有数：再生同样的病，最上面「以前的经验」会告诉你以前几天好、感冒有几次转成了发烧、什么管用、症状最像的那一次是怎么好的。',
+    '以前觉得管用、预案里还没有的，可以一键加进预案。',
   ]],
   ['说明', ['这里写的是常识，不是医嘱。吃药以药盒上的说明书和医生说的为准。拿不准就去校医院。']],
   ['提醒', ['生病的时候白天大概每 2 小时提醒一次喝水；发烧时也提醒量体温（在「设置」开启推送）。']],
@@ -2047,14 +2158,16 @@ function sickView() {
   }
   const ts = tempStats(ep);
   const nth = daysBetween(ep.start, today) + 1;
-  const switchTo = (kind) => saveRender(`生病：换成${SICK_KINDS[kind].name}`, (data) => { data.sick.current.kind = kind; });
+  const switchTo = (kind) => saveRender(`生病：换成${SICK_KINDS[kind].name}`, (data) => switchSickKind(data, kind));
   return h('div', {},
     headerSub(`${SICK_KINDS[ep.kind].icon} ${SICK_KINDS[ep.kind].name}`, `第 ${nth} 天 · 从 ${ep.start.slice(5).replace('-', '/')} 开始`, helpButton('生病模式怎么用', SICK_HELP)),
     h('p', { class: 'cheer' }, nth === 1 ? '先别着急，今天的任务就是休息。' : '身体在努力，你也在照顾它。会好起来的。'),
     ep.kind === 'cold' && ts.feverNow ? h('div', { class: 'banner warn' }, `体温 ${ts.last.t}°C，发烧了。`, h('button', { class: 'small', style: 'margin-left:8px', onclick: () => switchTo('fever') }, '切到发烧模式')) : null,
     ts.normal24 ? h('div', { class: 'card good-card' }, h('p', {}, '体温正常一天了。是不是好了？'), h('button', { onclick: endSickSheet }, '好了')) : null,
+    lessonsCard(ep, today),
     redFlagCard(ep, ts),
     tempCard(ep, ts),
+    symptomCard(ep, today),
     waterCard(ep, today),
     planCardSick(ep, today),
     ep.kind === 'gut' ? gutCard(ep, today) : null,
@@ -2064,15 +2177,22 @@ function sickView() {
       h('button', { class: 'secondary', onclick: startSickSheet2 }, '换一种')),
     h('a', { class: 'small', href: '#/sick/book' }, '生病手册、预案和药箱 ›'));
 }
+// 换种类（比如感冒转成发烧）记在 path 里，以后能算出「感冒几次里有几次转成发烧、第几天」
+function switchSickKind(data, kind) {
+  const ep = data.sick.current;
+  if (!ep || ep.kind === kind) return false;
+  ep.path ||= [{ day: ep.start, kind: ep.kind }];
+  ep.path.push({ day: dayKey(), kind });
+  ep.kind = kind;
+}
 function startSickSheet2() {
   const close = openSheet({
-    title: '换成', body: h('div', { class: 'group' }, Object.entries(SICK_KINDS).map(([k, v]) => cell({ title: `${v.icon} ${v.name}`, onclick: () => { close(); saveRender(`生病：换成${v.name}`, (data) => { data.sick.current.kind = k; }); } }))),
+    title: '换成', body: h('div', { class: 'group' }, Object.entries(SICK_KINDS).map(([k, v]) => cell({ title: `${v.icon} ${v.name}`, onclick: () => { close(); saveRender(`生病：换成${v.name}`, (data) => switchSickKind(data, k)); } }))),
     confirmText: null, cancelText: '取消',
   });
 }
 
 function redFlagCard(ep, ts) {
-  const d = store.data;
   const today = dayKey();
   const gutToday = ep.gut?.[today] || {};
   const hot = new Set();
@@ -2082,17 +2202,11 @@ function redFlagCard(ep, ts) {
   }
   if (ep.kind === 'gut' && (gutToday.d || 0) + (gutToday.v || 0) >= 6) hot.add(0);
   if (ep.kind === 'gut' && daysBetween(ep.start, today) >= 2) hot.add(4);
-  const c = d.sick.clinic || {};
   return h('div', { class: `card${hot.size ? ' alert' : ''}` },
     h('h3', {}, '什么时候必须去医院'),
     hot.size ? h('p', { class: 'warn small' }, '你记的情况已经到了下面标红的那条，去看医生吧。') : null,
     h('ul', { class: 'small flags' }, RED_FLAGS[ep.kind].map((x, i) => h('li', { class: hot.has(i) ? 'warn' : '' }, x))),
-    h('div', { class: 'clinic small' },
-      h('b', {}, c.name || '校医院'), c.address ? ` · ${c.address}` : '', c.hours ? ` · ${c.hours}` : '',
-      c.phone ? h('a', { class: 'block', href: `tel:${c.phone}` }, `电话 ${c.phone}`) : null,
-      c.er ? h('span', { class: 'block muted' }, `夜里 / 急诊：${c.er}`) : null,
-      h('a', { class: 'block', href: 'tel:120' }, '急救 120'),
-      !c.phone ? h('a', { class: 'block small', href: '#/sick/book' }, '在「生病手册」里把校医院电话、急诊医院填上') : null));
+    h('a', { class: 'small', href: 'tel:120' }, '急救 120'));
 }
 
 function tempCard(ep, ts) {
@@ -2147,13 +2261,87 @@ function waterCard(ep, today) {
 
 function planCardSick(ep, today) {
   const plan = store.data.sick.plans[ep.kind] || [];
+  const items = [...new Set([...plan, ...(ep.extra || [])])];
   const done = ep.done?.[today] || {};
+  const isDone = (x) => Boolean(done[x] || (plan.indexOf(x) >= 0 && done[plan.indexOf(x)]));
+  const toggle = (x) => saveRender(`生病：${x}`, (data) => {
+    const dd = ((data.sick.current.done ||= {})[today] ||= {});
+    const i = plan.indexOf(x);
+    if (isDone(x)) { delete dd[x]; if (i >= 0) delete dd[i]; } else dd[x] = true;
+  });
+  const input = h('input', { placeholder: '还做了别的？比如「喝姜汤」', 'aria-label': '还做了' });
+  const add = () => {
+    const t = input.value.trim();
+    if (!t) return;
+    saveRender(`生病：${t}`, (data) => {
+      const ep2 = data.sick.current;
+      ep2.extra ||= [];
+      if (!ep2.extra.includes(t) && !plan.includes(t)) ep2.extra.push(t);
+      ((ep2.done ||= {})[today] ||= {})[t] = true;
+    });
+  };
   return h('div', { class: 'card' },
     h('div', { class: 'rec-top' }, h('h3', {}, '今天要做'), h('a', { class: 'small', href: '#/sick/book' }, '改预案')),
-    h('div', { class: 'chips' }, plan.map((x, i) => h('button', {
-      type: 'button', class: `chip check${done[i] ? ' on' : ''}`, 'aria-pressed': String(Boolean(done[i])),
-      onclick: () => saveRender(`生病：${x}`, (data) => { const dd = ((data.sick.current.done ||= {})[today] ||= {}); if (dd[i]) delete dd[i]; else dd[i] = true; }),
-    }, done[i] ? icon('check', 'i tiny') : null, x))));
+    h('div', { class: 'chips' }, items.map((x) => h('button', {
+      type: 'button', class: `chip check${isDone(x) ? ' on' : ''}`, 'aria-pressed': String(isDone(x)), onclick: () => toggle(x),
+    }, isDone(x) ? icon('check', 'i tiny') : null, x))),
+    h('div', { class: 'inline-add' }, input, h('button', { class: 'small secondary', onclick: add }, '加')),
+    h('p', { class: 'muted small' }, '做了就点一下。好了的时候勾哪些管用，下次生病就知道先做什么。'));
+}
+
+// 今天有哪些症状：每天点一下（可以自己加）
+function symptomCard(ep, today) {
+  const mine = ep.sym?.[today] || [];
+  const yest = ep.sym?.[addDays(today, -1)] || [];
+  const all = [...new Set([...(SYMPTOMS[ep.kind] || SYMPTOMS.other), ...sickSymptoms(ep)])];
+  const toggle = (x) => saveRender(`症状：${x}`, (data) => {
+    const sym = (data.sick.current.sym ||= {});
+    const l = (sym[today] ||= []);
+    const i = l.indexOf(x);
+    if (i >= 0) l.splice(i, 1); else l.push(x);
+    if (!l.length) delete sym[today];
+  });
+  const input = h('input', { placeholder: '别的症状', 'aria-label': '别的症状' });
+  return h('div', { class: 'card' },
+    h('h3', {}, '今天哪里不舒服'),
+    h('div', { class: 'chips' }, all.map((x) => h('button', { type: 'button', class: `chip check${mine.includes(x) ? ' on' : ''}`, 'aria-pressed': String(mine.includes(x)), onclick: () => toggle(x) }, x))),
+    h('div', { class: 'inline-add' }, input, h('button', { class: 'small secondary', onclick: () => { const t = input.value.trim(); if (t && !mine.includes(t)) toggle(t); } }, '加')),
+    yest.length ? h('p', { class: 'muted small' }, `昨天：${yest.join('、')}`) : null);
+}
+
+// 以前的经验：同一种病以前几次、几天好、感冒转发烧、什么管用、最像的那一次
+function lessonsCard(ep, today) {
+  const d = store.data;
+  const name = SICK_KINDS[ep.kind].name;
+  const ls = sickLessons(d.sick.history, ep.kind, d.sick.plans);
+  if (!ls) {
+    return h('div', { class: 'card soft' }, h('p', { class: 'small' },
+      `这是第一次在这里记${name}。每天点一下症状、做了什么，好了的时候勾一下什么管用——下次再这样，这里会告诉你上次是怎么好的。`));
+  }
+  const nth = daysBetween(ep.start, today) + 1;
+  const sim = similarSick(d.sick.history, ep);
+  const missing = planMissing(ls, d.sick.plans[ep.kind]);
+  const tf = ls.toFever;
+  return h('div', { class: 'card lessons' },
+    h('h3', {}, '以前的经验'),
+    h('p', { class: 'small' }, `以前${name} ${ls.n} 次，平均 ${ls.avgDays} 天好${ls.maxTemp ? `，最高烧到 ${ls.maxTemp}°C` : ''}。${nth > 1 && nth <= Math.ceil(ls.avgDays) ? `今天第 ${nth} 天，快了。` : ''}`),
+    ep.kind === 'cold' && tf?.turned ? h('p', { class: 'small fever-hint' },
+      `${tf.n} 次感冒里有 ${tf.turned} 次后来发烧了${tf.day ? `，一般在第 ${tf.day} 天` : ''}。${!tf.day || nth <= tf.day ? '这两天早晚都量一下体温，泡脚、早睡别落下。' : ''}`) : null,
+    ls.helped.length ? [h('div', { class: 'label-sm' }, '以前觉得管用的'),
+      h('div', { class: 'chips' }, ls.helped.slice(0, 8).map((x) => h('span', { class: 'chip on static' }, `${x.text}${x.of > 1 ? ` ${x.n}/${x.of}` : ''}`)))] : null,
+    missing.length ? h('button', { class: 'small secondary', onclick: () => saveRender('预案：加上管用的', (data) => {
+      const pl = (data.sick.plans[ep.kind] ||= []);
+      for (const x of missing) if (!pl.includes(x)) pl.push(x);
+    }).then((ok) => ok && toast('加进预案了。')) }, `把「${missing.slice(0, 3).join('、')}」加进预案`) : null,
+    sim ? h('div', { class: 'similar' },
+      h('div', { class: 'label-sm' }, `最像的一次：${sim.ep.start.slice(5).replace('-', '/')}（也是${sim.common.join('、')}）`),
+      h('p', { class: 'small' }, [
+        `${daysBetween(sim.ep.start, sim.ep.end) + 1} 天好`,
+        sickKinds(sim.ep).length > 1 ? `中间${sickKinds(sim.ep).map((k) => SICK_KINDS[k].name).join('→')}` : '',
+        (sim.ep.helped || []).length ? `管用：${sim.ep.helped.join('、')}` : '',
+      ].filter(Boolean).join(' · ')),
+      sim.ep.how ? h('p', { class: 'small muted' }, `那次写的：${sim.ep.how}`) : null)
+      : ls.hows[0] ? h('p', { class: 'small muted' }, `上次写的：${ls.hows[0].how}`) : null);
 }
 
 // 肠胃：记次数；从账本里看昨天吃了什么，点「可能是这个」
@@ -2282,19 +2470,32 @@ function medConfigSheet(m) {
 }
 
 function endSickSheet() {
-  const how = h('textarea', { rows: 3, placeholder: '这次怎么好的？什么管用？（可以不写，下次生病能翻出来看）', 'aria-label': '怎么好的' });
+  const d = store.data;
+  const ep = d.sick.current;
+  const did = ep ? sickDid(ep, d.sick.plans) : [];
+  const helped = new Set();
+  const chips = h('div', { class: 'chips' });
+  const draw = () => chips.replaceChildren(...did.map((x) => h('button', {
+    type: 'button', class: `chip check${helped.has(x) ? ' on' : ''}`, 'aria-pressed': String(helped.has(x)),
+    onclick: () => { if (helped.has(x)) helped.delete(x); else helped.add(x); draw(); },
+  }, x)));
+  draw();
+  const how = h('textarea', { rows: 3, placeholder: '还有想对下次的自己说的？（可以不写）', 'aria-label': '怎么好的' });
   openSheet({
-    title: '好了 🎉', body: [h('p', { class: 'small' }, '辛苦了。接下来两天是恢复期：运动先缓缓，早点睡。'), how], confirmText: '好了',
+    title: '好了 🎉',
+    body: [h('p', { class: 'small' }, '辛苦了。接下来两天是恢复期：运动先缓缓，早点睡。'),
+      did.length ? [h('div', { class: 'label-sm' }, '这次什么管用？点一下'), chips] : null, how],
+    confirmText: '好了',
     onConfirm: () => saveRender('生病：好了', (data) => {
-      const ep = data.sick.current;
-      if (!ep) return false;
-      data.sick.history.push({ ...ep, end: dayKey(), ...(how.value.trim() ? { how: how.value.trim() } : {}) });
+      const cur = data.sick.current;
+      if (!cur) return false;
+      data.sick.history.push({ ...cur, end: dayKey(), ...(helped.size ? { helped: [...helped] } : {}), ...(how.value.trim() ? { how: how.value.trim() } : {}) });
       data.sick.current = null;
-    }).then((ok) => { if (ok) { toast('欢迎回来，身体比你想的更坚强。'); go('#/'); } }),
+    }).then((ok) => { if (ok) { toast('欢迎回来，身体比你想的更坚强。下次就有经验了。'); go('#/'); } }),
   });
 }
 
-// 生病手册：以前的每一次、预案、药箱、校医院
+// 生病手册：每一种的经验、以前的每一次、预案
 function sickBookView() {
   const d = store.data;
   const hist = d.sick.history.slice().reverse();
@@ -2312,44 +2513,44 @@ function sickBookView() {
       onConfirm: () => saveRender('生病预案', (data) => { data.sick.plans[kind] = ta.value.split('\n').map((x) => x.trim()).filter(Boolean); }),
     });
   };
-  const editClinic = () => {
-    const c = d.sick.clinic || {};
-    const f = {};
-    const field = (k, label, ph) => { f[k] = h('input', { value: c[k] || '', placeholder: ph, 'aria-label': label }); return h('label', {}, label, f[k]); };
-    openSheet({
-      title: '看病去哪', body: h('div', { class: 'form' }, field('name', '校医院', '比如「中心校区校医院」'), field('address', '在哪', '楼名、位置'), field('hours', '门诊时间', '比如 8:00–17:00'), field('phone', '电话', ''), field('er', '夜里 / 急诊去哪', '最近的医院急诊')),
-      confirmText: '存好',
-      onConfirm: () => saveRender('看病去哪', (data) => { data.sick.clinic = Object.fromEntries(Object.entries(f).map(([k, el]) => [k, el.value.trim()]).filter(([, v]) => v)); }),
-    });
-  };
+  const lessons = Object.keys(SICK_KINDS).map((k) => [k, sickLessons(d.sick.history, k, d.sick.plans)]).filter(([, l]) => l);
   return h('div', {},
-    headerSub('生病手册', `${year} 年病了 ${thisYear.length} 次`, helpButton('生病手册', [['这一页', ['每次生病好了以后会存在这里：几号到几号、最高几度、吃了什么、怎么好的。下次生病翻出来参考。', '预案：每种情况你要做的事，生病时变成打勾清单，可以改。', '看病去哪：校医院和急诊的信息，生病页上一直显示。']]])),
-    h('div', { class: 'card' },
-      h('div', { class: 'rec-top' }, h('h3', {}, '看病去哪'), h('button', { class: 'link small', onclick: editClinic }, '改')),
-      [['校医院', 'name'], ['在哪', 'address'], ['门诊时间', 'hours'], ['电话', 'phone'], ['夜里 / 急诊', 'er']].map(([label, k]) => h('div', { class: 'kv-row' },
-        h('span', { class: 'muted small' }, label),
-        d.sick.clinic?.[k] ? (k === 'phone' ? h('a', { href: `tel:${d.sick.clinic[k]}` }, d.sick.clinic[k]) : h('span', {}, d.sick.clinic[k])) : h('span', { class: 'muted small' }, '没填'))),
-      h('div', { class: 'kv-row' }, h('span', { class: 'muted small' }, '急救'), h('a', { href: 'tel:120' }, '120'))),
+    headerSub('生病手册', `${year} 年病了 ${thisYear.length} 次`, helpButton('生病手册', [['这一页', [
+      '每次生病好了以后存在这里：几号到几号、什么症状、最高几度、做了什么、什么管用。',
+      '「我的经验」把同一种病的每一次放在一起看：一般几天好、感冒有几次转成发烧、什么最管用。下次生病，生病页最上面也会显示。',
+      '预案：每种情况你要做的事，生病时变成打勾清单。经验里管用的，可以一键加进来。',
+    ]]])),
     d.sick.history.length ? h('div', { class: 'card' },
       h('div', { class: 'stat-grid' },
         stat(`${year} 年`, `${thisYear.length} 次`), stat('一共', `${d.sick.history.length} 次`),
         stat('平均几天好', `${Math.round(d.sick.history.reduce((a, x) => a + daysBetween(x.start, x.end) + 1, 0) / d.sick.history.length * 10) / 10} 天`),
         stat('上一次', `${relDay(d.sick.history[d.sick.history.length - 1].end)}好的`)),
-      h('h3', {}, '每个月'), barChart(Array.from({ length: 12 }, (_, i) => ({ label: String(i + 1), v: months[i + 1] || 0 })), { title: '每个月生病几次', color: 'var(--danger)' })) : null,
+      h('h3', {}, '每个月'), barChart(Array.from({ length: 12 }, (_, i) => ({ label: String(i + 1), v: months[i + 1] || 0 })), { title: '每个月生病几次', color: 'var(--danger)' }))
+      : h('div', { class: 'card soft' }, h('p', { class: 'small' }, '还没有记录。下次不舒服时在生病页每天点一下症状、做了什么，好了勾一下什么管用，这里就开始攒你自己的经验。')),
+    lessons.length ? [h('div', { class: 'section-title' }, '我的经验'), lessons.map(([k, l]) => h('div', { class: 'card lessons' },
+      h('div', { class: 'rec-top' }, h('b', {}, `${SICK_KINDS[k].icon} ${SICK_KINDS[k].name}`), h('span', { class: 'muted small' }, `${l.n} 次 · 平均 ${l.avgDays} 天好`)),
+      k === 'cold' && l.toFever?.n ? h('p', { class: 'small' }, l.toFever.turned ? `${l.toFever.n} 次里 ${l.toFever.turned} 次转成了发烧${l.toFever.day ? `，一般在第 ${l.toFever.day} 天` : ''}` : `${l.toFever.n} 次都没有发烧`) : null,
+      l.maxTemp ? h('p', { class: 'small' }, `最高烧到 ${l.maxTemp}°C`) : null,
+      l.symptoms.length ? h('p', { class: 'small' }, h('span', { class: 'muted' }, '常有：'), l.symptoms.slice(0, 5).map((x) => `${x.text}${x.n > 1 ? `×${x.n}` : ''}`).join('、')) : null,
+      l.helped.length ? h('p', { class: 'small' }, h('span', { class: 'muted' }, '管用：'), l.helped.slice(0, 6).map((x) => `${x.text}（${x.n}/${x.of}）`).join('、'))
+        : l.did.length ? h('p', { class: 'small' }, h('span', { class: 'muted' }, '做过：'), l.did.slice(0, 6).map((x) => x.text).join('、')) : null))] : null,
     h('div', { class: 'section-title' }, '预案'),
     h('div', { class: 'group' }, Object.entries(SICK_KINDS).map(([k, v]) => cell({ title: `${v.icon} ${v.name}`, sub: (d.sick.plans[k] || []).join('、'), onclick: () => editPlan(k) }))),
-
     Object.keys(suspects).length ? h('div', { class: 'card' }, h('h3', {}, '肠胃不舒服前吃过的'),
       Object.entries(suspects).sort((a, b) => b[1] - a[1]).map(([k, n]) => h('div', { class: 'small' }, `${k}${n > 1 ? ` · ${n} 次` : ''}`))) : null,
-    h('div', { class: 'section-title' }, '以前的每一次'),
-    hist.length ? hist.map((x) => {
+    hist.length ? h('div', { class: 'section-title' }, '以前的每一次') : null,
+    hist.map((x) => {
       const ts = tempStats(x);
       const meds = [...new Set(x.meds.map((m) => m.name))];
+      const sym = sickSymptoms(x);
       return h('div', { class: 'card' },
-        h('b', {}, `${SICK_KINDS[x.kind].icon} ${SICK_KINDS[x.kind].name}`), h('span', { class: 'muted small' }, ` · ${x.start.slice(5).replace('-', '/')}–${x.end.slice(5).replace('-', '/')}，${daysBetween(x.start, x.end) + 1} 天`),
+        h('b', {}, sickKinds(x).map((k) => `${SICK_KINDS[k].icon} ${SICK_KINDS[k].name}`).join(' → ')),
+        h('span', { class: 'muted small' }, ` · ${x.start.slice(5).replace('-', '/')}–${x.end.slice(5).replace('-', '/')}，${daysBetween(x.start, x.end) + 1} 天`),
+        sym.length ? h('p', { class: 'small' }, sym.join('、')) : null,
         h('p', { class: 'small' }, [ts.max ? `最高 ${ts.max}°C` : '', meds.length ? `吃了 ${meds.join('、')}` : ''].filter(Boolean).join(' · ') || '没记体温和吃药'),
-        x.how ? h('p', { class: 'small' }, `怎么好的：${x.how}`) : null);
-    }) : h('p', { class: 'muted small center' }, '还没有生过病的记录。愿它一直这么少。'));
+        (x.helped || []).length ? h('p', { class: 'small' }, `管用：${x.helped.join('、')}`) : null,
+        x.how ? h('p', { class: 'small muted' }, `写的：${x.how}`) : null);
+    }));
 }
 
 // ---------- 小记 ----------

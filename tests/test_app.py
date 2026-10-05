@@ -601,15 +601,21 @@ def _(c):
     c.sheet().get_by_role("button", name="感冒").click()
     expect(p.get_by_role("heading", name="🤧 感冒")).to_be_visible()
     c.wait(lambda d: d["sick"]["current"]["kind"] == "cold", "开始感冒")
+    expect(p.get_by_text("这是第一次在这里记感冒")).to_be_visible()
+    p.locator(".card", has_text="今天哪里不舒服").get_by_role("button", name="嗓子疼").click()
+    c.wait(lambda d: d["sick"]["current"].get("sym", {}).get(TODAY) == ["嗓子疼"], "症状")
     p.get_by_label("体温", exact=True).fill("37.8")
     p.get_by_role("button", name="记", exact=True).click()
     c.wait(lambda d: d["sick"]["current"]["temps"][0]["t"] == 37.8, "体温")
     p.get_by_role("button", name="切到发烧模式").click()
-    c.wait(lambda d: d["sick"]["current"]["kind"] == "fever", "切发烧")
+    c.wait(lambda d: d["sick"]["current"]["kind"] == "fever" and [x["kind"] for x in d["sick"]["current"]["path"]] == ["cold", "fever"], "切发烧")
     p.get_by_role("button", name="喝了一杯").click()
     c.wait(lambda d: d["sick"]["current"]["water"][TODAY] == 1, "喝水")
     p.get_by_role("button", name="多喝水（发烧很耗水）").click()
-    c.wait(lambda d: d["sick"]["current"]["done"][TODAY], "预案打勾")
+    c.wait(lambda d: d["sick"]["current"]["done"][TODAY] == {"多喝水（发烧很耗水）": True}, "预案打勾")
+    p.get_by_label("还做了").fill("编的姜汤")
+    p.locator(".card", has_text="今天要做").get_by_role("button", name="加", exact=True).click()
+    c.wait(lambda d: d["sick"]["current"].get("extra") == ["编的姜汤"] and d["sick"]["current"]["done"][TODAY].get("编的姜汤"), "还做了")
     # 药：从物品档案读；先抄说明书
     row = p.locator(".med-row", has_text="编的感冒灵颗粒")
     row.get_by_role("button", name="说明书").click()
@@ -641,22 +647,36 @@ def _(c):
     # 好了
     c.go("#/sick")
     p.get_by_role("button", name="好了").first.click()
+    c.sheet().get_by_role("button", name="编的姜汤").click()
     c.sheet().get_by_label("怎么好的").fill("编的办法")
     c.sheet().get_by_role("button", name="好了").click()
-    c.wait(lambda d: d["sick"]["current"] is None and d["sick"]["history"][0]["how"] == "编的办法", "好了")
+    c.wait(lambda d: d["sick"]["current"] is None and d["sick"]["history"][0]["how"] == "编的办法" and d["sick"]["history"][0]["helped"] == ["编的姜汤"], "好了")
     expect(p.get_by_text("恢复期还有")).to_be_visible()
     c.go("#/sick/book")
     expect(p.get_by_text("最高 39.2°C")).to_be_visible()
-    expect(p.get_by_text("怎么好的：编的办法")).to_be_visible()
-    # 改预案、填校医院
+    expect(p.get_by_text("写的：编的办法")).to_be_visible()
+    expect(p.locator(".lessons", has_text="感冒")).to_contain_text("1 次里 1 次转成了发烧")
+    expect(p.locator(".lessons", has_text="感冒")).to_contain_text("编的姜汤（1/1）")
+    expect(p.get_by_text("看病去哪")).to_have_count(0)
+    # 改预案
     p.get_by_role("button", name="🤧 感冒").click()
     c.sheet().get_by_label("预案").fill("编的做法一\n编的做法二")
     c.sheet().get_by_role("button", name="存好").click()
     c.wait(lambda d: d["sick"]["plans"]["cold"] == ["编的做法一", "编的做法二"], "预案")
-    p.locator(".card", has_text="看病去哪").get_by_role("button", name="改").click()
-    c.sheet().get_by_label("电话").fill("12345")
-    c.sheet().get_by_role("button", name="存好").click()
-    c.wait(lambda d: d["sick"]["clinic"]["phone"] == "12345", "校医院")
+    # 再感冒一次：以前的经验、最像的一次、把管用的加进预案
+    c.go("#/sick")
+    p.get_by_role("button", name="🤧 感冒").click()
+    c.wait(lambda d: d["sick"]["current"] and d["sick"]["current"]["kind"] == "cold", "又感冒")
+    lessons = p.locator(".lessons")
+    expect(lessons).to_contain_text("1 次感冒里有 1 次后来发烧了，一般在第 1 天")
+    expect(lessons).to_contain_text("编的姜汤")
+    p.locator(".card", has_text="今天哪里不舒服").get_by_role("button", name="嗓子疼").click()
+    expect(lessons).to_contain_text("最像的一次")
+    lessons.get_by_role("button", name="把「编的姜汤」加进预案").click()
+    c.wait(lambda d: d["sick"]["plans"]["cold"] == ["编的做法一", "编的做法二", "编的姜汤"], "加进预案")
+    p.get_by_role("button", name="好了").first.click()
+    c.sheet().get_by_role("button", name="好了").click()
+    c.wait(lambda d: d["sick"]["current"] is None and len(d["sick"]["history"]) == 2, "又好了")
 
 
 @step("肠胃：记次数，从账本里找昨天吃了什么，点可能是这个")
@@ -774,6 +794,35 @@ def _(c):
     expect(p.locator(".area-row", has_text="甲区")).to_contain_text("1/1")
     p.get_by_role("button", name="足迹").click()
     expect(p.get_by_text(f"{TODAY[:4]} 年 · 去了 1 个地方、1 次")).to_be_visible()
+    # DeepSeek 帮我填：只有一个 → 直接填好类型、区、位置
+    c.go("#/place/new")
+    p.get_by_label("名字").fill("编的博物馆")
+    p.get_by_role("button", name="让 DeepSeek 帮我填").click()
+    expect(p.get_by_role("group", name="类型").get_by_role("button", name="博物馆")).to_have_attribute("aria-pressed", "true")
+    expect(p.get_by_role("group", name="区").get_by_role("button", name="乙区")).to_have_attribute("aria-pressed", "true")
+    expect(p.get_by_text("位置是它估计的")).to_be_visible()
+    p.get_by_role("button", name="存好").click()
+    c.wait(lambda d: len(d["places"]) == 3, "博物馆")
+    mu = c.data()["places"][2]
+    assert mu["kind"] == "museum" and mu["district"] == "乙区" and mu["lat"] == 36.661 and mu["address"] == "编的路 1 号", mu
+    # 不认识 → 说一声
+    c.go("#/place/new")
+    p.get_by_label("名字").fill("编的不存在")
+    p.get_by_role("button", name="让 DeepSeek 帮我填").click()
+    expect(p.get_by_text("DeepSeek 不认识这个地方")).to_be_visible()
+    # 连锁店：列出几家，勾两家 → 分开记两个；太远的坐标不要
+    p.get_by_label("名字").fill("编的连锁")
+    p.get_by_role("button", name="让 DeepSeek 帮我填").click()
+    expect(c.sheet()).to_contain_text("找到 3 个")
+    expect(c.sheet().locator(".cand", has_text="远店")).to_contain_text("没有位置")
+    c.sheet().get_by_label("编的连锁（一店）").check()
+    c.sheet().get_by_label("编的连锁（二店）").check()
+    c.sheet().get_by_role("button", name="加这 2 个").click()
+    c.wait(lambda d: len(d["places"]) == 5, "连锁两家")
+    two = c.data()["places"][3:]
+    assert [x["name"] for x in two] == ["编的连锁（一店）", "编的连锁（二店）"] and two[1]["district"] == "乙区" and two[0]["lat"] == 36.67, two
+    p.get_by_role("button", name="列表").click()
+    expect(p.get_by_text("想去（4）")).to_be_visible()
     # 改一下
     c.go(f"#/place/{pl['id']}")
     p.get_by_role("link", name="改一下").click()
@@ -886,7 +935,20 @@ def fake_externals(page):
     def ai(route):
         body = route.request.post_data or ""
         LAST_AI.append(body)
-        content = {"answer": "编的回答"} if "问题" in body or "answer" in body else {"letter": "编的回顾正文", "research": "编的科研回顾"}
+        if "标在地图上" in body:
+            if "编的连锁" in body:
+                content = {"places": [
+                    {"name": "编的连锁（一店）", "address": "编的商场一楼", "district": "甲区", "kind": "shop", "lat": 36.67, "lng": 117.03, "sure": True},
+                    {"name": "编的连锁（二店）", "address": "编的广场", "district": "乙区", "kind": "shop", "lat": 36.65, "lng": 117.05, "sure": False},
+                    {"name": "编的连锁（远店）", "address": "很远", "district": "丙区", "kind": "店", "lat": 39.9, "lng": 116.4}]}
+            elif "编的博物馆" in body:
+                content = {"places": [{"name": "编的博物馆", "address": "编的路 1 号", "district": "乙区", "kind": "museum", "lat": 36.661, "lng": 117.021, "sure": True}]}
+            else:
+                content = {"places": []}
+        elif "问题" in body or "answer" in body:
+            content = {"answer": "编的回答"}
+        else:
+            content = {"letter": "编的回顾正文", "research": "编的科研回顾"}
         route.fulfill(status=200, content_type="application/json", headers={"Access-Control-Allow-Origin": "*"},
                       body=json.dumps({"choices": [{"finish_reason": "stop", "message": {"content": json.dumps(content, ensure_ascii=False)}}]}))
     page.route("https://api.deepseek.com/**", ai)

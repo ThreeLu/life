@@ -10,6 +10,7 @@ export const PLACE_KINDS = {
   shop: { name: '店', color: '#7a68b0', indoor: true },
   food: { name: '吃的', color: '#c0803f', indoor: true },
   show: { name: '展览演出', color: '#b97a92', indoor: true },
+  museum: { name: '博物馆', color: '#a0704a', indoor: true },
   other: { name: '其他', color: '#8a857c', indoor: true },
 };
 
@@ -28,6 +29,31 @@ export function parseShare(text) {
     .replace(/\s+/g, ' ')
     .trim();
   return { title, url };
+}
+
+// DeepSeek 找到的地方 → 整理一下：类型、区只能是已有的；坐标离城市太远（大于 80 公里）就不要，算不准
+export function cleanCandidates(list, { center, districts = [] } = {}) {
+  const out = [];
+  for (const c of Array.isArray(list) ? list : []) {
+    const name = String(c?.name || '').trim();
+    if (!name) continue;
+    const lat = Number(c.lat); const lng = Number(c.lng);
+    let ok = Number.isFinite(lat) && Number.isFinite(lng) && lat && lng;
+    if (ok && center && distanceKm(center[0], center[1], lat, lng) > 80) ok = false;
+    const district = c.district === '外地' || districts.includes(c.district) ? c.district : null;
+    out.push({
+      name, address: String(c.address || '').trim(),
+      kind: PLACE_KINDS[c.kind] ? c.kind : 'other', district,
+      ...(ok ? { lat: Math.round(lat * 1e6) / 1e6, lng: Math.round(lng * 1e6) / 1e6 } : {}),
+      sure: c.sure !== false,
+    });
+  }
+  return out.filter((c, i) => out.findIndex((x) => x.name === c.name) === i).slice(0, 10);
+}
+export function distanceKm(lat1, lng1, lat2, lng2) {
+  const r = Math.PI / 180;
+  const a = Math.sin(((lat2 - lat1) * r) / 2) ** 2 + Math.cos(lat1 * r) * Math.cos(lat2 * r) * Math.sin(((lng2 - lng1) * r) / 2) ** 2;
+  return 12742 * Math.asin(Math.sqrt(a));
 }
 
 export const visited = (p) => (p.visits || []).length > 0;
