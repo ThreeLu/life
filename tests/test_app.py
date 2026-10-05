@@ -992,6 +992,10 @@ def _(c):
     expect(p.locator(".card.identity")).to_contain_text("编的精致时刻")
     c.go("#/")
     expect(p.locator(".identity-line")).to_have_text(re.compile("编的句子"))
+    # 角落里的一句话：首页有，小记那一页没有
+    expect(p.locator(".whisper")).to_have_count(1)
+    c.go("#/p")
+    expect(p.locator(".whisper")).to_have_count(0)
 
 
 def inventory_seed():

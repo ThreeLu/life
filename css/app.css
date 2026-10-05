@@ -675,3 +675,7 @@ button.cell .grow { display: block; }
 .low-lesson { padding: 6px 0; }
 .low-lesson p { margin: 4px 0 0; }
 .hotline h3 { color: var(--danger); }
+
+/* 角落里的一句话 */
+.whisper { margin: 28px 8px 8px; text-align: center; font-family: "Songti SC", "STSong", serif; font-size: 14px; line-height: 1.7; color: color-mix(in srgb, var(--accent) 70%, var(--muted)); opacity: .9; }
+.whisper-ref { font-family: inherit; font-size: 12px; color: var(--muted); }

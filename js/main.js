@@ -14,7 +14,7 @@ import {
   TRACKS, STEPS, stepById, DIRECTIONS, SKIN_TAGS, VERSES, MORNING_VERSES, CONFESS_VERSE, verseFor, LORDS_PRAYER,
   STAGES, PRAISE_HINTS, THANKS_HINTS, CONFESS_HINT, ASK_HINT, ENTRUST_HINT, NEAR, prayerPrompt,
   EN_MODES, EN_CYCLE, EN_TOPICS, englishPrompt,
-  CHEER_ON, cheerNight, MILESTONE_TEXT, SICK_KINDS, SYMPTOMS, LOW_KINDS, LOW_VERSES, HOTLINES, RED_FLAGS, FEVER_FROM, BIBLE_BOOKS,
+  CHEER_ON, cheerNight, MILESTONE_TEXT, SICK_KINDS, SYMPTOMS, LOW_KINDS, LOW_VERSES, HOTLINES, SELF_LINES, RED_FLAGS, FEVER_FROM, BIBLE_BOOKS,
 } from './content.js';
 import { pushSupport, subscribe, currentSubscription, deviceName, PUSH_FILE } from './push.js';
 import { h, compressImage, blobToBase64 } from './util.js';
@@ -185,7 +185,7 @@ function render() {
     else content = fn(m[1], q);
     break;
   }
-  view.replaceChildren(content || notFound());
+  view.replaceChildren(...[content || notFound(), store?.data && !NO_WHISPER.test(path) ? whisper(path) : null].filter(Boolean));
   renderedData = store?.data ? JSON.stringify(store.data) : '';
   for (const a of nav.querySelectorAll('a[href]')) {
     const target = a.getAttribute('href').slice(1);
@@ -194,6 +194,14 @@ function render() {
 }
 
 // ---------- 通用组件 ----------
+
+// 各页最下面角落的一句话（活出自己）：每页每天一句，同一天不变。小记、难受的时候一步一步、带着祷告、设置不放
+const NO_WHISPER = /^\/(p|p\/s|low\/go|pray\/go|settings)$/;
+function whisper(path) {
+  const n = [...`${dayKey()}${path || '/'}`].reduce((a, c) => (a * 31 + c.charCodeAt(0)) >>> 0, 11);
+  const x = SELF_LINES[n % SELF_LINES.length];
+  return h('p', { class: 'whisper' }, x.text, x.ref ? h('span', { class: 'whisper-ref' }, ` — ${x.ref}`) : null);
+}
 
 function toast(message, kind = 'ok') {
   const el = h('div', { class: `toast ${kind}` }, message);
