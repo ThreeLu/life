@@ -485,6 +485,11 @@ def _(c):
     p.get_by_label("新的称呼").fill("编的第二个称呼")
     p.get_by_label("新的称呼").locator("..").get_by_role("button", name="加", exact=True).click()
     c.wait(lambda d: d["private"]["callNames"] == ["编的称呼", "编的第二个称呼"], "称呼")
+    # 语音设置：语速音调存在这台设备上
+    p.get_by_label("语速").fill("0.8")
+    p.get_by_label("语速").dispatch_event("change")
+    p.get_by_role("button", name="试听").click()
+    assert p.evaluate("JSON.parse(localStorage.getItem('life-voice')).rate") == 0.8
 
 
 @step("定期打理：到日子出现在今天，点做了")

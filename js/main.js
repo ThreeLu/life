@@ -2439,6 +2439,7 @@ function privateView() {
     sessionsCard(dayKey()),
     callNamesCard(),
     begsCard(),
+    voiceCard(),
     mediaCard(),
     suppliesCard(ui),
     limitsCard());
@@ -2543,17 +2544,62 @@ function programCard(today) {
 const sess = { step: 'safety', i: 0, start: null, results: {}, key: '', seed: 0, scene: null, voice: true, dark: false, nextCheck: 0, check: null, checksDone: 0, checksSkip: 0, timer: null, beforePoints: 0 };
 let sessTicker = null;
 
-function speak(text) {
-  if (!sess.voice || !('speechSynthesis' in window)) return;
+// 语音：浏览器自带的朗读（iPhone 上就是系统的中文声音）。用哪个声音、语速、音调存在这台设备上（每台设备的声音不一样）
+const VOICE_KEY = 'life-voice';
+const FEMALE = /tingting|婷婷|lili|meijia|美佳|xiaoxiao|晓晓|xiaoyi|晓伊|yaoyao|huihui|sinji|female|女/i;
+function zhVoices() {
+  try { return speechSynthesis.getVoices().filter((x) => /^zh/i.test(x.lang)); } catch { return []; }
+}
+function pickVoice() {
+  const pref = readJson(VOICE_KEY);
+  const list = zhVoices();
+  return list.find((x) => x.name === pref.name) || list.find((x) => /zh[-_]CN/i.test(x.lang) && FEMALE.test(x.name)) || list.find((x) => /zh[-_]CN/i.test(x.lang)) || list[0] || null;
+}
+// wrap：任务和突击检查前后随机加一句（private.voiceLines.before / after，让语气更像在命令你）
+function speak(text, wrap = false, force = false) {
+  if ((!sess.voice && !force) || !('speechSynthesis' in window)) return;
   try {
+    let line = String(text);
+    const vl = store.data.private.voiceLines;
+    if (wrap && vl) {
+      const seed = Date.now();
+      const pre = Math.random() < 0.6 ? pickOne(vl.before, seed) : '';
+      const post = Math.random() < 0.5 ? pickOne(vl.after, seed + 1) : '';
+      line = `${pre ? `${callName(pre, seed)} ` : ''}${line}${post ? ` ${callName(post, seed + 2)}` : ''}`;
+    }
     speechSynthesis.cancel();
-    const u = new SpeechSynthesisUtterance(String(text).replace(/[「」]/g, ''));
+    const u = new SpeechSynthesisUtterance(line.replace(/[「」]/g, ''));
     u.lang = 'zh-CN';
-    const v = speechSynthesis.getVoices().find((x) => /zh[-_]CN/i.test(x.lang));
+    const v = pickVoice();
     if (v) u.voice = v;
-    u.rate = 0.95;
+    const pref = readJson(VOICE_KEY);
+    u.rate = pref.rate || 0.9;
+    u.pitch = pref.pitch || 0.9;
     speechSynthesis.speak(u);
   } catch { /* 不支持就不念 */ }
+}
+function voiceCard() {
+  const pref = readJson(VOICE_KEY);
+  const sel = h('select', { 'aria-label': '声音' });
+  const fill = () => {
+    const list = zhVoices();
+    const cur = pickVoice();
+    sel.replaceChildren(...(list.length ? list.map((v) => h('option', { value: v.name, selected: cur?.name === v.name }, `${v.name}${FEMALE.test(v.name) ? '（女声）' : ''}`)) : [h('option', { value: '' }, '这台设备没有中文声音')]));
+  };
+  fill();
+  try { speechSynthesis.onvoiceschanged = fill; } catch { /* 无 */ }
+  const rate = h('input', { type: 'range', min: '0.6', max: '1.3', step: '0.05', value: pref.rate || 0.9, 'aria-label': '语速' });
+  const pitch = h('input', { type: 'range', min: '0.5', max: '1.5', step: '0.05', value: pref.pitch || 0.9, 'aria-label': '音调' });
+  const store_ = () => writeJson(VOICE_KEY, { name: sel.value, rate: Number(rate.value), pitch: Number(pitch.value) });
+  for (const el of [sel, rate, pitch]) el.addEventListener('change', store_);
+  const sample = () => { store_(); speak(callName('{称呼}，跪好。别让我说第二遍。', Date.now()), false, true); };
+  return h('div', { class: 'card form' },
+    h('h3', {}, '语音'),
+    h('label', {}, '声音', sel),
+    h('label', {}, '语速（慢一点更有压迫感）', rate),
+    h('label', {}, '音调（低一点更冷）', pitch),
+    h('button', { class: 'small secondary', onclick: sample }, '试听'),
+    h('p', { class: 'muted small' }, 'iPhone 上想要更好听的女声：设置 → 辅助功能 → 朗读内容 → 声音 → 中文，下载「增强版」或「高级版」的女声，回来在这里选。设置只存在这台手机上。'));
 }
 function beep() {
   try {
@@ -2606,7 +2652,7 @@ function startTicker() {
     if (checks.length && !sess.check && sess.step === 'task' && sess.nextCheck && Date.now() >= sess.nextCheck) {
       sess.check = taskText({ id: `c${Date.now()}`, text: pickOne(checks, Date.now()) });
       beep();
-      setTimeout(() => speak(`突击检查。${sess.check}`), 400);
+      setTimeout(() => speak(`突击检查。${sess.check}`, true), 400);
       render();
     }
   }, 1000);
@@ -2652,7 +2698,7 @@ function sessionView() {
         sess.beforePoints = totalPoints(d);
         scheduleCheck(); startTicker();
         if (sess.scene) speak(`今天的情景。${fillText(callName(sess.scene, sess.seed), sess.seed)}`);
-        else if (tasks[0]) speak(taskText(tasks[0]));
+        else if (tasks[0]) speak(taskText(tasks[0]), true);
         render();
       } }, '准备好了'),
       h('a', { class: 'link small center block', href: '#/p' }, '先不了'));
@@ -2668,7 +2714,7 @@ function sessionView() {
   if (sess.step === 'scene') {
     return h('div', { class: 'session' }, top,
       h('div', { class: 'card task-card scene' }, h('span', { class: 'badge accent' }, ui.sceneTitle), h('p', { class: 'task-text' }, fillText(callName(sess.scene, sess.seed), sess.seed))),
-      h('button', { class: 'wide big-btn', onclick: () => { sess.step = 'task'; if (tasks[0]) speak(taskText(tasks[0])); render(); } }, '开始'),
+      h('button', { class: 'wide big-btn', onclick: () => { sess.step = 'task'; if (tasks[0]) speak(taskText(tasks[0]), true); render(); } }, '开始'),
       stopBtn);
   }
   if (sess.step === 'task' && sess.i < tasks.length) {
@@ -2679,7 +2725,7 @@ function sessionView() {
       sess.timer = null;
       if (r === 'done' && t.rule) save('小记：新规矩', (data) => { const rs = (data.private.rules ||= []); if (!rs.some((x) => x.text === t.rule)) rs.push({ id: newId('rl'), text: t.rule, at: dayKey() }); }).catch(() => {});
       sess.i++;
-      if (sess.i >= tasks.length) { sess.step = 'end'; speak('任务做完了。开始收尾。'); } else speak(taskText(tasks[sess.i]));
+      if (sess.i >= tasks.length) { sess.step = 'end'; speak('任务做完了。开始收尾。'); } else speak(taskText(tasks[sess.i]), true);
       render(); window.scrollTo(0, 0);
     };
     const secs = durationOf(text);
@@ -2694,7 +2740,7 @@ function sessionView() {
         t.rule ? h('p', { class: 'small' }, `做到了，这条会加进规矩手册：${t.rule}`) : null,
         t.note ? h('p', { class: 'small muted' }, t.note) : null),
       h('div', { class: 'actions' }, h('button', { class: 'grow big-btn', onclick: () => mark('done') }, '做到了'), h('button', { class: 'secondary big-btn', onclick: () => mark('skip') }, '跳过')),
-      h('button', { class: 'link small center block', onclick: () => speak(text) }, '再念一遍'),
+      h('button', { class: 'link small center block', onclick: () => speak(text, true, true) }, '再念一遍'),
       stopBtn);
   }
   return sessionEnd(d, ui, tasks, top);
