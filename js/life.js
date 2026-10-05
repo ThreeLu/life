@@ -457,11 +457,24 @@ export function programWeek(data, today) {
   return { n, i, week: pg.weeks[i], total: pg.weeks.length, after: n >= pg.weeks.length };
 }
 
-// 这周的任务：本周的 + 超过最后一周时自己写的
+// 这周的任务：本周的 + 从任务池里抽的几张（program.draw 张，同一周抽到的一样）+ 超过最后一周时自己写的
 export function weekTasks(data, today) {
   const w = programWeek(data, today);
   if (!w?.week) return [];
-  return [...w.week.tasks, ...(w.after ? data.private.custom : [])];
+  const pg = data.private.program;
+  const fixed = new Set(w.week.tasks.map((t) => t.id));
+  const pool = (pg.pool || []).filter((t) => (t.from || 1) <= w.n + 1 && !fixed.has(t.id));
+  const drawn = [];
+  let seed = [...`${pg.start}-${w.n}`].reduce((a, c) => (a * 31 + c.charCodeAt(0)) >>> 0, 17);
+  const left = pool.slice();
+  for (let k = 0; k < (pg.draw || 0) && left.length; k++) {
+    seed = (seed * 1103515245 + 12345) >>> 0;
+    drawn.push(left.splice(seed % left.length, 1)[0]);
+  }
+  // 抽到的放在最后一张之前（最后一张通常是收尾的规矩）
+  const tasks = w.week.tasks.slice();
+  tasks.splice(Math.max(1, tasks.length - 1), 0, ...drawn);
+  return [...tasks, ...(w.after ? data.private.custom : [])];
 }
 
 // 不影响生活：这周次数超过自己定的、最近几次结束后心情低

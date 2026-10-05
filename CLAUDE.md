@@ -24,7 +24,7 @@
   weeks: { 周一日期: { skin: { score, tags }, thanks } },
   prayer: { stage: 1|2|3, since, about（ChatGPT 祷告提示词里的自我介绍）, items: [{ id, text, at, answered?, answerNote? }], next: 下一篇诗篇序号, book, pos: { 卷: 下一章序号 } },
   private: { supplies: [{ id, name, low? }], ui: { title, main, alt, score, flag, checks: { c1, c2, c3 }, checksTitle, help, programTitle, sessionStart, safety: [], aftercare: [], … },
-             program: { start: 第一周周一, weeks: [{ title, intro, buy?, tasks: [{ id, track: a|b, text, level, note? }] }] }, custom: [任务], limits: [字],
+             program: { start: 第一周周一, weeks: [{ title, intro, buy?, tasks: [{ id, track: a|b, text, level, note? }] }], pool: [任务 + from 第几周起], draw: 每次抽几张 }, custom: [任务], limits: [字],
              sessions: [{ id, day, start, end, minutes, week, tasks: { id: done|skip }, score, after, note }], media: [{ id, day, title, link, minutes, after, note }], minutes, latest, perWeek },
   sick: { current: null | { id, kind: cold|fever|gut|other, start, temps: [{ at, t }], meds: [{ at, item, name }], water: { 日期: 杯 }, done: { 日期: { 第几项: true } }, gut: { 日期: { d, v } }, suspects: [] },
           history: [同上 + end, how], plans: { kind: [一行一件事] }, meds: { 物品档案id: { dose, gapHours, perDay } }, clinic: { name, address, hours, phone, er } },
