@@ -973,10 +973,27 @@ function periodicView() {
       },
     });
   };
+  const withLeft = d.periodic.map((p) => ({ p, left: p.last ? p.every - daysBetween(p.last, today) : -999 }));
+  const due = withLeft.filter((x) => x.left <= 0).sort((a, b) => a.left - b.left).map((x) => x.p);
+  const later = withLeft.filter((x) => x.left > 0).sort((a, b) => a.left - b.left).map((x) => x.p);
   return h('div', {},
     headerSub('定期打理', '到日子了会出现在「今天」', helpButton('定期打理怎么用', [['怎么用', ['到了该做的日子，「今天」页会出现这一项，点「做了」就从那天重新算。', '点一项可以改名字、几天一次、上次是哪天；也可以自己加，比如洗枕头、擦眼镜。', '「形象」里开始学修眉这类步骤时，会自动加上对应的一项。']]])),
-    h('div', { class: 'group' }, d.periodic.map((p) => cell({ onclick: () => edit(p), title: p.name, sub: `${p.every} 天一次${p.last ? ` · 上次 ${relDay(p.last, today)}` : ''}`, meta: p.last ? nextDueText(p, today) : '还没记过' }))),
+    due.length ? [h('div', { class: 'section-title' }, `该做了（${due.length}）`), h('div', { class: 'card list-card' }, due.map((p) => periodicRow(p, today, edit)))] : null,
+    later.length ? [h('div', { class: 'section-title' }, '还早'), h('div', { class: 'card list-card' }, later.map((p) => periodicRow(p, today, edit)))] : null,
     h('button', { class: 'secondary wide', onclick: () => edit() }, '＋ 加一项'));
+}
+// 一项定期打理：名字（点了改）、进度条（离下次还有多久）、「做了」
+function periodicRow(p, today, edit) {
+  const passed = p.last ? daysBetween(p.last, today) : null;
+  const left = p.last ? p.every - passed : 0;
+  const frac = p.last ? Math.min(1, passed / p.every) : 0;
+  const done = () => saveUndoable(`定期打理：${p.name}`, (data) => { const x = data.periodic.find((y) => y.id === p.id); if (x) x.last = today; }, `${CHEER_ON.periodic}（${p.every} 天后再提醒）`).then(render).catch(() => {});
+  return h('div', { class: 'per-row' },
+    h('button', { type: 'button', class: 'per-main', onclick: () => edit(p), 'aria-label': `改 ${p.name}` },
+      h('span', { class: 'per-top' }, h('b', {}, p.name), h('span', { class: `small ${p.last && left <= 0 ? 'soon' : 'muted'}` }, !p.last ? '还没记过，做了就开始算' : left <= 0 ? (left === 0 ? '今天该做了' : `过了 ${-left} 天`) : `${left} 天后`)),
+      h('span', { class: 'bar-track' }, h('span', { class: 'bar', style: `width:${Math.round(frac * 100)}%;background:${left <= 0 ? 'var(--amber)' : 'var(--sage)'}` })),
+      h('span', { class: 'muted small' }, `每 ${p.every} 天${p.last ? ` · 上次${relDay(p.last, today)}` : ''}`)),
+    p.last === today ? h('span', { class: 'good-text small per-done' }, '今天做了 ✓') : h('button', { class: 'small secondary per-done', onclick: done }, '做了'));
 }
 
 // ---------- 祷告 ----------
@@ -2308,13 +2325,20 @@ function sickBookView() {
   return h('div', {},
     headerSub('生病手册', `${year} 年病了 ${thisYear.length} 次`, helpButton('生病手册', [['这一页', ['每次生病好了以后会存在这里：几号到几号、最高几度、吃了什么、怎么好的。下次生病翻出来参考。', '预案：每种情况你要做的事，生病时变成打勾清单，可以改。', '看病去哪：校医院和急诊的信息，生病页上一直显示。']]])),
     h('div', { class: 'card' },
-      h('h3', {}, '看病去哪'),
-      d.sick.clinic?.name ? h('p', { class: 'small' }, [d.sick.clinic.name, d.sick.clinic.address, d.sick.clinic.hours, d.sick.clinic.phone].filter(Boolean).join(' · ')) : h('p', { class: 'muted small' }, '还没填。'),
-      h('button', { class: 'secondary small', onclick: editClinic }, '改')),
+      h('div', { class: 'rec-top' }, h('h3', {}, '看病去哪'), h('button', { class: 'link small', onclick: editClinic }, '改')),
+      [['校医院', 'name'], ['在哪', 'address'], ['门诊时间', 'hours'], ['电话', 'phone'], ['夜里 / 急诊', 'er']].map(([label, k]) => h('div', { class: 'kv-row' },
+        h('span', { class: 'muted small' }, label),
+        d.sick.clinic?.[k] ? (k === 'phone' ? h('a', { href: `tel:${d.sick.clinic[k]}` }, d.sick.clinic[k]) : h('span', {}, d.sick.clinic[k])) : h('span', { class: 'muted small' }, '没填'))),
+      h('div', { class: 'kv-row' }, h('span', { class: 'muted small' }, '急救'), h('a', { href: 'tel:120' }, '120'))),
+    d.sick.history.length ? h('div', { class: 'card' },
+      h('div', { class: 'stat-grid' },
+        stat(`${year} 年`, `${thisYear.length} 次`), stat('一共', `${d.sick.history.length} 次`),
+        stat('平均几天好', `${Math.round(d.sick.history.reduce((a, x) => a + daysBetween(x.start, x.end) + 1, 0) / d.sick.history.length * 10) / 10} 天`),
+        stat('上一次', `${relDay(d.sick.history[d.sick.history.length - 1].end)}好的`)),
+      h('h3', {}, '每个月'), barChart(Array.from({ length: 12 }, (_, i) => ({ label: String(i + 1), v: months[i + 1] || 0 })), { title: '每个月生病几次', color: 'var(--danger)' })) : null,
     h('div', { class: 'section-title' }, '预案'),
     h('div', { class: 'group' }, Object.entries(SICK_KINDS).map(([k, v]) => cell({ title: `${v.icon} ${v.name}`, sub: (d.sick.plans[k] || []).join('、'), onclick: () => editPlan(k) }))),
-    Object.keys(months).length ? h('div', { class: 'card' }, h('h3', {}, '哪几个月容易生病'),
-      h('p', { class: 'small' }, Object.entries(months).sort((a, b) => a[0] - b[0]).map(([m, n]) => `${m} 月 ${n} 次`).join(' · '))) : null,
+
     Object.keys(suspects).length ? h('div', { class: 'card' }, h('h3', {}, '肠胃不舒服前吃过的'),
       Object.entries(suspects).sort((a, b) => b[1] - a[1]).map(([k, n]) => h('div', { class: 'small' }, `${k}${n > 1 ? ` · ${n} 次` : ''}`))) : null,
     h('div', { class: 'section-title' }, '以前的每一次'),

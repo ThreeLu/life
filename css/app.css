@@ -610,3 +610,19 @@ body.dark-session button, body.dark-session .button { background: #1a1820; color
 body.dark-session .pray-progress span { background: #17161a; }
 body.dark-session .pray-progress span.on { background: #4b4360; }
 body.dark-session main { padding-bottom: 40px; }
+
+/* 列表里能点的一行（按钮）：不要按钮的紫色样式 */
+button.cell { width: 100%; background: transparent; color: var(--text); border-radius: 0; font-weight: 400; font-size: 15px; justify-content: flex-start; text-align: left; min-height: 48px; padding: 11px 14px; }
+button.cell .grow { display: block; }
+.group > button.cell + button.cell, .group > a.cell + button.cell, .group > button.cell + a.cell { border-top: 0.5px solid var(--line); }
+/* 定期打理 */
+.per-row { display: flex; align-items: center; gap: 12px; padding: 10px 0; border-bottom: 0.5px solid var(--line); }
+.per-row:last-child { border-bottom: 0; }
+.per-main { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: stretch; gap: 6px; background: none; color: var(--text); padding: 0; min-height: 0; font-weight: 400; text-align: left; border-radius: 0; }
+.per-top { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.per-main .bar-track { height: 6px; }
+.per-done { flex: none; }
+/* 生病手册 */
+.kv-row { display: flex; justify-content: space-between; gap: 12px; min-height: 36px; align-items: center; border-bottom: 0.5px solid var(--line); font-size: 15px; }
+.kv-row:last-child { border-bottom: 0; }
+.kv-row > :last-child { text-align: right; }
