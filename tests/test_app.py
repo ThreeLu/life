@@ -361,8 +361,65 @@ def _(c):
     p.get_by_label("密码").fill("123456")
     expect(p.get_by_role("heading", name="编的标题")).to_be_visible()
     p.get_by_label("新的用品").fill("编的用品")
-    p.get_by_role("button", name="加", exact=True).click()
+    p.get_by_label("新的用品").locator("..").get_by_role("button", name="加", exact=True).click()
     c.wait(lambda d: d["private"]["supplies"][0]["name"] == "编的用品", "用品")
+
+
+@step("小记：按周解锁的任务、开始一段时间（安全提醒、一张一张做或跳过、绝对不要的不出现、收尾）、音频记录、超过一周一次轻轻提")
+def _(c):
+    p = c.page
+    mon = (datetime.fromisoformat(TODAY) - timedelta(days=datetime.fromisoformat(TODAY).weekday())).date().isoformat()
+    def seed(d):
+        d["private"]["program"] = {"start": mon, "weeks": [
+            {"title": "编的第一周", "intro": "编的介绍", "buy": {"name": "编的东西", "price": "¥10"}, "tasks": [
+                {"id": "t1", "track": "a", "text": "编的任务一", "level": 1},
+                {"id": "t2", "track": "b", "text": "编的任务二（含忌讳词）", "level": 2},
+                {"id": "t3", "track": "b", "text": "编的任务三", "level": 1, "note": "编的安全提示"}]},
+            {"title": "编的第二周", "tasks": [{"id": "t4", "track": "a", "text": "编的任务四"}]}]}
+        d["private"]["limits"] = ["忌讳词"]
+        d["private"]["ui"].update(sessionStart="编的开始", safety=["编的安全一"], aftercare=["编的收尾一", "编的收尾二"])
+    c.write(seed)
+    c.go("#/p")
+    p.reload()
+    p.get_by_label("密码").fill("123456")
+    expect(p.locator(".program")).to_contain_text("第 1 周 / 2")
+    expect(p.locator(".program")).to_contain_text("编的第一周")
+    expect(p.locator(".program")).to_contain_text("这周可以买：编的东西")
+    expect(p.locator("main")).not_to_contain_text("编的任务一")  # 开始以后才出现
+    p.get_by_role("link", name="编的开始").click()
+    expect(p.get_by_text("编的安全一")).to_be_visible()
+    expect(p.get_by_text("忌讳词")).to_be_visible()
+    p.get_by_role("button", name="准备好了").click()
+    expect(p.locator(".task-text")).to_have_text("编的任务一")
+    p.get_by_role("button", name="做到了").click()
+    expect(p.locator(".task-text")).to_have_text("编的任务三")  # 含「绝对不要」的跳过了
+    expect(p.get_by_text("编的安全提示")).to_be_visible()
+    p.get_by_role("button", name="跳过").click()
+    expect(p.get_by_text("收尾", exact=True)).to_be_visible()
+    p.get_by_role("button", name="编的收尾一").click()
+    p.get_by_role("group", name="结束后的心情").get_by_role("button", name="不错").click()
+    p.get_by_role("checkbox").check()
+    p.get_by_role("button", name="结束").click()
+    c.wait(lambda d: d["private"]["sessions"], "一段时间")
+    ss = c.data()["private"]["sessions"][0]
+    assert ss["tasks"] == {"t1": "done", "t3": "skip"} and ss["after"] == 4 and ss["week"] == 1, ss
+    assert any(e.get("session") == ss["id"] for e in c.data()["events"]), "也记一次"
+    expect(p.locator(".card", has_text="（最近）")).to_contain_text("任务 1/2")
+    # 音频
+    p.get_by_role("button", name="＋ 记一个").click()
+    c.sheet().get_by_label("名字").fill("编的音频")
+    c.sheet().get_by_label("多少分钟").fill("20")
+    c.sheet().get_by_role("button", name="不错").click()
+    c.sheet().get_by_role("button", name="记好了").click()
+    c.wait(lambda d: d["private"]["media"] and d["private"]["media"][0]["minutes"] == 20, "音频")
+    # 这周第二次：轻轻提
+    c.write(lambda d: d["private"]["sessions"].append({**d["private"]["sessions"][0], "id": "ss2"}))
+    p.reload()
+    p.get_by_label("密码").fill("123456")
+    expect(p.get_by_text("这周已经是第 2 次了")).to_be_visible()
+    # 别的地方都看不到
+    c.go("#/stats")
+    expect(p.locator("main")).not_to_contain_text("编的")
 
 
 @step("定期打理：到日子出现在今天，点做了")

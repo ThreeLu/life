@@ -3,7 +3,7 @@ import { Store, newId, diff, apply as applyPatch } from './store.js';
 import {
   defaultData, dayKey, addDays, daysBetween, weekOf, weekLabel, hm, parseDay, WHEN, routineOf, careDone, weekCount,
   startStep, stopStep, stepStatus, nextStep, readyForHabit, periodicDue, eventsOn, privateStats,
-  prayedOn, prayerStats, stageReady, readingToday, markRead, bibleLink,
+  prayedOn, prayerStats, stageReady, readingToday, markRead, bibleLink, programWeek, weekTasks, privateNote,
   dailyCheer, weekHighlights, newMilestones, careFullDay,
   sickActive, recoveryLeft, tempStats, medInfo, doseStatus, medConflicts, seasonWarning,
   parseSummary, reviewCard, dueCards, mistakeTypes, REVIEW_STEPS,
@@ -27,7 +27,7 @@ import { icon } from './icons.js';
 
 const SETTINGS_KEY = 'life-settings';
 const DEFAULT_REPO = 'ThreeLu/life-data';
-const EDITING_ROUTES = /^\/(night|pray\/go|p$|english|place\/|ask)/;
+const EDITING_ROUTES = /^\/(night|pray\/go|p$|p\/s|english|place\/|ask)/;
 
 const readJson = (key) => { try { return JSON.parse(localStorage.getItem(key)) || {}; } catch { return {}; } };
 const writeJson = (key, v) => { try { localStorage.setItem(key, JSON.stringify(v)); } catch { /* 存不了就算了 */ } };
@@ -145,6 +145,7 @@ const routes = [
   [/^\/report$/, (_, q) => reportView(q)],
   [/^\/ask$/, () => askView()],
   [/^\/p$/, () => privateView()],
+  [/^\/p\/s$/, () => sessionView()],
   [/^\/periodic$/, () => periodicView()],
   [/^\/history$/, () => historyView()],
   [/^\/more$/, () => moreView()],
@@ -1668,7 +1669,7 @@ const STATS_HELP = [
   ]],
   ['报告和问问我的记录', [
     '周报、月报、年报：这段时间的数字，再请 DeepSeek 写一小段话（存下来，不会每次重写）。',
-    '问问我的记录：用大白话问，比如「我最近为什么总是累？」。DeepSeek 会读你最近 60 天的记录来回答。小记的数字只有在那一页开着锁的时候才会一起发过去。',
+    '问问我的记录：用大白话问，比如「我最近为什么总是累？」。DeepSeek 会读你最近 60 天的记录来回答（小记里的东西不会发过去）。',
   ]],
 ];
 const statsState = { range: 30, rhythm: 'shower' };
@@ -1887,14 +1888,8 @@ function recordContext() {
     if (parts.length) lines.push(`${day} ${parts.join('，')}`);
   }
   const sick = (d.sick.history || []).slice(-5).map((x) => `${x.start}~${x.end} ${SICK_KINDS[x.kind].name}`).join('；');
-  // 小记：只有那一页开着锁的时候才带上（用户同意发给 DeepSeek，但别的时候别让它出现在没上锁的页面上）
-  let priv = '';
-  if (Date.now() < unlockUntil) {
-    const ps = privateStats(d);
-    const ui = pui();
-    priv = `\n${ui.title}：最近 30 天 ${ps.recent} 次，平均隔 ${ps.avgGap?.toFixed(1) ?? '-'} 天，日期：${ps.list.filter((e) => daysBetween(e.day, today) < 60).map((e) => e.day.slice(5)).join(' ')}`;
-  }
-  return `今天 ${today}。\n${lines.join('\n') || '（最近没什么记录）'}${sick ? `\n生病：${sick}` : ''}${priv}`;
+  // 小记和日常生活完全分开：从来不发
+  return `今天 ${today}。\n${lines.join('\n') || '（最近没什么记录）'}${sick ? `\n生病：${sick}` : ''}`;
 }
 async function askRecords(question) {
   askState.messages.push({ role: 'me', text: question });
@@ -2380,7 +2375,8 @@ function pinForm({ title, sub, confirm = false, onPin }) {
     h('button', { class: 'wide', onclick: submit }, '好'));
 }
 
-function privateView() {
+// 没设密码 / 锁着：返回要显示的页面；开着锁返回 null
+function lockGate() {
   const d = store.data;
   const pin = d.settings.pin;
   if (!pin) {
@@ -2403,6 +2399,13 @@ function privateView() {
     }));
   }
   unlockUntil = Date.now() + 10 * 60000;
+  return null;
+}
+
+function privateView() {
+  const gate = lockGate();
+  if (gate) return gate;
+  const d = store.data;
   const ui = pui();
   const s = privateStats(d);
   const rhythm = d.settings.rhythmDays || 2;
@@ -2410,6 +2413,8 @@ function privateView() {
   const slotMax = Math.max(1, ...Object.values(s.slot));
   return h('div', {},
     header(ui.title, h('button', { class: 'icon-btn', 'aria-label': '锁上', onclick: () => { lockPrivate(); go('#/'); } }, icon('lock')), helpButton(ui.title, ui.help)),
+    privateNote(d, dayKey()) ? h('div', { class: 'card soft' }, h('p', { class: 'small' }, privateNote(d, dayKey()))) : null,
+    programCard(dayKey()),
     h('div', { class: 'card center' },
       h('div', { class: 'big-num' }, sinceText),
       s.since !== null && s.since >= rhythm ? h('p', { class: 'small muted' }, `已经超过你设的 ${rhythm} 天节奏了，可以安排一下。`) : h('p', { class: 'small muted' }, `你的节奏：${rhythm} 天一次`),
@@ -2429,7 +2434,10 @@ function privateView() {
         h('span', { class: 'grow' }, `${e.day.slice(5).replace('-', '/')} ${hm(e.at)}`,
           h('span', { class: 'muted small' }, [e.score ? `${ui.score} ${e.score}` : '', e.flag ? ui.flagStat : '', e.checks ? checksText(e.checks, ui) : ''].filter(Boolean).map((x) => ` · ${x}`).join(''))),
         icon('chev', 'i chev')))) : null,
-    suppliesCard(ui));
+    sessionsCard(dayKey()),
+    mediaCard(),
+    suppliesCard(ui),
+    limitsCard());
 }
 const stat = (k, v) => h('div', { class: 'stat' }, h('span', { class: 'muted small' }, k), h('b', {}, v));
 const CHECK_KEYS = ['c1', 'c2', 'c3'];
@@ -2496,6 +2504,169 @@ function checksSheet(id) {
       if (x) x.checks = Object.fromEntries(CHECK_KEYS.map((k) => [k, Boolean(picked[k])]));
     }),
   });
+}
+
+// 按周的任务、一段计时的「时间」、音频记录、绝对不要的清单。文字都从 private.ui 读，这里只有中性默认值。
+const P_PROGRAM_DEFAULT = {
+  programTitle: '这一周', sessionStart: '开始', sessionTitle: '时间', trackA: 'A', trackB: 'B',
+  safety: ['任何一张都可以跳过。', '不舒服就停。'], aftercare: ['收拾好东西', '喝一杯水'],
+  afterLabel: '结束后的心情', alsoCount: '这次也记一次', mediaTitle: '音频', limitsTitle: '绝对不要', customTitle: '自己写的',
+};
+const pp = () => ({ ...P_PROGRAM_DEFAULT, ...pui() });
+
+function programCard(today) {
+  const d = store.data;
+  const ui = pp();
+  const w = programWeek(d, today);
+  if (!w) return null;
+  if (!w.week) return h('div', { class: 'card' }, h('h3', {}, ui.programTitle), h('p', { class: 'small muted' }, `${w.startsIn} 天后开始。`));
+  const tasks = weekTasks(d, today);
+  const mon = weekOf(today);
+  const done = d.private.sessions.filter((s) => s.day >= mon);
+  return h('div', { class: 'card program' },
+    h('div', { class: 'rec-top' }, h('h3', {}, `${ui.programTitle} · 第 ${w.n + 1} 周${w.after ? '（之后）' : ` / ${w.total}`}`), done.length ? h('span', { class: 'good-text small' }, `这周做过 ${done.length} 次`) : null),
+    h('b', { class: 'block' }, w.week.title),
+    w.week.intro ? h('p', { class: 'small' }, w.week.intro) : null,
+    h('p', { class: 'muted small' }, `${tasks.length} 张任务，开始以后一张一张出现。`),
+    w.week.buy ? h('p', { class: 'small' }, `这周可以买：${w.week.buy.name}${w.week.buy.price ? `（${w.week.buy.price}）` : ''}。不买也行。`) : null,
+    h('a', { class: 'button wide', href: '#/p/s' }, ui.sessionStart));
+}
+
+const sess = { step: 'safety', i: 0, start: null, results: {}, key: '' };
+function sessionView() {
+  const gate = lockGate();
+  if (gate) return gate;
+  const d = store.data;
+  const ui = pp();
+  const today = dayKey();
+  const limits = d.private.limits.map((x) => x.trim()).filter(Boolean);
+  const tasks = weekTasks(d, today).filter((t) => !limits.some((l) => t.text.includes(l)));
+  if (sess.key !== today) Object.assign(sess, { step: 'safety', i: 0, start: null, results: {}, key: today });
+  const mins = sess.start ? Math.floor((Date.now() - sess.start) / 60000) : 0;
+  const limit = d.private.minutes || 60;
+  const top = sess.start ? h('div', { class: `session-timer${mins >= limit ? ' over' : ''}` }, mins >= limit ? `${mins} 分钟了，时间到了，开始收尾吧。` : `${mins} / ${limit} 分钟 · 最晚 ${d.private.latest || '23:30'} 收尾`) : null;
+  if (sess.step === 'safety') {
+    return h('div', { class: 'session' },
+      header(ui.sessionTitle, helpButton(ui.title, ui.help)),
+      h('div', { class: 'card' }, h('h3', {}, '开始之前'), h('ul', { class: 'small flags' }, ui.safety.map((x) => h('li', {}, x))),
+        limits.length ? [h('h3', {}, ui.limitsTitle), h('p', { class: 'small' }, limits.join('、'))] : null),
+      h('button', { class: 'wide', onclick: () => { sess.step = 'task'; sess.start = Date.now(); render(); } }, '准备好了'),
+      h('a', { class: 'link small center block', href: '#/p' }, '先不了'));
+  }
+  if (sess.step === 'task' && sess.i < tasks.length) {
+    const t = tasks[sess.i];
+    const mark = (r) => { sess.results[t.id] = r; sess.i++; if (sess.i >= tasks.length) sess.step = 'end'; render(); window.scrollTo(0, 0); };
+    return h('div', { class: 'session' },
+      top,
+      h('div', { class: 'pray-progress' }, tasks.map((_, k) => h('span', { class: k <= sess.i ? 'on' : '' }))),
+      h('div', { class: `card task-card ${t.track || ''}` },
+        h('div', { class: 'rec-top' }, h('span', { class: 'badge accent' }, t.track === 'b' ? ui.trackB : ui.trackA), t.level ? h('span', { class: 'muted small' }, '●'.repeat(t.level)) : null),
+        h('p', { class: 'task-text' }, t.text),
+        t.note ? h('p', { class: 'small muted' }, t.note) : null),
+      h('div', { class: 'actions' }, h('button', { class: 'grow', onclick: () => mark('done') }, '做到了'), h('button', { class: 'secondary', onclick: () => mark('skip') }, '跳过')),
+      h('button', { class: 'link small center block', onclick: () => { sess.step = 'end'; render(); } }, '直接收尾'));
+  }
+  // 收尾
+  const care = new Set();
+  let score = null; let after = null;
+  const rows = h('div', {});
+  const draw = () => rows.replaceChildren(
+    h('div', { class: 'label-sm' }, ui.score), scoreRow(ui.score, 5, score, (v) => { score = v; draw(); }),
+    h('div', { class: 'label-sm' }, ui.afterLabel), scoreRow(ui.afterLabel, 5, after, (v) => { after = v; draw(); }, ['很差', '不太好', '一般', '不错', '很好']));
+  draw();
+  const note = h('textarea', { rows: 2, placeholder: '想写的写一句（可以不写）', 'aria-label': '备注' });
+  const count = h('input', { type: 'checkbox', 'aria-label': ui.alsoCount });
+  const finish = async () => {
+    const end = new Date();
+    const start = new Date(sess.start || end);
+    const id = newId('ss');
+    try {
+      await save('小记：一段时间', (data) => {
+        data.private.sessions.push({
+          id, day: dayKey(start), start: start.toISOString(), end: end.toISOString(), minutes: Math.round((end - start) / 60000),
+          week: (programWeek(data, dayKey(start))?.n ?? -1) + 1, tasks: { ...sess.results },
+          ...(score ? { score } : {}), ...(after ? { after } : {}), ...(note.value.trim() ? { note: note.value.trim() } : {}),
+        });
+        if (count.checked) data.events.push({ id: newId('e'), day: dayKey(end), at: end.toISOString(), type: 'p', ...(score ? { score } : {}), flag: false, session: id });
+      });
+    } catch { return; }
+    Object.assign(sess, { step: 'safety', i: 0, start: null, results: {}, key: '' });
+    toast(ui.doneToast || '收好了。辛苦了，你很好。');
+    go('#/p');
+  };
+  return h('div', { class: 'session' },
+    top,
+    h('div', { class: 'card' }, h('h3', {}, '收尾'), h('p', { class: 'small muted' }, '一样一样做，做完点一下。'),
+      h('div', { class: 'chips' }, ui.aftercare.map((x, i) => {
+        const b = h('button', { type: 'button', class: 'chip check', onclick: () => { if (care.has(i)) care.delete(i); else care.add(i); b.classList.toggle('on', care.has(i)); } }, x);
+        return b;
+      }))),
+    h('div', { class: 'card' }, rows, note, h('label', { class: 'switch-row', style: 'margin-top:10px !important' }, count, ui.alsoCount)),
+    h('button', { class: 'wide', onclick: finish }, '结束'));
+}
+
+function sessionsCard(today) {
+  const d = store.data;
+  const ui = pp();
+  const list = d.private.sessions.slice(-8).reverse();
+  if (!list.length) return null;
+  return h('div', { class: 'card' }, h('h3', {}, `${ui.sessionTitle}（最近）`),
+    list.map((s) => {
+      const done = Object.values(s.tasks || {}).filter((x) => x === 'done').length;
+      const all = Object.keys(s.tasks || {}).length;
+      return h('div', { class: 'event-row' },
+        h('span', { class: 'grow small' }, `${s.day.slice(5).replace('-', '/')} · ${s.minutes} 分钟 · 任务 ${done}/${all}`,
+          h('span', { class: 'muted' }, [s.score ? ` · ${ui.score} ${s.score}` : '', s.after ? ` · 心情 ${s.after}` : ''].join(''))),
+        h('button', { class: 'link small muted', onclick: () => saveUndoable('小记：删一段', (data) => { data.private.sessions = data.private.sessions.filter((x) => x.id !== s.id); }, '删掉了').then(render).catch(() => {}) }, '删'));
+    }));
+}
+
+function mediaCard() {
+  const d = store.data;
+  const ui = pp();
+  const add = (m = null) => {
+    const title = h('input', { value: m?.title || '', placeholder: '名字', 'aria-label': '名字' });
+    const link = h('input', { value: m?.link || '', placeholder: '链接（可以不填）', 'aria-label': '链接' });
+    const minutes = h('input', { inputmode: 'numeric', value: m?.minutes || '', placeholder: '多少分钟', 'aria-label': '多少分钟' });
+    const note = h('input', { value: m?.note || '', placeholder: '听完怎么样（可以不填）', 'aria-label': '感受' });
+    let after = m?.after || null;
+    const r = h('div', {});
+    const draw = () => r.replaceChildren(scoreRow('听完的感觉', 5, after, (v) => { after = v; draw(); }, ['很差', '不太好', '一般', '不错', '很好']));
+    draw();
+    openSheet({
+      title: ui.mediaTitle, body: h('div', { class: 'form' }, title, link, minutes, h('div', { class: 'label-sm' }, '听完的感觉'), r, note), confirmText: '记好了',
+      onConfirm: () => {
+        if (!title.value.trim()) { toast('写个名字', 'error'); return false; }
+        const x = { id: m?.id || newId('md'), day: m?.day || dayKey(), title: title.value.trim(), ...(link.value.trim() ? { link: link.value.trim() } : {}), ...(Number(minutes.value) ? { minutes: Number(minutes.value) } : {}), ...(after ? { after } : {}), ...(note.value.trim() ? { note: note.value.trim() } : {}) };
+        return saveRender('小记：音频', (data) => { const i = data.private.media.findIndex((y) => y.id === x.id); if (i >= 0) data.private.media[i] = x; else data.private.media.push(x); });
+      },
+    });
+  };
+  const list = d.private.media.slice().reverse().slice(0, 10);
+  return h('div', { class: 'card' },
+    h('div', { class: 'rec-top' }, h('h3', {}, ui.mediaTitle), h('button', { class: 'link small', onclick: () => add() }, '＋ 记一个')),
+    list.length ? list.map((m) => h('button', { class: 'event-row product-row', onclick: () => add(m) },
+      h('span', { class: 'grow small' }, m.title, h('span', { class: 'muted block' }, [m.day.slice(5).replace('-', '/'), m.minutes ? `${m.minutes} 分钟` : '', m.after ? `听完 ${['很差', '不太好', '一般', '不错', '很好'][m.after - 1]}` : '', m.note || ''].filter(Boolean).join(' · '))),
+      icon('chev', 'i chev'))) : h('p', { class: 'muted small' }, '还没有。'));
+}
+
+function limitsCard() {
+  const d = store.data;
+  const ui = pp();
+  const input = h('input', { placeholder: '写几个字，含这几个字的任务不会出现', 'aria-label': '新的绝对不要' });
+  const add = () => { const v = input.value.trim(); if (v) saveRender('小记：绝对不要', (data) => { data.private.limits.push(v); }); };
+  const custom = h('input', { placeholder: '自己写一张任务', 'aria-label': '自己写的任务' });
+  const addCustom = () => { const v = custom.value.trim(); if (v) saveRender('小记：自己写的', (data) => { data.private.custom.push({ id: newId('ct'), track: 'b', text: v, level: 1 }); }); };
+  return [
+    h('div', { class: 'card' }, h('h3', {}, ui.limitsTitle),
+      d.private.limits.map((x, i) => h('div', { class: 'event-row' }, h('span', { class: 'grow small' }, x),
+        h('button', { class: 'link small muted', onclick: () => saveRender('小记：删绝对不要', (data) => { data.private.limits.splice(i, 1); }) }, '删'))),
+      h('div', { class: 'inline-add' }, input, h('button', { class: 'small', onclick: add }, '加'))),
+    h('div', { class: 'card' }, h('h3', {}, ui.customTitle), h('p', { class: 'muted small' }, '路线走完以后，这些会和最后一周的任务一起出现。'),
+      d.private.custom.map((x) => h('div', { class: 'event-row' }, h('span', { class: 'grow small' }, x.text),
+        h('button', { class: 'link small muted', onclick: () => saveRender('小记：删自己写的', (data) => { data.private.custom = data.private.custom.filter((y) => y.id !== x.id); }) }, '删'))),
+      h('div', { class: 'inline-add' }, custom, h('button', { class: 'small', onclick: addCustom }, '加'))),
+  ];
 }
 
 function recordOther() {

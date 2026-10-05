@@ -53,7 +53,8 @@ export function defaultData(today) {
     periodic: DEFAULT_PERIODIC.map((p) => ({ ...p, last: null })),
     weeks: {}, // { 周一的日期: { skin: { score, tags, note }, thanks } }
     prayer: { stage: 1, since: today, items: [], next: 0 },
-    private: { supplies: [], ui: {} }, // 小记：ui 是这一页上的文字（名字、按钮、说明），只在私有仓库里
+    // 小记：ui 是这一页上的文字（名字、按钮、说明），program 是按周解锁的任务，都只在私有仓库里
+    private: { supplies: [], ui: {}, program: null, sessions: [], media: [], limits: [], custom: [], minutes: 60, latest: '23:30', perWeek: 1 },
     sick: { current: null, history: [], plans: structuredClone(DEFAULT_PLANS), meds: {}, clinic: {} },
     english: { cards: [], next: '' },
     milestones: {}, // { key: 达到的日期 }，seen: { key: true }
@@ -441,4 +442,38 @@ export function mistakeTypes(data, month) {
     out[t] = (out[t] || 0) + 1;
   }
   return out;
+}
+
+// ---------- 小记：按周解锁的任务 ----------
+// private.program = { start: 第一周的周一, weeks: [{ title, intro, tasks: [{ id, track, text, level, note? }], buy?: { name, price } }] }
+// 超过最后一周以后：一直是最后一周的任务 + 自己写的（private.custom）
+
+export function programWeek(data, today) {
+  const pg = data.private.program;
+  if (!pg?.weeks?.length) return null;
+  const n = Math.floor(daysBetween(pg.start, today) / 7);
+  if (n < 0) return { n: -1, week: null, total: pg.weeks.length, startsIn: -daysBetween(pg.start, today) };
+  const i = Math.min(n, pg.weeks.length - 1);
+  return { n, i, week: pg.weeks[i], total: pg.weeks.length, after: n >= pg.weeks.length };
+}
+
+// 这周的任务：本周的 + 超过最后一周时自己写的
+export function weekTasks(data, today) {
+  const w = programWeek(data, today);
+  if (!w?.week) return [];
+  return [...w.week.tasks, ...(w.after ? data.private.custom : [])];
+}
+
+// 不影响生活：这周次数超过自己定的、最近几次结束后心情低
+export function privateNote(data, today) {
+  const ss = data.private.sessions;
+  const mon = weekOf(today);
+  const thisWeek = ss.filter((s) => s.day >= mon).length;
+  const per = data.private.perWeek || 1;
+  if (thisWeek > per) return `这周已经是第 ${thisWeek} 次了，你给自己定的是一周 ${per} 次。`;
+  const last = ss.slice(-3);
+  if (last.length === 3 && last.every((s) => s.after && s.after <= 2)) return '最近几次结束后心情都不太好。可以缓一缓，或者换轻一点的任务；不舒服的话随时可以停。';
+  const long = ss.slice(-3).filter((s) => s.minutes > (data.private.minutes || 60) + 20).length;
+  if (long >= 2) return '最近几次都超时了不少，注意别占了睡觉的时间。';
+  return null;
 }

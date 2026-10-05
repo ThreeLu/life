@@ -582,3 +582,12 @@ svg.i.big-icon { width: 36px; height: 36px; color: var(--accent); align-self: ce
 .inf-dot.bad { background: var(--amber); }
 .month-grid { max-width: 340px; }
 .card h3 + .chart { margin-bottom: 12px; }
+
+/* 小记：按周的任务 */
+.program { background: color-mix(in srgb, var(--accent) 8%, var(--card)); }
+.program p { margin: 6px 0; }
+.session-timer { position: sticky; top: calc(4px + env(safe-area-inset-top)); z-index: 4; margin-bottom: 12px; padding: 8px 12px; border-radius: 12px; background: var(--chip); font-size: 13px; text-align: center; }
+.session-timer.over { background: color-mix(in srgb, var(--amber) 20%, var(--card)); color: var(--amber); font-weight: 600; }
+.task-card { min-height: 220px; }
+.task-card.b { box-shadow: inset 3px 0 0 var(--accent), var(--shadow); }
+.task-text { font-size: 20px; line-height: 1.75; margin: 14px 0; white-space: pre-wrap; }
