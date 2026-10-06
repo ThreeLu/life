@@ -724,3 +724,43 @@ button.cell .grow { display: block; }
 @media (prefers-reduced-motion: reduce) {
   #view.enter > *, .chip.check.pop, .seal { animation: none; }
 }
+
+/* ---------- 首页：按时段的清单 ---------- */
+.alerts { display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px; }
+.alert-line { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 42px; padding: 8px 12px; background: var(--card); color: var(--text); border-radius: 12px; box-shadow: var(--shadow); font-family: inherit; font-weight: 400; font-size: 14.5px; line-height: 1.4; text-align: left; text-decoration: none; }
+.alert-line .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); flex: none; }
+.alert-line.red .dot { background: var(--danger); }
+.alert-line.amber .dot { background: var(--amber); }
+.alert-line.soft .dot { background: var(--sage); }
+.alert-line .grow { flex: 1; min-width: 0; }
+.alert-line .chev { color: var(--muted); }
+
+.card.period { padding: 14px 16px 6px; }
+.period-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 2px; }
+.period-head h3 { margin: 0; font-size: 18px; }
+.it { display: flex; align-items: center; gap: 8px; border-top: 1px solid var(--line); }
+.it:first-of-type, .period-head + .it { border-top: 0; }
+.it-main { flex: 1; min-width: 0; display: flex; align-items: center; gap: 12px; padding: 11px 0; background: none; color: var(--text); text-align: left; font: inherit; font-weight: 400; border-radius: 0; text-decoration: none; min-height: 0; justify-content: flex-start; }
+.it-main .chev { color: var(--muted); flex: none; }
+.ck { width: 22px; height: 22px; border-radius: 50%; border: 1.5px solid color-mix(in srgb, var(--muted) 70%, transparent); flex: none; display: grid; place-items: center; color: var(--accent-text); font-size: 12px; align-self: flex-start; margin-top: 1px; }
+.it.done .ck { background: var(--accent); border-color: var(--accent); }
+.it.done .t > :first-child, .it.done .t { color: var(--muted); }
+.it.skipped .ck { border-style: dashed; color: var(--muted); }
+.it.skipped .t { color: var(--muted); }
+.t { flex: 1; min-width: 0; font-size: 15.5px; }
+.t small { display: block; color: var(--muted); font-size: 13px; line-height: 1.4; margin-top: 1px; overflow-wrap: anywhere; }
+.t .chips { margin-top: 8px; }
+.minis { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 7px; }
+.mini { display: inline-flex; align-items: center; min-height: 30px; padding: 0 11px; border-radius: 99px; background: var(--chip); color: var(--text); font-family: inherit; font-weight: 500; font-size: 13.5px; border: 0; cursor: pointer; }
+.mini.on { background: var(--accent); color: var(--accent-text); }
+.mini.optional:not(.on) { background: transparent; box-shadow: inset 0 0 0 1px var(--line); color: var(--muted); }
+.mini.off { background: none; color: var(--muted); text-decoration: line-through; padding-left: 0; cursor: default; }
+.mini.pop { animation: pop .45s cubic-bezier(.3, 1.6, .5, 1); }
+.it.plain .t { padding: 11px 0 10px 34px; }
+.skip-btn { flex: none; min-height: 30px; padding: 0 12px; border-radius: 99px; background: transparent; color: var(--muted); box-shadow: inset 0 0 0 1px var(--line); font-family: inherit; font-weight: 400; font-size: 12.5px; }
+.other-periods { display: flex; gap: 8px; margin: -2px 0 12px; }
+.other-p { flex: 1; min-height: 38px; border-radius: 12px; background: transparent; color: var(--muted); box-shadow: inset 0 0 0 1px var(--line); font-family: inherit; font-weight: 400; font-size: 13.5px; border: 1px dashed transparent; }
+.other-p.on { background: var(--accent-soft); color: var(--accent); box-shadow: none; }
+.log-line { display: flex; flex-wrap: wrap; gap: 4px 12px; width: 100%; padding: 6px 4px; background: none; color: var(--muted); font-family: inherit; font-weight: 400; font-size: 13px; text-align: left; justify-content: flex-start; min-height: 0; border-radius: 0; }
+.log-line b { color: var(--text); font-weight: 600; }
+.quiet-link { display: block; text-align: center; margin: 22px 0 4px; color: var(--muted); font-size: 14px; }

@@ -102,8 +102,12 @@ export const WHEN = { am: '早上', pm: '晚上', shower: '洗澡后', week: '�
 // 某个时段的打卡项（optional 的不算进「做完了没有」）
 export const routineOf = (data, when) => data.look.routine.filter((r) => r.when === when);
 
+export const showeredOn = (data, day) => (data.events || []).some((e) => e.day === day && e.type === 'shower');
+// 洗过澡的那天，晚上的洗脸不用再做（洗澡时洗过了）
+export const careSkipped = (data, day, r) => r.when === 'pm' && r.step === 's-cleanse' && showeredOn(data, day);
+
 export function careDone(data, day, when) {
-  const items = routineOf(data, when).filter((r) => !r.optional);
+  const items = routineOf(data, when).filter((r) => !r.optional && !careSkipped(data, day, r));
   const care = data.days[day]?.care || {};
   return { done: items.filter((r) => care[r.id]).length, total: items.length };
 }
@@ -287,7 +291,7 @@ export function dailyCheer(day) {
 
 // 某天的日常护肤（早上 + 晚上 + 洗澡后里不是可选的）都做完了吗
 export function careFullDay(data, day) {
-  const items = data.look.routine.filter((r) => !r.optional && ['am', 'pm'].includes(r.when));
+  const items = data.look.routine.filter((r) => !r.optional && ['am', 'pm'].includes(r.when) && !careSkipped(data, day, r));
   const care = data.days[day]?.care || {};
   return items.length > 0 && items.every((r) => care[r.id]);
 }

@@ -53,5 +53,6 @@ assert fetch_message({"days": {D: {"fetch": {"mid": True}}}}, datetime(2026, 10,
 m = fetch_message({"days": {D: {"fetch": {"mid": True}}}}, datetime(2026, 10, 10, 18, 30))
 assert m["body"] == "开水房 19:00 关门，水还没打", m
 assert fetch_message({"days": {D: {"fetch": {"mid": True, "eve": True}}}}, datetime(2026, 10, 10, 17, 20)) is None
+assert fetch_message({"days": {D: {"fetch": {"mid": "skip"}}}}, datetime(2026, 10, 10, 12, 30)) is None  # 点了「不打了」
 print("打水提醒 ✓")
 
