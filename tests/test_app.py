@@ -817,10 +817,16 @@ def _(c):
     p.locator(".map-box .leaflet-container, .map-box.leaflet-container").first.wait_for()
     p.locator(".map-box").click(position={"x": 120, "y": 100})
     p.get_by_label("为什么想去").fill("编的理由")
+    p.locator(".detail-row", has_text="大概花多少").get_by_role("button", name="免费").click()
+    expect(p.locator(".detail-row", has_text="大概花多少").get_by_role("button", name="免费")).to_have_attribute("aria-pressed", "true")
+    p.locator(".detail-row", has_text="什么时候去最好").get_by_role("button", name="秋天").click()
+    p.locator(".detail-row", has_text="什么时候去最好").get_by_role("button", name="晚上").click()
+    expect(p.get_by_label("什么时候去最好")).to_have_value("秋天、晚上")
     p.get_by_role("button", name="存好").click()
     c.wait(lambda d: d["places"] and d["places"][0]["name"] == "编的书店", "加地方")
     pl = c.data()["places"][0]
     assert pl["kind"] == "shop" and pl["district"] == "甲区" and pl["want"] == 3 and pl["lat"] and pl["link"].startswith("http://xhslink"), pl
+    assert pl["cost"] == 0 and pl["season"] == "秋天、晚上", pl
     expect(p.get_by_text("想去（1）")).to_be_visible()
     # 周末去哪：想去页一直有
     expect(p.locator(".weekend")).to_contain_text("编的书店")
@@ -854,7 +860,7 @@ def _(c):
     # DeepSeek 帮我填：只有一个 → 直接填好类型、区、位置
     c.go("#/place/new")
     p.get_by_label("名字").fill("编的博物馆")
-    p.get_by_role("button", name="让 DeepSeek 帮我填").click()
+    p.get_by_role("button", name="一键补全").click()
     expect(p.get_by_role("group", name="类型").get_by_role("button", name="博物馆")).to_have_attribute("aria-pressed", "true")
     expect(p.get_by_role("group", name="区").get_by_role("button", name="乙区")).to_have_attribute("aria-pressed", "true")
     expect(p.get_by_text("位置是它估计的")).to_be_visible()
@@ -866,7 +872,7 @@ def _(c):
     c.go("#/place/new")
     p.get_by_label("粘贴或写下地方").fill("编的咖啡 甲区编的路 9 号")
     expect(p.get_by_label("名字")).to_have_value("")
-    p.get_by_role("button", name="让 DeepSeek 帮我填").click()
+    p.get_by_role("button", name="一键补全").click()
     expect(p.get_by_label("名字")).to_have_value("编的咖啡（编的路店）")
     expect(p.get_by_role("group", name="类型").get_by_role("button", name="吃的")).to_have_attribute("aria-pressed", "true")
     assert "他写的：编的咖啡 甲区编的路 9 号" in LAST_AI[-1], LAST_AI[-1][-300:]
@@ -880,11 +886,11 @@ def _(c):
     # 不认识 → 说一声
     c.go("#/place/new")
     p.get_by_label("名字").fill("编的不存在")
-    p.get_by_role("button", name="让 DeepSeek 帮我填").click()
+    p.get_by_role("button", name="一键补全").click()
     expect(p.get_by_text("DeepSeek 不认识这个地方")).to_be_visible()
     # 连锁店：列出几家，勾两家 → 分开记两个；太远的坐标不要
     p.get_by_label("名字").fill("编的连锁")
-    p.get_by_role("button", name="让 DeepSeek 帮我填").click()
+    p.get_by_role("button", name="一键补全").click()
     expect(c.sheet()).to_contain_text("找到 3 个")
     expect(c.sheet().locator(".cand", has_text="远店")).to_contain_text("没有位置")
     c.sheet().get_by_label("编的连锁（一店）").check()

@@ -1492,7 +1492,7 @@ function englishCardsView() {
 const PLACES_HELP = [
   ['怎么加', [
     '点「＋ 加一个」，第一个框里什么都能放：小红书、大众点评、美团、高德的分享，「店名 + 地址」，或者随便一句话，比如「芙蓉街那家排队很长的油旋」。',
-    '点「让 DeepSeek 帮我填」：名字、类型、区、地图上的位置会填好。写了地址的话，位置会准很多。',
+    '点「一键补全」：名字、类型、区、地图上的位置会填好。写了地址的话，位置会准很多。',
     '选一下类型、在哪个区，在小地图上点一下它的位置（也可以点「用我现在的位置」）。其他都可以不填。',
   ]],
   ['去过了', ['点进一个地方 →「去过了」，打个分、写一句话，可以放一张照片。同一个地方可以去很多次。', '地图上空心的是想去的，实心的是去过的；颜色按类型分。']],
@@ -1673,10 +1673,30 @@ function placeEditView(id) {
   const share = h('textarea', { rows: 3, placeholder: '粘贴小红书、大众点评、美团、高德的分享，\n或者写「店名 + 地址」，或者随便一句话', 'aria-label': '粘贴或写下地方' });
   share.value = placeDraft.raw;
   const name = h('input', { value: x.name || '', placeholder: '名字', 'aria-label': '名字', oninput: (e) => { x.name = e.target.value; } });
-  const link = h('input', { value: x.link || '', placeholder: '链接（可以不填）', 'aria-label': '链接', oninput: (e) => { x.link = e.target.value; } });
-  const why = h('input', { value: x.why || '', placeholder: '为什么想去（可以不填）', 'aria-label': '为什么想去', oninput: (e) => { x.why = e.target.value; } });
-  const cost = h('input', { inputmode: 'numeric', value: x.cost || '', placeholder: '大概花多少（可以不填）', 'aria-label': '大概花多少', oninput: (e) => { x.cost = Number(e.target.value) || null; } });
-  const season = h('input', { value: x.season || '', placeholder: '什么时候去最好，比如「春天」「晚上」（可以不填）', 'aria-label': '什么时候去最好', oninput: (e) => { x.season = e.target.value; } });
+  const link = h('input', { class: 'bare', value: x.link || '', placeholder: '笔记或店铺的链接', 'aria-label': '链接', oninput: (e) => { x.link = e.target.value; } });
+  const why = h('textarea', { class: 'bare', rows: 2, placeholder: '比如：朋友说那家的油旋很好吃', 'aria-label': '为什么想去', oninput: (e) => { x.why = e.target.value; } });
+  why.value = x.why || '';
+  const cost = h('input', { class: 'bare', inputmode: 'numeric', value: x.cost || '', placeholder: x.cost === 0 ? '免费' : '不知道可以空着', 'aria-label': '大概花多少', oninput: (e) => { x.cost = Number(e.target.value) || null; drawCost(); } });
+  const season = h('input', { class: 'bare', value: x.season || '', placeholder: '或者自己写', 'aria-label': '什么时候去最好', oninput: (e) => { x.season = e.target.value; drawSeason(); } });
+  const costChips = h('div', { class: 'chips detail-chips' });
+  const drawCost = () => costChips.replaceChildren(...[[0, '免费'], [30, '¥30'], [50, '¥50'], [100, '¥100'], [200, '¥200']].map(([v, t]) => h('button', {
+    type: 'button', class: `chip${x.cost === v ? ' on' : ''}`, 'aria-pressed': String(x.cost === v),
+    onclick: () => { x.cost = x.cost === v ? null : v; cost.value = x.cost || ''; cost.placeholder = x.cost === 0 ? '免费' : '不知道可以空着'; drawCost(); },
+  }, t)));
+  drawCost();
+  const seasonChips = h('div', { class: 'chips detail-chips' });
+  const seasonParts = () => (x.season || '').split(/[、,，\s]+/).filter(Boolean);
+  const drawSeason = () => seasonChips.replaceChildren(...['春天', '夏天', '秋天', '冬天', '晚上', '周末', '下雨天'].map((v) => {
+    const on = seasonParts().includes(v);
+    return h('button', { type: 'button', class: `chip${on ? ' on' : ''}`, 'aria-pressed': String(on), onclick: () => {
+      const parts = seasonParts();
+      x.season = (on ? parts.filter((y) => y !== v) : [...parts, v]).join('、');
+      season.value = x.season; drawSeason();
+    } }, v);
+  }));
+  drawSeason();
+  const detailRow = (ic, label, ...body) => h('div', { class: 'detail-row' },
+    h('div', { class: 'detail-label' }, icon(ic, 'i'), label), ...body);
   share.addEventListener('input', () => {
     placeDraft.raw = share.value;
     const r = parseShare(share.value);
@@ -1727,7 +1747,7 @@ function placeEditView(id) {
   };
   const districts = d.settings.city?.districts || [];
   const aiRow = h('div', { class: 'ai-fill' },
-    h('button', { class: 'small secondary', disabled: ai.busy, onclick: aiFill }, ai.busy ? '正在找……' : '让 DeepSeek 帮我填'),
+    h('button', { class: 'small secondary', disabled: ai.busy, onclick: aiFill }, ai.busy ? '正在找……' : '一键补全'),
     h('span', { class: 'muted small' }, old ? '类型、区、地图上的位置' : '名字、类型、区、地图上的位置'));
   return h('div', { class: 'form' },
     headerSub(old ? '改一下' : '想去的地方', old ? old.name : '名字之外都可以不填'),
@@ -1741,7 +1761,12 @@ function placeEditView(id) {
       h('div', { class: 'label-sm' }, '有多想去'), choiceRow('有多想去', [[1, '★'], [2, '★★'], [3, '★★★']], x.want, (v) => pick('want', v))),
     h('div', { class: 'card' }, h('h3', {}, '位置：在地图上点一下'), mapEl,
       h('button', { class: 'link small', onclick: () => mapEl.useHere?.() }, '用我现在的位置')),
-    h('div', { class: 'card' }, why, link, cost, season),
+    h('div', { class: 'card detail-card' },
+      h('h3', {}, '关于它'),
+      detailRow('pen', '为什么想去', why),
+      detailRow('wallet', '大概花多少', h('div', { class: 'detail-money' }, h('span', { class: 'yen' }, '¥'), cost), costChips),
+      detailRow('calendar', '什么时候去最好', seasonChips, season),
+      detailRow('globe', '链接', link)),
     h('div', { class: 'actions sticky' }, h('button', { class: 'grow', onclick: submit }, '存好'), h('a', { class: 'button secondary', href: old ? `#/place/${old.id}` : '#/places', onclick: () => { placeDraft.id = null; placeDraft.ai = null; } }, '取消')));
 }
 
@@ -1817,7 +1842,7 @@ function chooseCandidates(list, x, old) {
         render();
         return true;
       }
-      const base = { want: x.want || 2, ...(x.why ? { why: x.why } : {}), ...(x.link ? { link: x.link } : {}), ...(x.cost ? { cost: x.cost } : {}), ...(x.season ? { season: x.season } : {}) };
+      const base = { want: x.want || 2, ...(x.why ? { why: x.why } : {}), ...(x.link ? { link: x.link } : {}), ...(x.cost != null ? { cost: x.cost } : {}), ...(x.season ? { season: x.season } : {}) };
       const ok = await saveRender(`想去：${picked.map((c) => c.name).join('、')}`, (data) => {
         for (const c of picked) {
           const p = { ...base, id: newId('pl'), name: c.name, kind: c.kind, at: dayKey(), visits: [] };
@@ -1862,7 +1887,7 @@ function placeView(id) {
     h('div', { class: 'card' },
       p.address ? h('p', { class: 'small' }, `📍 ${p.address}`) : null,
       p.why ? h('p', {}, p.why) : null,
-      [p.cost ? `大概 ¥${p.cost}` : '', p.season ? `最好：${p.season}` : ''].filter(Boolean).length ? h('p', { class: 'small muted' }, [p.cost ? `大概 ¥${p.cost}` : '', p.season ? `最好：${p.season}` : ''].filter(Boolean).join(' · ')) : null,
+      [p.cost ? `大概 ¥${p.cost}` : p.cost === 0 ? '免费' : '', p.season ? `最好：${p.season}` : ''].filter(Boolean).length ? h('p', { class: 'small muted' }, [p.cost ? `大概 ¥${p.cost}` : p.cost === 0 ? '免费' : '', p.season ? `最好：${p.season}` : ''].filter(Boolean).join(' · ')) : null,
       h('div', { class: 'actions' },
         h('button', { onclick: () => visitSheet(p) }, visited(p) ? '又去了一次' : '去过了'),
         p.link ? h('a', { class: 'button secondary', href: p.link, target: '_blank', rel: 'noopener' }, '看笔记') : null,

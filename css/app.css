@@ -786,3 +786,18 @@ button.cell .grow { display: block; }
 .goal-habit:first-of-type { border-top: 0; }
 .goal-habit button { flex: none; }
 .goal-prompt { white-space: pre-wrap; font-size: 13px; line-height: 1.55; color: var(--muted); margin: 0 0 10px; }
+
+/* 想去的地方：关于它 */
+.detail-card h3 { margin-bottom: 2px; }
+.detail-row { padding: 12px 0; border-top: 0.5px solid var(--line); }
+.detail-card h3 + .detail-row { border-top: 0; }
+.detail-label { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); margin-bottom: 4px; }
+.detail-label .i { width: 15px; height: 15px; color: var(--accent); }
+input.bare, textarea.bare { background: transparent; padding: 4px 0; min-height: 34px; border-radius: 0; font-size: 16px; }
+input.bare:focus, textarea.bare:focus { outline: 0; box-shadow: 0 1.5px 0 var(--accent); }
+.detail-money { display: flex; align-items: baseline; gap: 4px; }
+.detail-money .yen { font-family: var(--serif); font-size: 20px; color: var(--muted); }
+.detail-money input { font-family: var(--serif); font-size: 22px; }
+.detail-chips { margin: 6px 0 2px; gap: 6px; }
+.detail-chips .chip { min-height: 30px; font-size: 13.5px; }
+textarea.bare { resize: none; }
