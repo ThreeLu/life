@@ -27,7 +27,7 @@ import {
 } from './stats.js';
 import { lineChart, barChart, monthGrid, sleepBars } from './charts.js';
 import { icon } from './icons.js';
-import { PEOPLE_GROUPS, relChoices, mainGroup, upcomingBirthdays, ledgerSync, moneyWith, timeline } from './people.js';
+import { PEOPLE_GROUPS, SEX, ta, relChoices, mainGroup, upcomingBirthdays, ledgerSync, moneyWith, timeline } from './people.js';
 import { nextBirthday, birthdayText, lunarName, holidayAround, holidayLine } from './cal.js';
 
 const SETTINGS_KEY = 'life-settings';
@@ -3882,6 +3882,7 @@ function personEditView(id) {
     if (d.people.some((p) => p.name === name && p.id !== old?.id) && !confirm(`已经有一个「${name}」了，还要再加一个吗？`)) return;
     const pid = old?.id || newId('p');
     if (x.birthday && !(x.birthday.m && x.birthday.d)) { toast('生日的月和日都选一下', 'error'); return; }
+    if (!x.sex) { toast('选一下男还是女', 'error'); return; }
     saveRender(old ? `改资料：${name}` : `身边的人：${name}`, (data) => {
       const p = { ...x, id: pid, name, log: old?.log || [], at: old?.at || dayKey() };
       for (const k of ['rel', 'how', 'likes', 'note']) { if (typeof p[k] === 'string') p[k] = p[k].trim(); if (!p[k]) delete p[k]; }
@@ -3897,6 +3898,8 @@ function personEditView(id) {
       h('span', { class: 'muted small' }, '名字、分组、关系、生日……')), ai.note ? h('p', { class: 'small muted' }, ai.note) : null),
     h('div', { class: 'card' },
       input('name', { placeholder: '名字', 'aria-label': '名字' }),
+      h('div', { class: 'chips sex-chips', role: 'group', 'aria-label': '男女' }, Object.entries(SEX).map(([k, t]) => h('button', {
+        type: 'button', class: `chip${x.sex === k ? ' on' : ''}`, 'aria-pressed': String(x.sex === k), onclick: () => { x.sex = x.sex === k ? undefined : k; render(); } }, t))),
       h('div', { class: 'label-sm' }, '在哪一档（可以多选，第一个是主要的）'),
       h('div', { class: 'chips', role: 'group', 'aria-label': '分组' }, Object.entries(PEOPLE_GROUPS).map(([g, t]) => {
         const on = x.groups.includes(g);
@@ -3904,7 +3907,7 @@ function personEditView(id) {
       })),
       x.groups.length > 1 ? h('div', { class: 'chips small-chips', role: 'group', 'aria-label': '主要的档' }, h('span', { class: 'muted small' }, '主要的：'),
         x.groups.map((g) => h('button', { type: 'button', class: `chip${x.groups[0] === g ? ' on' : ''}`, 'aria-pressed': String(x.groups[0] === g), onclick: () => setMain(g) }, PEOPLE_GROUPS[g]))) : null,
-      relChips.length ? [h('div', { class: 'label-sm' }, mainGroup(x) === 'family' || mainGroup(x) === 'relative' ? '是你的' : '他是'),
+      relChips.length ? [h('div', { class: 'label-sm' }, mainGroup(x) === 'family' || mainGroup(x) === 'relative' ? '是你的' : `${ta(x)}是`),
         h('div', { class: 'chips', role: 'group', 'aria-label': '关系' }, relChips.map((r) => h('button', { type: 'button', class: `chip${x.rel === r ? ' on' : ''}`, 'aria-pressed': String(x.rel === r), onclick: () => { x.rel = x.rel === r ? '' : r; render(); } }, r))), rel]
         : [h('div', { class: 'label-sm' }, '关系'), rel]),
     h('div', { class: 'card' }, h('h3', {}, '生日'),
@@ -3912,7 +3915,7 @@ function personEditView(id) {
         type: 'button', class: `chip${(b.cal || 'solar') === k ? ' on' : ''}`, 'aria-pressed': String((b.cal || 'solar') === k), onclick: () => { x.birthday = { ...(x.birthday || {}), cal: k }; render(); } }, t))),
       h('div', { class: 'row-2' }, month, dayOf), year,
       x.birthday?.m && x.birthday?.d ? h('p', { class: 'muted small' }, `下一次：${(() => { const n = nextBirthday(x.birthday, dayKey()); return n ? `${Number(n.slice(0, 4))}年${Number(n.slice(5, 7))}月${Number(n.slice(8))}日` : '算不出来'; })()}`) : null),
-    h('div', { class: 'card detail-card' }, h('h3', {}, '关于他'),
+    h('div', { class: 'card detail-card' }, h('h3', {}, `关于${ta(x)}`),
       h('div', { class: 'detail-row' }, h('div', { class: 'detail-label' }, icon('people', 'i'), '怎么认识的'), input('how', { class: 'bare', rows: 2, placeholder: '比如：大一军训同一个连', 'aria-label': '怎么认识的' })),
       h('div', { class: 'detail-row' }, h('div', { class: 'detail-label' }, icon('sparkle', 'i'), '喜欢什么、不吃什么'), input('likes', { class: 'bare', rows: 2, placeholder: '比如：爱喝茶，不吃辣', 'aria-label': '喜欢什么' })),
       h('div', { class: 'detail-row' }, h('div', { class: 'detail-label' }, icon('pen', 'i'), '近况、要记得的'), input('note', { class: 'bare', rows: 2, placeholder: '比如：在准备考研', 'aria-label': '近况' }))),
@@ -3926,12 +3929,14 @@ async function personFromText(text, cur) {
     + `groups 是他从哪一段认识的这个人，只能从这些里选（写英文键）：${groups}。第一个是主要的；同一个人可能在两段都认识（比如本科同学后来成了研究生同门）。家人（父母兄弟姐妹、祖父母）用 family，其他亲戚用 relative。`
     + 'rel 是关系，简短：家人亲戚写具体称呼（妈妈、二姨、表哥）；研究生阶段写导师、老师、师兄、师姐、同门、师弟、师妹、同学、同事之一；其他写同学、老师、朋友。'
     + 'birthday：说了农历就 cal 写 lunar，否则 solar；m 月 d 日 y 年（数字，没说就 null）。'
+    + 'sex：男 m，女 f，没说就空（师姐、妈妈这类称呼也能看出来）。'
     + 'how 怎么认识的；likes 喜欢什么、不吃什么、口味爱好；note 近况和其他要记得的事。name 只写名字。'
-    + '只输出 JSON：{"name":"","groups":[],"rel":"","birthday":{"cal":"solar","m":null,"d":null,"y":null},"how":"","likes":"","note":""}';
+    + '只输出 JSON：{"name":"","sex":"","groups":[],"rel":"","birthday":{"cal":"solar","m":null,"d":null,"y":null},"how":"","likes":"","note":""}';
   const out = await askJson(await aiConfig(), system, text, { maxTokens: 2000, timeout: 60000 });
   const res = {};
   const s = (v) => (typeof v === 'string' ? v.trim() : '');
   if (s(out.name) && !cur.name?.trim()) res.name = s(out.name);
+  if (SEX[out.sex] && !cur.sex) res.sex = out.sex;
   const gs = (out.groups || []).filter((g) => PEOPLE_GROUPS[g]);
   if (gs.length) res.groups = [...new Set(gs)];
   for (const k of ['rel', 'how', 'likes', 'note']) if (s(out[k])) res[k] = s(out[k]);
@@ -3982,7 +3987,7 @@ function personView(id) {
     const text = h('input', { placeholder: '什么事，比如 帮我改论文', 'aria-label': '什么事', value: l?.text?.slice(0, 40) || '' });
     const day = h('input', { type: 'date', value: l?.day || today, 'aria-label': '哪天' });
     const dirRow = h('div', {});
-    const drawDir = () => dirRow.replaceChildren(choiceRow('谁欠谁', [['owe', '我欠他'], ['owed', '他欠我']], dir, (v) => { dir = v || dir; drawDir(); }));
+    const drawDir = () => dirRow.replaceChildren(choiceRow('谁欠谁', [['owe', `我欠${ta(p)}`], ['owed', `${ta(p)}欠我`]], dir, (v) => { dir = v || dir; drawDir(); }));
     drawDir();
     openSheet({
       title: '记一个人情', body: h('div', { class: 'form' }, dirRow, text, h('label', {}, '哪天', day),
@@ -4024,7 +4029,7 @@ function personView(id) {
   };
   const groupsText = (p.groups || []).map((g, i) => (i === 0 ? PEOPLE_GROUPS[g] : `也在${PEOPLE_GROUPS[g]}`)).join(' · ');
   return h('div', {},
-    headerSub(p.name, [groupsText || '还没分组', p.rel].filter(Boolean).join(' · '), h('a', { class: 'icon-btn', href: `#/person/${id}/edit`, 'aria-label': '改资料' }, icon('pen'))),
+    headerSub(p.name, [SEX[p.sex], groupsText || '还没分组', p.rel].filter(Boolean).join(' · '), h('a', { class: 'icon-btn', href: `#/person/${id}/edit`, 'aria-label': '改资料' }, icon('pen'))),
     p.archived ? h('div', { class: 'card muted-card' }, h('p', { class: 'small' }, `${p.archived} 起不再来往${p.archiveNote ? `：${p.archiveNote}` : ''}`), h('button', { class: 'link small', onclick: unarchive }, '恢复来往')) : null,
     h('div', { class: 'card person-card' },
       p.birthday?.m ? h('p', {}, icon('calendar', 'i'), ` ${birthdayText(p.birthday)}`, left != null ? h('span', { class: 'muted small' }, left === 0 ? ' · 就是今天' : ` · 还有 ${left} 天`) : null) : null,
@@ -4038,8 +4043,8 @@ function personView(id) {
       p.archived ? null : h('button', { class: 'secondary', disabled: gs.busy, onclick: gift }, gs.busy ? '正在想……' : '想想送什么')),
     gs.ideas ? giftCard(p, gs, next) : null,
     openFavors.length || owe ? h('div', { class: 'card favor-sum' },
-      openFavors.map((f) => h('p', { class: 'small' }, h('span', { class: `favor-dir ${f.dir}` }, f.dir === 'owe' ? '欠他' : '欠我'), ` ${f.text}`, h('span', { class: 'muted' }, ` · ${f.date.slice(5).replace('-', '/')}`))),
-      owe ? h('p', { class: 'small muted' }, owe > 0 ? `钱：他欠你 ¥${owe}` : `钱：你欠他 ¥${-owe}`) : null,
+      openFavors.map((f) => h('p', { class: 'small' }, h('span', { class: `favor-dir ${f.dir}` }, f.dir === 'owe' ? `欠${ta(p)}` : '欠我'), ` ${f.text}`, h('span', { class: 'muted' }, ` · ${f.date.slice(5).replace('-', '/')}`))),
+      owe ? h('p', { class: 'small muted' }, owe > 0 ? `钱：${ta(p)}欠你 ¥${owe}` : `钱：你欠${ta(p)} ¥${-owe}`) : null,
       h('a', { class: 'small', href: `../ledger/#/person/${id}`, target: '_blank', rel: 'noopener' }, '在账本里看')) : null,
     h('div', { class: 'section-title' }, tl.length ? '来往' : ''),
     tl.length ? h('div', { class: 'card timeline' }, tl.map((e) => h('div', { class: `tl-row ${e.kind}` },
@@ -4054,13 +4059,13 @@ function personView(id) {
 
 // 想想送什么：DeepSeek 按记下的喜好出主意，可以放进账本心愿单（送人）
 async function giftIdeas(p, ledger, next) {
-  const given = (ledger?.favors || []).filter((f) => f.person === p.id).map((f) => `${f.dir === 'owe' ? '他帮过我' : '我帮过他'}：${f.text}${f.status === 'done' ? `（还了${f.doneNote ? `：${f.doneNote}` : ''}）` : ''}`);
+  const given = (ledger?.favors || []).filter((f) => f.person === p.id).map((f) => `${f.dir === 'owe' ? `${ta(p)}帮过我` : `我帮过${ta(p)}`}：${f.text}${f.status === 'done' ? `（还了${f.doneNote ? `：${f.doneNote}` : ''}）` : ''}`);
   const wishes = (ledger?.wishes || []).filter((w) => w.status === 'open' && w.kind === 'gift').map((w) => `${w.name}（¥${w.price}）`);
   const system = '你帮一个研究生想送身边的人什么礼物。按下面记的这个人的情况，出 3–5 个具体的主意：学生买得起、实用或有心意，和他的喜好、近况对得上；不要泛泛的「鲜花」「贺卡」。'
     + '每个主意：name 东西（具体一点），price 大概多少钱（人民币整数），why 一句话为什么适合他，query 淘宝 / 小红书的搜索词（4–10 个字）。说话温和简短。'
     + '只输出 JSON：{"ideas":[{"name":"","price":0,"why":"","query":""}]}';
   const user = [
-    `${p.name}，${[PEOPLE_GROUPS[mainGroup(p)], p.rel].filter(Boolean).join('，')}。`,
+    `${p.name}，${[SEX[p.sex], PEOPLE_GROUPS[mainGroup(p)], p.rel].filter(Boolean).join('，')}。`,
     next ? `生日是 ${next}（今天 ${dayKey()}）。` : `今天 ${dayKey()}。`,
     p.how ? `怎么认识的：${p.how}` : '', p.likes ? `喜欢什么、不吃什么：${p.likes}` : '', p.note ? `近况：${p.note}` : '',
     (p.log || []).length ? `最近的来往：${p.log.slice(-8).map((l) => `${l.day} ${l.text}`).join('；')}` : '',

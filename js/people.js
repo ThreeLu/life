@@ -1,6 +1,6 @@
 // 身边的人：分组、生日、来往、和账本人情账的名单对上。纯计算，不碰 DOM。
 //
-// people: [{ id（和账本 people 同一个 id）, name, groups: [主要的档, 也在的档…], rel（妈妈 / 导师 / 同学…）, how（怎么认识的）,
+// people: [{ id（和账本 people 同一个 id）, name, sex: 'm'|'f', groups: [主要的档, 也在的档…], rel（妈妈 / 导师 / 同学…）, how（怎么认识的）,
 //            birthday: { cal: 'solar'|'lunar', m, d, y? } | null, likes（喜欢什么、不吃什么）, note（近况、要记得的）,
 //            log: [{ id, day, text, favor? }], at, archived?（归档的日期）, archiveNote? }]
 // 人情（不是钱的）存在账本 finance.json 的 favors 里，这里只读和写进去。
@@ -12,12 +12,14 @@ export const PEOPLE_GROUPS = { family: '家人', relative: '亲戚', primary: '�
 export const REL_CHOICES = {
   family: ['爸爸', '妈妈', '哥哥', '姐姐', '弟弟', '妹妹', '爷爷', '奶奶', '外公', '外婆'],
   relative: ['叔叔', '伯伯', '姑姑', '舅舅', '姨', '表哥', '表姐', '表弟', '表妹', '堂哥', '堂姐', '堂弟', '堂妹'],
-  grad: ['导师', '老师', '师兄', '师姐', '同门', '师弟', '师妹', '同学', '同事'],
-  school: ['同学', '老师', '朋友'],
+  grad: ['导师', '老师', '师兄', '师姐', '同门', '师弟', '师妹', '同学', '舍友', '同事'],
+  school: ['同学', '舍友', '老师', '朋友'],
 };
 export const relChoices = (group) => REL_CHOICES[group] || (group ? REL_CHOICES.school : []);
 
 export const mainGroup = (p) => p.groups?.[0] || '';
+export const SEX = { m: '男', f: '女' };
+export const ta = (p) => (p?.sex === 'f' ? '她' : '他');
 const dayDiff = (a, b) => Math.round((new Date(`${b}T12:00:00`) - new Date(`${a}T12:00:00`)) / 86400000);
 
 // 接下来 within 天里过生日的（归档的不算），近的在前
@@ -63,22 +65,23 @@ const yuan = (n) => `¥${Math.round(n * 100) / 100}`;
 export function timeline(data, ledger, id) {
   const out = [];
   const p = data.people.find((x) => x.id === id);
+  const pr = ta(p);
   for (const l of p?.log || []) out.push({ day: l.day, kind: 'log', text: l.text, log: l });
   for (const pl of data.places || []) {
     for (const v of pl.visits || []) if (v.with?.includes(id)) out.push({ day: v.day, kind: 'place', text: `一起去了${pl.name}`, href: `#/place/${pl.id}` });
   }
   for (const f of ledger?.favors || []) {
     if (f.person !== id) continue;
-    out.push({ day: f.date, kind: 'favor', text: `${f.dir === 'owe' ? '欠他一个人情' : '他欠你一个人情'}：${f.text}`, favor: f });
+    out.push({ day: f.date, kind: 'favor', text: `${f.dir === 'owe' ? `欠${pr}一个人情` : `${pr}欠你一个人情`}：${f.text}`, favor: f });
     if (f.status === 'done' && f.doneAt) {
       const tx = f.doneTx && ledger.tx?.find((t) => t.id === f.doneTx);
-      out.push({ day: f.doneAt, kind: 'favor', text: `${f.dir === 'owe' ? '还了人情' : '他还了人情'}：${f.text}${tx ? `（${yuan(tx.cny ?? tx.amount)}）` : f.doneNote ? `（${f.doneNote}）` : ''}` });
+      out.push({ day: f.doneAt, kind: 'favor', text: `${f.dir === 'owe' ? '还了人情' : `${pr}还了人情`}：${f.text}${tx ? `（${yuan(tx.cny ?? tx.amount)}）` : f.doneNote ? `（${f.doneNote}）` : ''}` });
     }
   }
   for (const t of ledger?.tx || []) {
     if (t.person !== id) continue;
     const v = yuan(t.cny ?? t.amount);
-    const text = t.type === 'advance' ? `你帮他付了 ${v}` : t.type === 'repay' ? `他还你 ${v}` : t.type === 'payback' ? `你还他 ${v}` : t.type === 'expense' && !t.account ? `他帮你付了 ${v}` : null;
+    const text = t.type === 'advance' ? `你帮${pr}付了 ${v}` : t.type === 'repay' ? `${pr}还你 ${v}` : t.type === 'payback' ? `你还${pr} ${v}` : t.type === 'expense' && !t.account ? `${pr}帮你付了 ${v}` : null;
     if (text) out.push({ day: t.date, kind: 'money', text: t.note ? `${text} · ${t.note}` : text });
   }
   return out.sort((a, b) => b.day.localeCompare(a.day));

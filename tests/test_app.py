@@ -1125,10 +1125,11 @@ def _(c):
     p.get_by_role("group", name="关系").get_by_role("button", name="同门").click()
     expect(p.get_by_role("group", name="公历还是农历").get_by_role("button", name="农历")).to_have_attribute("aria-pressed", "true")
     expect(p.get_by_label("喜欢什么")).to_have_value("编的喜欢喝茶")
+    expect(p.get_by_role("group", name="男女").get_by_role("button", name="男")).to_have_attribute("aria-pressed", "true")
     p.get_by_role("button", name="存好").click()
     c.wait(lambda d: any(x["name"] == "编的乙" for x in d["people"]), "存好一个人")
     me = next(x for x in c.data()["people"] if x["name"] == "编的乙")
-    assert me["groups"] == ["grad", "college"] and me["rel"] == "同门" and me["birthday"] == {"cal": "lunar", "m": 8, "d": 15}, me
+    assert me["sex"] == "m" and me["groups"] == ["grad", "college"] and me["rel"] == "同门" and me["birthday"] == {"cal": "lunar", "m": 8, "d": 15}, me
     pid = me["id"]
     for _ in range(50):
         if any(x["id"] == pid for x in json.loads(LEDGER.read("finance.json"))["people"]):
@@ -1169,6 +1170,10 @@ def _(c):
     p.get_by_role("group", name="分组").get_by_role("button", name="家人").click()
     p.get_by_role("group", name="关系").get_by_role("button", name="妈妈").click()
     p.get_by_label("名字", exact=True).fill("编的丙")
+    p.get_by_role("button", name="存好").click()
+    expect(p.locator(".toast", has_text="选一下男还是女")).to_be_visible()
+    p.get_by_role("group", name="男女").get_by_role("button", name="女").click()
+    expect(p.get_by_text("关于她")).to_be_visible()
     p.get_by_label("生日月").select_option(str(tomorrow.month))
     p.get_by_label("生日日").select_option(str(tomorrow.day))
     p.get_by_role("button", name="存好").click()
@@ -1268,7 +1273,7 @@ def fake_externals(page):
         if "想送身边的人什么礼物" in body:
             content = {"ideas": [{"name": "编的茶具", "price": 88, "why": "编的理由", "query": "编的 茶具"}]}
         elif "整理他身边的人" in body:
-            content = {"name": "编的乙", "groups": ["college", "grad"], "rel": "同学", "birthday": {"cal": "lunar", "m": 8, "d": 15, "y": None},
+            content = {"name": "编的乙", "sex": "m", "groups": ["college", "grad"], "rel": "同学", "birthday": {"cal": "lunar", "m": 8, "d": 15, "y": None},
                        "how": "", "likes": "编的喜欢喝茶", "note": ""}
         elif "能一步一步做到的目标" in body:
             content = {"title": "编的目标", "why": "编的为什么", "key": "编的关键", "note": "",
