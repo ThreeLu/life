@@ -62,6 +62,7 @@ export function defaultData(today) {
     milestones: {}, // { key: 达到的日期 }，seen: { key: true }
     places: [], // 想去的地方，见 places.js
     letters: {}, // DeepSeek 写的回顾：{ w周一 / m月份 / y年份: { at, text, research } }
+    goals: [], // 想做到的事，见下面「想做到的事」
   };
 }
 
@@ -96,6 +97,7 @@ export function migrate(data) {
   data.milestones ||= {};
   data.places ||= [];
   data.letters ||= {};
+  data.goals ||= [];
   return data;
 }
 
@@ -679,4 +681,65 @@ export function solarTerm(day) {
   const idx = TERMS.findIndex((t) => t[0] === cur.name);
   const season = ['spring', 'summer', 'autumn', 'winter'][Math.floor(((idx - 2 + 24) % 24) / 6)];
   return { name: cur.name, today: cur.day === day, next: next.name, left: daysBetween(day, next.day), season };
+}
+
+// ---------- 想做到的事 ----------
+// goals = [{ id, wish（心愿原话）, title, status: talking|active|done|dropped, at, chat（ChatGPT 的小结）, why, key, note,
+//            stages: [{ id, title, tasks: [{ id, text, done: 日期|null, buy?: { name, price, query }, wishId? }] }],
+//            habits: [{ id, text, perWeek }], doneAt?, droppedAt? }]
+// 习惯打卡记在 days[日期].goals[习惯id] = true
+
+// 现在在第几阶段（第一个还有没做完的事的阶段），这一阶段做了几件
+export function goalProgress(g) {
+  const stages = g.stages || [];
+  let i = stages.findIndex((s) => s.tasks.some((t) => !t.done));
+  if (i < 0) i = stages.length;
+  const cur = stages[i];
+  const all = stages.flatMap((s) => s.tasks);
+  return {
+    stage: i, stages: stages.length, allDone: stages.length > 0 && i === stages.length,
+    done: cur ? cur.tasks.filter((t) => t.done).length : 0, total: cur ? cur.tasks.length : 0,
+    doneAll: all.filter((t) => t.done).length, totalAll: all.length,
+  };
+}
+export function goalLine(g) {
+  const p = goalProgress(g);
+  if (g.status === 'talking') return `${g.title || g.wish} · 还没整理`;
+  if (p.allDone) return `${g.title} · 都做完了`;
+  return `${g.title} · 第 ${p.stage + 1} 阶段 ${p.done}/${p.total}`;
+}
+// 这周（周一起）某个习惯做了几次
+export function habitWeek(data, habitId, today) {
+  const mon = weekOf(today);
+  let n = 0;
+  for (let i = 0; i < 7; i++) if (data.days[addDays(mon, i)]?.goals?.[habitId]) n++;
+  return n;
+}
+// 这周勾掉的事（周报用）
+export function goalWeekDone(data, mon) {
+  const end = addDays(mon, 6);
+  return (data.goals || []).flatMap((g) => (g.stages || []).flatMap((s) => s.tasks.filter((t) => t.done && t.done >= mon && t.done <= end).map((t) => ({ goal: g.title, text: t.text }))));
+}
+// DeepSeek 整理出来的 → 存进目标。重新整理时，同样文字的事保留「做了」和放进心愿单的记号
+export function applyGoalPlan(g, out, newId) {
+  const old = new Map((g.stages || []).flatMap((s) => s.tasks).map((t) => [t.text, t]));
+  const str = (x, n = 200) => String(x ?? '').trim().slice(0, n);
+  g.title = str(out.title, 30) || g.title || str(g.wish, 30);
+  g.why = str(out.why); g.key = str(out.key); g.note = str(out.note);
+  g.stages = (Array.isArray(out.stages) ? out.stages : []).slice(0, 6).map((s, i) => ({
+    id: newId('gs'), title: str(s?.title, 40) || `第 ${i + 1} 阶段`,
+    tasks: (Array.isArray(s?.tasks) ? s.tasks : []).slice(0, 8).map((t) => {
+      const text = str(typeof t === 'string' ? t : t?.text, 120);
+      const prev = old.get(text);
+      const b = t?.buy && str(t.buy.name) ? { name: str(t.buy.name, 40), price: Math.max(0, Math.round(Number(t.buy.price) || 0)), query: str(t.buy.query, 40) || str(t.buy.name, 40) } : null;
+      return { id: prev?.id || newId('gt'), text, done: prev?.done || null, ...(b ? { buy: b } : {}), ...(prev?.wishId ? { wishId: prev.wishId } : {}) };
+    }).filter((t) => t.text),
+  })).filter((s) => s.tasks.length);
+  const oldH = new Map((g.habits || []).map((x) => [x.text, x]));
+  g.habits = (Array.isArray(out.habits) ? out.habits : []).slice(0, 4).map((x) => {
+    const text = str(typeof x === 'string' ? x : x?.text, 80);
+    return { id: oldH.get(text)?.id || newId('gh'), text, perWeek: Math.min(7, Math.max(1, Math.round(Number(x?.perWeek) || 1))) };
+  }).filter((x) => x.text);
+  g.status = 'active';
+  return g;
 }

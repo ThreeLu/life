@@ -1,4 +1,4 @@
-import { GitHub } from './github.js';
+import { GitHub, GitHubError } from './github.js';
 import { Store, newId, diff, apply as applyPatch } from './store.js';
 import {
   defaultData, dayKey, addDays, daysBetween, weekOf, weekLabel, hm, parseDay, WHEN, routineOf, careDone, weekCount,
@@ -9,11 +9,12 @@ import {
   sickDid, sickSymptoms, sickLessons, similarSick, planMissing, sickKinds,
   boilerStatus, solarTerm, lowLessons, goodDays, identityLines, lineOfDay, tipOfDay, identityVotes, weekVotes,
   parseSummary, reviewCard, dueCards, mistakeTypes, REVIEW_STEPS,
+  goalProgress, goalLine, habitWeek, goalWeekDone, applyGoalPlan,
 } from './life.js';
 import {
   TRACKS, STEPS, stepById, DIRECTIONS, SKIN_TAGS, VERSES, MORNING_VERSES, CONFESS_VERSE, verseFor, LORDS_PRAYER,
   STAGES, PRAISE_HINTS, THANKS_HINTS, CONFESS_HINT, ASK_HINT, ENTRUST_HINT, prayerPrompt,
-  EN_MODES, EN_CYCLE, EN_TOPICS, englishPrompt,
+  EN_MODES, EN_CYCLE, EN_TOPICS, englishPrompt, goalPrompt,
   CHEER_ON, cheerNight, MILESTONE_TEXT, SICK_KINDS, SYMPTOMS, LOW_KINDS, LOW_VERSES, HOTLINES, SELF_LINES, RED_FLAGS, FEVER_FROM, BIBLE_BOOKS,
 } from './content.js';
 import { pushSupport, subscribe, currentSubscription, deviceName, PUSH_FILE } from './push.js';
@@ -153,6 +154,8 @@ const routes = [
   [/^\/low$/, () => lowView()],
   [/^\/low\/go$/, () => lowGoView()],
   [/^\/history$/, () => historyView()],
+  [/^\/goals$/, () => goalsView()],
+  [/^\/goal\/([^/]+)$/, (id) => goalView(id)],
   [/^\/more$/, () => moreView()],
   [/^\/settings$/, () => settingsView()],
 ];
@@ -160,7 +163,7 @@ const NAV_GROUPS = {
   '/': [/^\/?$/, /^\/day\//, /^\/night/, /^\/sick$/],
   '/look': [/^\/look/, /^\/step\//],
   '/pray': [/^\/pray/, /^\/low/],
-  '/more': [/^\/more/, /^\/english/, /^\/history/, /^\/settings/, /^\/places?/, /^\/stats/, /^\/report/, /^\/ask/, /^\/sick\/book/, /^\/periodic/],
+  '/more': [/^\/more/, /^\/english/, /^\/history/, /^\/settings/, /^\/places?/, /^\/stats/, /^\/report/, /^\/ask/, /^\/sick\/book/, /^\/periodic/, /^\/goals?(\/|$)/],
 };
 
 function setupNav() {
@@ -406,6 +409,7 @@ function todayView(day) {
       return h('button', { type: 'button', class: `other-p${homeState.open === p ? ' on' : ''}`, onclick: () => { homeState.open = homeState.open === p ? null : p; render(); } },
         total ? `${PERIODS[p]} ${done}/${total}` : PERIODS[p]);
     })),
+    goalLines(),
     logLine(day),
     !sickActive(d) ? h('div', { class: 'unwell-row' }, h('button', { class: 'link small unwell', onclick: startSickSheet }, '我不舒服')) : null);
 }
@@ -610,9 +614,12 @@ function milestoneList() {
       .then(() => { milestoneSaving = false; render(); }).catch(() => { milestoneSaving = false; });
   }
   const seen = d.milestones.seen || {};
-  const show = Object.entries(d.milestones).filter(([k, at]) => k !== 'seen' && MILESTONE_TEXT[k] && !seen[k] && daysBetween(at, dayKey()) <= 3);
+  const show = Object.entries(d.milestones).filter(([k, at]) => k !== 'seen' && MILESTONE_TEXT[k] && !seen[k] && daysBetween(at, dayKey()) <= 3)
+    .map(([k]) => [k, MILESTONE_TEXT[k]]);
+  // 想做到的事：做到了也是里程碑
+  for (const g of d.goals) if (g.status === 'done' && g.doneAt && !seen[`goal-${g.id}`] && daysBetween(g.doneAt, dayKey()) <= 3) show.push([`goal-${g.id}`, `做到了：${g.title}`]);
   const okAll = () => saveRender('里程碑：看到了', (data) => { data.milestones.seen = { ...(data.milestones.seen || {}), ...Object.fromEntries(show.map(([k]) => [k, true])) }; });
-  return show.map(([k]) => ({ text: MILESTONE_TEXT[k], okAll }));
+  return show.map(([, text]) => ({ text, okAll }));
 }
 
 
@@ -2092,8 +2099,19 @@ function reportView(q) {
     h('div', { class: 'card' }, h('div', { class: 'stat-grid' }, tiles.map(([a, b]) => stat(a, b))),
       s.bestDay ? h('p', { class: 'small' }, `心情最好的一天：${dayLabel(s.bestDay)}${d.days[s.bestDay].note ? `，「${d.days[s.bestDay].note}」` : ''}`) : null,
       s.habits ? h('p', { class: 'small good-text' }, `养成了 ${s.habits} 个新习惯。`) : null),
+    k === 'week' ? goalWeekCard(r.from) : null,
     s.notes.length ? h('div', { class: 'card' }, h('h3', {}, '每天的一句话'), s.notes.slice(-31).map((x) => h('div', { class: 'small night-note' }, h('span', { class: 'muted' }, `${x.day.slice(5).replace('-', '/')} · ${x.mood || '-'} 分　`), x.note))) : null,
     s.did.length && k !== 'year' ? h('div', { class: 'card' }, h('h3', {}, '科研'), s.did.map((x) => h('div', { class: 'small night-note' }, h('span', { class: 'muted' }, `${x.day.slice(5).replace('-', '/')}　`), x.did))) : null);
+}
+// 周报里：想做到的事这周做了什么、现在到哪了
+function goalWeekCard(mon) {
+  const d = store.data;
+  const active = d.goals.filter((g) => g.status === 'active');
+  const did = goalWeekDone(d, mon);
+  if (!active.length && !did.length) return null;
+  return h('div', { class: 'card' }, h('h3', {}, '想做到的事'),
+    active.map((g) => h('a', { class: 'small block', href: `#/goal/${g.id}` }, goalLine(g))),
+    did.length ? [h('p', { class: 'small good-text' }, `这周做了 ${did.length} 件：`), did.map((x) => h('div', { class: 'small night-note' }, h('span', { class: 'muted' }, `${x.goal}　`), x.text))] : null);
 }
 const LETTER_SYSTEM = '你是一位温暖、真诚的朋友，帮一位博士生回顾他的一段生活。他在用心学着照顾自己：护肤、祷告（他是基督徒）、运动、练英语。'
   + '用中文大白话写，160–260 字，分两三段。先说看到的好的地方（要具体，引用他的数字或他写的话），再温和地说一两个可以留意的规律，最后一句鼓励。'
@@ -3474,12 +3492,289 @@ function historyView() {
     })));
 }
 
+// ---------- 想做到的事 ----------
+// 写一句心愿 → 复制提示词和 ChatGPT 语音聊 → 让它「整理一下」，小结贴回来 → DeepSeek 拆成阶段、小事、习惯 → 一件件勾掉
+
+const GOALS_HELP = [
+  ['怎么用', [
+    '点「＋ 写一个心愿」，用一句话写下想做到的事，比如「生活和工作分开，先从衣服开始」。',
+    '复制提示词，打开 ChatGPT 新对话粘贴，切到语音，和它聊清楚。聊完说「整理一下」，它会写一份小结。',
+    '把小结整段贴回来，点「让 DeepSeek 整理」：它会拆成几个阶段、每阶段几件能勾掉的小事，还有要养成的习惯。',
+    '做完一件勾一件。首页会有一行进度。做到了点「做到了」，会进里程碑。',
+  ]],
+  ['要买的东西', ['DeepSeek 会看物品档案里已经有的东西（衣服的风格、季节、穿了几次、备注），已经有的不会叫你再买。它看不了照片。',
+    '要买的那件事下面有「小红书」「淘宝」两个按钮，直接搜好；想买的话点「放进心愿单」，确认名字和价格后才会放进账本。']],
+  ['改', ['点一件事可以改字或删掉；每个阶段下面可以加一件。', '想法变了：再和 ChatGPT 聊一次，把新的小结贴进来重新整理。已经勾掉的事，文字一样的会留着。']],
+];
+
+function goalsView() {
+  const d = store.data;
+  const by = (st) => d.goals.filter((g) => g.status === st);
+  const active = [...by('talking'), ...by('active')];
+  const done = by('done');
+  const dropped = by('dropped');
+  const add = () => {
+    const wish = h('textarea', { rows: 3, placeholder: '比如：生活和工作分开，先从衣服开始', 'aria-label': '心愿' });
+    openSheet({
+      title: '写一个心愿',
+      body: h('div', { class: 'form' }, wish, h('p', { class: 'muted small' }, '一句话就够，细节去和 ChatGPT 聊。')),
+      confirmText: '下一步',
+      onConfirm: async () => {
+        const text = wish.value.trim();
+        if (!text) { toast('写一句', 'error'); return false; }
+        const id = newId('g');
+        const ok = await save(`心愿：${text.slice(0, 20)}`, (data) => { data.goals.push({ id, wish: text, title: text.slice(0, 30), status: 'talking', at: dayKey() }); }).then(() => true).catch(() => false);
+        if (ok) go(`#/goal/${id}`);
+        return ok;
+      },
+    });
+  };
+  return h('div', {},
+    headerSub('想做到的事', active.length ? `${active.length} 件在做` : '把心愿变成一步一步能做到的事', helpButton('想做到的事怎么用', GOALS_HELP)),
+    active.length ? h('div', { class: 'group' }, active.map((g) => {
+      const p = goalProgress(g);
+      return cell({ href: `#/goal/${g.id}`, ic: 'sparkle', title: g.title || g.wish,
+        sub: g.status === 'talking' ? '还没整理：和 ChatGPT 聊完贴回来' : p.allDone ? '都做完了，可以点「做到了」' : `第 ${p.stage + 1} 阶段 ${p.done}/${p.total} · 一共做了 ${p.doneAll}/${p.totalAll} 件` });
+    })) : h('div', { class: 'card' }, h('p', { class: 'muted' }, '还没有。有想做到的事，写一句开始。')),
+    h('button', { class: 'wide', onclick: add }, '＋ 写一个心愿'),
+    done.length ? [h('div', { class: 'section-title' }, `做到了（${done.length}）`), h('div', { class: 'group' }, done.map((g) => cell({ href: `#/goal/${g.id}`, title: g.title, meta: relDay(g.doneAt, dayKey()) })))] : null,
+    dropped.length ? h('details', { class: 'card' }, h('summary', {}, `先放下的（${dropped.length}）`), h('div', { class: 'group' }, dropped.map((g) => cell({ href: `#/goal/${g.id}`, title: g.title || g.wish })))) : null);
+}
+
+const goalAi = { busy: false };
+const goalPaste = {}; // 贴了一半的小结，页面重画不丢
+function goalView(id) {
+  const d = store.data;
+  const g = d.goals.find((x) => x.id === id);
+  if (!g) return notFound();
+  const today = dayKey();
+  const upd = (message, fn) => saveRender(message, (data) => { const x = data.goals.find((y) => y.id === id); if (x) fn(x, data); });
+  const back = h('a', { class: 'small', href: '#/goals' }, '‹ 想做到的事');
+  if (g.status === 'talking') return h('div', {}, headerSub('和 ChatGPT 聊聊', g.wish), goalTalkCard(g, false), dropRow(g, upd), back);
+
+  const p = goalProgress(g);
+  const editTask = (stage, t = null) => {
+    const text = h('textarea', { rows: 2, value: t?.text || '', 'aria-label': '这件事' });
+    if (t) text.value = t.text;
+    const close = openSheet({
+      title: t ? '改这件事' : `加一件（${stage.title}）`,
+      body: h('div', { class: 'form' }, text,
+        t ? h('button', { class: 'danger small', onclick: () => { close(); saveUndoable(`删掉：${t.text}`, (data) => {
+          const s = data.goals.find((y) => y.id === id)?.stages.find((y) => y.id === stage.id);
+          if (s) s.tasks = s.tasks.filter((y) => y.id !== t.id);
+        }, '删掉了').then(render).catch(() => {}); } }, '删掉这件') : null),
+      confirmText: '好了',
+      onConfirm: () => {
+        const v = text.value.trim();
+        if (!v) { toast('写一下', 'error'); return false; }
+        return upd(t ? '改一件事' : '加一件事', (x) => {
+          const s = x.stages.find((y) => y.id === stage.id);
+          if (!s) return;
+          if (t) { const y = s.tasks.find((z) => z.id === t.id); if (y) y.text = v; } else s.tasks.push({ id: newId('gt'), text: v, done: null });
+        });
+      },
+    });
+  };
+  const toggle = (stage, t) => upd(t.done ? `没做完：${t.text}` : `做了：${t.text}`, (x) => {
+    const y = x.stages.find((s) => s.id === stage.id)?.tasks.find((z) => z.id === t.id);
+    if (y) y.done = y.done ? null : today;
+  }).then((ok) => { if (ok && !t.done) toast(goalProgress(store.data.goals.find((x) => x.id === id)).allDone ? '都做完了。' : '一步。'); });
+  const taskRow = (stage, t) => h('div', { class: `goal-task${t.done ? ' done' : ''}` },
+    h('button', { type: 'button', class: 'check', 'aria-pressed': String(Boolean(t.done)), 'aria-label': t.text, onclick: () => toggle(stage, t) }, t.done ? '✓' : ''),
+    h('div', { class: 'grow' },
+      h('button', { type: 'button', class: 'goal-text', onclick: () => editTask(stage, t) }, t.text),
+      t.buy ? h('div', { class: 'goal-buy' },
+        h('span', { class: 'muted small' }, `${t.buy.name}${t.buy.price ? ` · 大概 ¥${t.buy.price}` : ''}`),
+        h('a', { class: 'chip', href: `https://www.xiaohongshu.com/search_result?keyword=${encodeURIComponent(t.buy.query)}`, target: '_blank', rel: 'noopener' }, '小红书'),
+        h('a', { class: 'chip', href: `https://s.taobao.com/search?q=${encodeURIComponent(t.buy.query)}`, target: '_blank', rel: 'noopener' }, '淘宝'),
+        t.wishId ? h('span', { class: 'small good-text' }, '在心愿单里了') : h('button', { type: 'button', class: 'chip', onclick: () => goalWishSheet(g, t) }, '放进心愿单')) : null,
+      t.done ? h('span', { class: 'muted small block' }, `${relDay(t.done, today)}做的`) : null));
+  const habitRow = (x) => {
+    const n = habitWeek(d, x.id, today);
+    const on = Boolean(d.days[today]?.goals?.[x.id]);
+    return h('div', { class: 'goal-habit' },
+      h('div', { class: 'grow' }, x.text, h('span', { class: 'muted small block' }, `每周 ${x.perWeek} 次 · 这周 ${n} 次`)),
+      h('button', { class: `small ${on ? '' : 'secondary'}`, 'aria-pressed': String(on), onclick: () => saveRender(`习惯：${x.text}`, (data) => {
+        const day = dayOf(data, today);
+        day.goals ||= {};
+        if (day.goals[x.id]) delete day.goals[x.id]; else day.goals[x.id] = true;
+      }) }, on ? '今天做了 ✓' : '今天做了'));
+  };
+  const finish = () => openSheet({
+    title: '做到了？',
+    body: h('p', {}, `「${g.title}」，会放进里程碑。`),
+    confirmText: '做到了',
+    onConfirm: () => upd(`做到了：${g.title}`, (x) => { x.status = 'done'; x.doneAt = today; }),
+  });
+  return h('div', {},
+    headerSub(g.title, g.status === 'done' ? `${dayLabel(g.doneAt)}做到了` : g.status === 'dropped' ? '先放下了' : p.allDone ? '都做完了' : `第 ${p.stage + 1} 阶段 · ${p.done}/${p.total}`, helpButton('想做到的事怎么用', GOALS_HELP)),
+    h('div', { class: 'card' },
+      g.why ? h('p', {}, h('b', {}, '为什么　'), g.why) : null,
+      g.key ? h('p', {}, h('b', {}, '关键　'), g.key) : null,
+      g.note ? h('p', { class: 'muted small' }, g.note) : null,
+      h('p', { class: 'muted small' }, `心愿：${g.wish}`)),
+    (g.stages || []).map((s, i) => {
+      const body = [h('h3', {}, `${i + 1}. ${s.title}`), s.tasks.map((t) => taskRow(s, t)),
+        g.status === 'active' ? h('button', { class: 'link small', onclick: () => editTask(s) }, '＋ 加一件') : null];
+      return i > p.stage && g.status === 'active'
+        ? h('details', { class: 'card goal-stage later' }, h('summary', {}, `${i + 1}. ${s.title}（之后）`), body.slice(1))
+        : h('div', { class: `card goal-stage${i < p.stage ? ' passed' : ''}` }, body);
+    }),
+    g.habits?.length ? h('div', { class: 'card' }, h('h3', {}, '要养成的习惯'), g.habits.map(habitRow)) : null,
+    g.status === 'active' ? [
+      h('button', { class: p.allDone ? 'wide' : 'secondary wide', onclick: finish }, '做到了'),
+      h('details', { class: 'card' }, h('summary', {}, '想法变了：再和 ChatGPT 聊聊，重新整理'), goalTalkCard(g, true)),
+      dropRow(g, upd)] : null,
+    g.status === 'dropped' ? h('button', { class: 'secondary wide', onclick: () => upd(`又想做了：${g.title}`, (x) => { x.status = x.stages?.length ? 'active' : 'talking'; delete x.droppedAt; }) }, '又想做了') : null,
+    back);
+}
+function dropRow(g, upd) {
+  return h('div', { class: 'center' }, h('button', { class: 'link small muted', onclick: () => saveUndoable(`先放下：${g.title || g.wish}`, (data) => {
+    const x = data.goals.find((y) => y.id === g.id); if (x) { x.status = 'dropped'; x.droppedAt = dayKey(); }
+  }, '先放下了').then(() => go('#/goals')).catch(() => {}) }, '先放下'));
+}
+
+// 复制提示词 → 聊 → 贴回来 → DeepSeek 整理
+function goalTalkCard(g, again) {
+  const text = goalPrompt(g.wish);
+  const paste = h('textarea', { rows: 8, placeholder: '把 ChatGPT「整理一下」写的小结整段贴在这里', 'aria-label': 'ChatGPT 的小结' });
+  paste.value = goalPaste[g.id] ?? (again ? '' : g.chat || '');
+  paste.addEventListener('input', () => { goalPaste[g.id] = paste.value; });
+  const organize = async () => {
+    const chat = paste.value.trim();
+    if (chat.length < 20) { toast('先把 ChatGPT 的小结贴进来', 'error'); return; }
+    goalAi.busy = true; render();
+    try {
+      const out = await goalPlan(g, chat, again);
+      if (!Array.isArray(out.stages) || !out.stages.length) throw new Error('DeepSeek 没整理出来，再试一次');
+      const ok = await saveRender(`整理目标：${g.title || g.wish}`, (data) => {
+        const x = data.goals.find((y) => y.id === g.id);
+        if (!x) return;
+        x.chat = again && x.chat ? `${x.chat}\n\n——${dayKey()}——\n${chat}` : chat;
+        applyGoalPlan(x, out, newId);
+      });
+      if (ok) { delete goalPaste[g.id]; toast('整理好了。从第一件开始。'); }
+    } catch (e) { toast(e.message, 'error'); }
+    goalAi.busy = false; render();
+  };
+  return h('div', { class: again ? 'form' : 'card form' },
+    h('ol', { class: 'small steps' },
+      h('li', {}, '点「复制」，打开 ChatGPT 新对话粘贴发送。'),
+      h('li', {}, '点语音按钮，和它聊清楚。'),
+      h('li', {}, '聊完说「整理一下」，把它写的小结整段复制，贴到下面。')),
+    h('details', { class: 'inner' }, h('summary', {}, '看看提示词'), h('p', { class: 'goal-prompt' }, text)),
+    h('button', { class: 'secondary small', onclick: () => copyText(text) }, icon('copy'), '复制提示词'),
+    paste,
+    h('button', { class: 'wide', disabled: goalAi.busy, onclick: organize }, icon('sparkle'), goalAi.busy ? 'DeepSeek 正在整理……' : again ? '让 DeepSeek 重新整理' : '让 DeepSeek 整理'));
+}
+
+async function goalPlan(g, chat, again) {
+  const [things, wishes] = await Promise.all([goalInventory(), readLedgerFile()]);
+  const openWishes = (wishes?.wishes || []).filter((w) => w.status === 'open').map((w) => `${w.name}（¥${w.price}）`);
+  const system = [
+    '你帮一个大学生把心愿整理成能一步一步做到的目标。他已经和 ChatGPT 聊过，下面是聊完的小结。',
+    '要求：',
+    '- 用小结里的内容和他的实际情况，不要另外加大道理。说话温和、具体、简短，不说教，不用「你应该」。',
+    '- 分 2–4 个阶段，每个阶段 2–5 件小事。每件事要具体、做完能勾掉（比如「把现在的衣服按上班 / 休闲分成两堆」），不要「保持好心态」这种勾不掉的。第一阶段一两周内能做完。',
+    '- 需要每周反复做的放进 habits（perWeek 每周几次，1–7），不要放进阶段里。最多 3 个。',
+    '- 要买东西的那件事带上 buy：name 东西的名字，price 大概价格（人民币整数，学生价位），query 小红书 / 淘宝的搜索词（4–10 个字，比如「男生 休闲外套 秋季」）。',
+    '- 下面有他物品档案里已经有的东西：已经有的就不要叫他买，可以直接用上（比如「休闲的衣服已经有 3 件：……」）。心愿单里已经有的也不要重复买。',
+    again ? '- 这是重新整理：他已经做了一些事，做过的事保持原来的文字（这样网站能认出来），没做的可以按新的想法改。' : '',
+    '只输出 JSON：{"title":"10 个字以内的名字","why":"一句话","key":"最关键的一两件事，一句话","stages":[{"title":"阶段名","tasks":[{"text":"一件小事","buy":{"name":"","price":0,"query":""}}]}],"habits":[{"text":"","perWeek":2}],"note":"一句给他的话，可以空"}',
+    '不需要买东西的 task 不要写 buy。',
+  ].filter(Boolean).join('\n');
+  const doneTasks = again ? (g.stages || []).flatMap((s) => s.tasks.map((t) => `${t.done ? '✓' : '　'} ${t.text}`)) : [];
+  const user = [
+    `今天 ${dayKey()}。`,
+    `心愿：${g.wish}`,
+    `ChatGPT 的小结：\n${chat}`,
+    doneTasks.length ? `现在的计划（✓ 是做过的）：\n${doneTasks.join('\n')}` : '',
+    things,
+    openWishes.length ? `账本心愿单里已经有：${openWishes.join('、')}` : '',
+  ].filter(Boolean).join('\n\n');
+  return askJson(await aiConfig(), system, user, { maxTokens: 8000, timeout: 150000 });
+}
+
+// 物品档案：衣服鞋子写细（风格、季节、颜色、穿了几次、备注），其他东西只写名字和类别
+const WEAR_TAGS = ['衣服', '运动服', '鞋'];
+async function goalInventory() {
+  const inv = readJson('inventory-settings');
+  const owner = (settings.repo || DEFAULT_REPO).split('/')[0];
+  const g = new GitHub({ token: inv.token || settings.token, repo: inv.repo || `${owner}/inventory-data` });
+  let data;
+  try { data = JSON.parse(await g.readText('inventory.json', 'main')); } catch { return ''; }
+  const items = (data.items || []).filter((i) => !i.archived);
+  const clean = (x) => String(x ?? '').replace(/\s+/g, ' ').replace(/\|/g, '/').trim();
+  const wear = items.filter((i) => WEAR_TAGS.includes(i.tags?.[0])).map((i) => {
+    const f = i.fields || {};
+    const style = f['风格'] || (i.tags[0] === '运动服' ? '运动' : '没填（一般是上班穿的正式）');
+    const rest = Object.entries(f).filter(([k]) => k !== '风格').map(([k, v]) => `${k}${v}`).join(' ');
+    return [i.name, i.tags[0], style, rest, Array.isArray(i.worn) ? `穿了 ${i.worn.length} 次` : '', i.description ? clean(i.description).slice(0, 60) : ''].map(clean).join(' | ');
+  });
+  const other = items.filter((i) => !WEAR_TAGS.includes(i.tags?.[0])).slice(0, 300).map((i) => `${clean(i.name)}（${clean(i.tags?.[0])}）`);
+  return [
+    wear.length ? `他的衣服和鞋（物品档案，名称 | 类别 | 风格 | 季节颜色等 | 穿的次数 | 备注）：\n${wear.join('\n')}` : '',
+    other.length ? `他宿舍里的其他东西：${other.join('、')}` : '',
+  ].filter(Boolean).join('\n\n');
+}
+
+// 放进账本的心愿单：确认名字和价格，直接提交到账本仓库
+function goalWishSheet(g, t) {
+  const name = h('input', { value: t.buy.name, 'aria-label': '想要什么' });
+  const price = h('input', { inputmode: 'decimal', value: t.buy.price ? String(t.buy.price) : '', placeholder: '大概多少钱', 'aria-label': '价格' });
+  openSheet({
+    title: '放进心愿单',
+    body: h('div', { class: 'form' }, name, price, h('p', { class: 'muted small' }, `会放进账本的心愿单，写着「为了：${g.title}」。冷静几天、什么时候买，在账本里看。`)),
+    confirmText: '放进去',
+    onConfirm: async () => {
+      const n = Number(price.value.replace(/[，,\s¥]/g, ''));
+      if (!name.value.trim()) { toast('写一下名字', 'error'); return false; }
+      if (!(n > 0)) { toast('填一个大概的价格', 'error'); return false; }
+      const wid = newId('w');
+      try {
+        await saving('正在放进心愿单…', () => addLedgerWish({ id: wid, name: name.value.trim(), price: Math.round(n * 100) / 100, want: 'want', kind: '', reason: `为了：${g.title}`, link: '', targetDate: '', createdAt: dayKey(), status: 'open' }));
+      } catch { return false; }
+      await upd2(g.id, t.id, wid);
+      toast('放进心愿单了');
+      return true;
+    },
+  });
+}
+const upd2 = (gid, tid, wid) => saveRender('放进心愿单', (data) => {
+  const y = data.goals.find((x) => x.id === gid)?.stages.flatMap((s) => s.tasks).find((x) => x.id === tid);
+  if (y) y.wishId = wid;
+});
+async function addLedgerWish(wish) {
+  const lg = readJson('ledger-settings');
+  const owner = (settings.repo || DEFAULT_REPO).split('/')[0];
+  const g = new GitHub({ token: lg.token || settings.token, repo: lg.repo || `${owner}/finance-data` });
+  for (let attempt = 0; ; attempt++) {
+    const head = await g.headSha();
+    const f = JSON.parse(await g.readText('finance.json', head));
+    (f.wishes ||= []).push(wish);
+    try {
+      await g.commit(head, [{ path: 'finance.json', content: JSON.stringify(f, null, 1) + '\n' }], `新心愿：${wish.name}（从「生活」）`);
+      return;
+    } catch (e) {
+      if (!(e instanceof GitHubError && e.status === 422) || attempt === 3) throw e;
+    }
+  }
+}
+
+// 首页：每个在做的目标一行进度
+function goalLines() {
+  const list = store.data.goals.filter((g) => g.status === 'active');
+  if (!list.length) return null;
+  return h('div', { class: 'goal-lines' }, list.map((g) => h('a', { class: 'goal-line', href: `#/goal/${g.id}` }, icon('sparkle', 'i'), h('span', { class: 'grow' }, goalLine(g)), icon('chev', 'i chev'))));
+}
+
 // ---------- 更多 ----------
 
 function moreView() {
   return h('div', {},
     header('生活'),
     h('div', { class: 'group' },
+      cell({ href: '#/goals', ic: 'sparkle', color: 'var(--accent)', title: '想做到的事', sub: '心愿 → 一步一步能做到的事' }),
       cell({ href: '#/places', ic: 'globe', color: 'var(--good)', title: '想去的地方', sub: '地图、周末去哪、足迹' }),
       cell({ href: '#/english', ic: 'globe', color: 'var(--blue)', title: '英语陪练', sub: '和 ChatGPT 语音聊' }),
       cell({ href: '#/sick/book', ic: 'shield', color: 'var(--danger)', title: '生病手册', sub: '我的经验、预案' })),

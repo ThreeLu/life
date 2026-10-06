@@ -1054,6 +1054,60 @@ def _(c):
     expect(p.locator(".whisper")).to_have_count(0)
 
 
+@step("想做到的事：写心愿、复制 ChatGPT 提示词、贴回小结让 DeepSeek 整理（带上衣橱和心愿单）、勾掉、习惯、搜索按钮、放进账本心愿单、首页一行进度、周报、做到了进里程碑")
+def _(c):
+    p = c.page
+    c.go("#/more")
+    p.get_by_role("link", name="想做到的事").click()
+    p.get_by_role("button", name="＋ 写一个心愿").click()
+    c.sheet().get_by_label("心愿").fill("编的心愿：生活和工作分开")
+    c.sheet().get_by_role("button", name="下一步").click()
+    expect(p.get_by_role("heading", name="和 ChatGPT 聊聊")).to_be_visible()
+    p.get_by_role("button", name="复制提示词").click()
+    clip = p.evaluate("navigator.clipboard.readText()")
+    assert "编的心愿：生活和工作分开" in clip and "整理一下" in clip and "语音" in clip, clip
+    p.get_by_label("ChatGPT 的小结").fill("心愿：编的\n为什么：编的\n先做：编的小事甲\n要买的：编的外套 200")
+    p.get_by_role("button", name="让 DeepSeek 整理").click()
+    expect(p.get_by_role("heading", name="编的目标")).to_be_visible()
+    body = LAST_AI[-1]
+    assert "编的格子衬衫" in body and "休闲" in body and "编的衣服备注" in body, body[-800:]
+    assert "编的小事甲" not in body.split("ChatGPT 的小结")[0]  # 小结在 user 里
+    g = c.data()["goals"][0]
+    assert g["status"] == "active" and g["chat"].startswith("心愿：编的") and len(g["stages"]) == 2 and g["habits"][0]["perWeek"] == 2, g
+    # 搜索按钮
+    expect(p.get_by_role("link", name="小红书")).to_have_attribute("href", re.compile("xiaohongshu.com/search_result\\?keyword=.*%E5%A4%96%E5%A5%97"))
+    expect(p.get_by_role("link", name="淘宝")).to_have_attribute("href", re.compile("s.taobao.com/search\\?q="))
+    # 勾掉一件
+    p.get_by_role("button", name="编的小事甲").first.click()
+    c.wait(lambda d: d["goals"][0]["stages"][0]["tasks"][0]["done"] == TODAY, "勾掉")
+    # 习惯
+    p.locator(".goal-habit").get_by_role("button", name="今天做了").click()
+    c.wait(lambda d: any((d["days"].get(TODAY, {}).get("goals") or {}).values()), "习惯")
+    expect(p.locator(".goal-habit")).to_contain_text("这周 1 次")
+    # 放进账本心愿单：确认名字价格
+    p.get_by_role("button", name="放进心愿单").click()
+    expect(c.sheet().get_by_label("价格")).to_have_value("199")
+    c.sheet().get_by_role("button", name="放进去").click()
+    expect(p.get_by_text("在心愿单里了")).to_be_visible()
+    w = json.loads(LEDGER.read("finance.json"))["wishes"][-1]
+    assert w["name"] == "编的外套" and w["price"] == 199 and w["status"] == "open" and w["reason"] == "为了：编的目标", w
+    c.wait(lambda d: d["goals"][0]["stages"][0]["tasks"][1].get("wishId") == w["id"], "记下放进心愿单")
+    # 首页一行进度
+    c.go("#/")
+    expect(p.locator(".goal-line")).to_contain_text("编的目标 · 第 1 阶段 1/2")
+    # 周报
+    c.go(f"#/report?k=week&d={TODAY}")
+    expect(p.locator(".card", has_text="想做到的事")).to_contain_text("编的小事甲")
+    # 做到了 → 里程碑
+    c.go(f"#/goal/{g['id']}")
+    p.get_by_role("button", name="做到了").click()
+    c.sheet().get_by_role("button", name="做到了").click()
+    c.wait(lambda d: d["goals"][0]["status"] == "done", "做到了")
+    c.go("#/")
+    expect(p.locator(".alert-line", has_text="做到了：编的目标")).to_be_visible()
+    expect(p.locator(".goal-line")).to_have_count(0)
+
+
 def inventory_seed():
     inv = {
         "version": 1, "locations": [{"id": "L1", "name": "洗手池 Sink"}], "tags": ["洗漱护肤", "零食食品"],
@@ -1065,6 +1119,8 @@ def inventory_seed():
             {"id": "inv-m3", "name": "编的感康片", "location": "L1", "tags": ["药品急救"], "quantity": 1, "archived": False},
             {"id": "inv-m4", "name": "编的左氧氟沙星片", "location": "L1", "tags": ["药品急救"], "quantity": 1, "archived": False},
             {"id": "inv-m5", "name": "编的蒙脱石散", "location": "L1", "tags": ["药品急救"], "quantity": 1, "archived": False},
+            {"id": "inv-c1", "name": "编的格子衬衫", "location": "L1", "tags": ["衣服"], "quantity": 1, "archived": False,
+             "fields": {"风格": "休闲", "季节": "春秋"}, "description": "编的衣服备注", "worn": ["2026-01-01", "2026-01-08"]},
         ],
     }
     return {"inventory.json": json.dumps(inv, ensure_ascii=False).encode(), "config/ai.json": b'{"deepseek": {"key": "test-key", "model": "test"}}'}
@@ -1094,7 +1150,12 @@ def fake_externals(page):
     def ai(route):
         body = route.request.post_data or ""
         LAST_AI.append(body)
-        if "标在地图上" in body:
+        if "能一步一步做到的目标" in body:
+            content = {"title": "编的目标", "why": "编的为什么", "key": "编的关键", "note": "",
+                       "stages": [{"title": "编的第一步", "tasks": [{"text": "编的小事甲"}, {"text": "买一件编的外套", "buy": {"name": "编的外套", "price": 199, "query": "编的 外套 秋季"}}]},
+                                  {"title": "编的第二步", "tasks": [{"text": "编的小事乙"}]}],
+                       "habits": [{"text": "编的习惯", "perWeek": 2}]}
+        elif "标在地图上" in body:
             if "编的连锁" in body:
                 content = {"places": [
                     {"name": "编的连锁（一店）", "address": "编的商场一楼", "district": "甲区", "kind": "shop", "lat": 36.67, "lng": 117.03, "sure": True},
@@ -1115,11 +1176,14 @@ def fake_externals(page):
     page.route("https://api.deepseek.com/**", ai)
 
 
+LEDGER = FakeRepo(ledger_seed())
+
+
 def main():
     only = sys.argv[1:]
     ART.mkdir(exist_ok=True)
     repo = FakeRepo({"README.md": b"# life-data\n"})
-    serve({REPO: repo, "x/inventory-data": FakeRepo(inventory_seed()), "test/finance-data": FakeRepo(ledger_seed())}, API_PORT)
+    serve({REPO: repo, "x/inventory-data": FakeRepo(inventory_seed()), "test/finance-data": LEDGER}, API_PORT)
     class Quiet(SimpleHTTPRequestHandler):
         def log_message(self, *a):
             pass
