@@ -64,6 +64,7 @@ export function defaultData(today) {
     letters: {}, // DeepSeek 写的回顾：{ w周一 / m月份 / y年份: { at, text, research } }
     goals: [], // 想做到的事，见下面「想做到的事」
     people: [], // 身边的人，见 people.js
+    greeted: {}, // 过节问候发了没有：{ '年-节': { 人 id: 日期 } }
   };
 }
 
@@ -100,6 +101,7 @@ export function migrate(data) {
   data.letters ||= {};
   data.goals ||= [];
   data.people ||= [];
+  data.greeted ||= {};
   return data;
 }
 

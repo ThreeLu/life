@@ -1228,6 +1228,82 @@ def _(c):
     expect(p.locator(".section-title", has_text="家人")).to_have_count(0)
 
 
+@step("人情和关系：我们的经历（DeepSeek 分段）、重要的日子（随礼提醒以前来回多少）、礼尚往来（账本给谁的 + 自己记的礼）、怎么还人情（挑想去的地方）、过节问候（起个头、发了）")
+def _(c):
+    p = c.page
+    sh = c.sheet()
+    pid = next(x for x in c.data()["people"] if x["name"] == "编的乙")["id"]
+    tomorrow = (datetime.fromisoformat(TODAY) + timedelta(days=1)).date().isoformat()
+    f = json.loads(LEDGER.read("finance.json"))
+    f["categories"].append({"id": "c-hongbao", "name": "红包", "group": "daily"})
+    f["tx"].append({"id": "t-g1", "type": "expense", "date": "2025-05-01", "category": "c-hongbao", "amount": 200, "who": pid, "note": "编的婚礼"})
+    LEDGER.external_write("finance.json", json.dumps(f, ensure_ascii=False).encode())
+    c.write(lambda d: d["places"].append({"id": "pl-food", "name": "编的饭馆", "kind": "food", "visits": [], "at": TODAY}))
+    c.go(f"#/person/{pid}")
+    p.reload()
+    # 我们的经历
+    p.get_by_role("button", name="写一段话整理").click()
+    sh.get_by_label("写一段话").fill("编的：本科住一个宿舍，后来一起读研")
+    sh.get_by_role("button", name="整理").click()
+    stages = p.locator(".stages-card")
+    expect(stages).to_contain_text("编的本科同宿舍")
+    expect(stages).to_contain_text("2019-09 – 2023-06")
+    expect(stages).to_contain_text("2023-09 起")
+    c.wait(lambda d: len(next(x for x in d["people"] if x["id"] == pid)["stages"]) == 2, "经历存好")
+    stages.get_by_role("button", name=re.compile("编的读研")).click()
+    sh.get_by_label("发生了什么").fill("编的经历乙改")
+    sh.get_by_role("button", name="存好").click()
+    expect(stages).to_contain_text("编的经历乙改")
+    # 礼尚往来：账本里给他的红包 + 自己记的礼
+    p.get_by_role("button", name="记一笔来往").click()
+    sh.get_by_label("发生了什么").fill("编的送我一本书")
+    sh.get_by_role("group", name="这是").get_by_role("button", name="他送我的礼").click()
+    sh.get_by_role("button", name="存好").click()
+    book = p.locator(".card", has=p.locator("h3", has_text="礼尚往来"))
+    expect(book).to_contain_text("上次你给他：红包 · 编的婚礼 ¥200（2025-05）")
+    expect(book).to_contain_text("上次他给你：编的送我一本书")
+    expect(p.locator(".tl-row.gift", has_text="送他：红包")).to_be_visible()
+    # 重要的日子：明天，要随礼
+    p.get_by_role("button", name="＋ 一个日子").click()
+    sh.get_by_role("button", name="婚礼").click()
+    sh.get_by_label("哪天").fill(tomorrow)
+    sh.get_by_role("button", name="存好").click()
+    c.wait(lambda d: next(x for x in d["people"] if x["id"] == pid).get("dates", [{}])[0].get("gift") is True, "日子存好")
+    c.go("#/")
+    expect(p.locator(".alert-line", has_text="明天：编的乙 婚礼")).to_contain_text("上次你给他：红包 · 编的婚礼 ¥200")
+    # 怎么还人情：从想去的地方里挑
+    c.go(f"#/person/{pid}")
+    p.locator(".favor-item").get_by_role("button", name="怎么还").click()
+    ideas = p.locator(".repay-ideas")
+    expect(ideas).to_contain_text("请编的乙吃饭")
+    expect(ideas.get_by_role("link", name="看看 编的饭馆 ›")).to_have_attribute("href", "#/place/pl-food")
+    expect(ideas.get_by_role("link")).to_have_count(1)
+    assert "编的饭馆" in LAST_AI[-1] and "编的经历甲" in LAST_AI[-1]
+    p.wait_for_timeout(500)
+    p.screenshot(path=ART / "person-full.png", full_page=True)
+    # 过节问候：资料里勾中秋、写怎么称呼；中秋前一天今天里一行 → 起个头、发了
+    c.go(f"#/person/{pid}/edit")
+    p.get_by_role("group", name="过节要问候").get_by_role("button", name="中秋").click()
+    p.get_by_label("怎么称呼").fill("编的：叫师兄，随便聊")
+    p.get_by_role("button", name="存好").click()
+    c.wait(lambda d: next(x for x in d["people"] if x["id"] == pid).get("greet") == ["mid"], "过节要问候")
+    p.clock.set_fixed_time("2026-09-24T12:00:00")
+    c.go("#/")
+    line = p.locator(".alert-line", has_text="明天中秋")
+    expect(line).to_contain_text("给编的乙发个问候")
+    line.click()
+    card = p.locator(".greet-card", has_text="编的乙")
+    card.get_by_role("button", name="起个头").click()
+    expect(card.get_by_label("给编的乙的问候")).to_have_value("编的问候：中秋快乐")
+    assert "叫师兄，随便聊" in LAST_AI[-1] and "中秋" in LAST_AI[-1]
+    card.get_by_role("button", name="发了").click()
+    expect(card.get_by_role("button", name="发了 ✓")).to_be_visible()
+    c.wait(lambda d: d["greeted"]["2026-mid"][pid], "问候发了")
+    c.go("#/")
+    expect(p.locator(".alert-line", has_text="明天中秋")).to_have_count(0)
+    p.clock.set_fixed_time(datetime.now().isoformat(timespec="seconds"))
+
+
 def inventory_seed():
     inv = {
         "version": 1, "locations": [{"id": "L1", "name": "洗手池 Sink"}], "tags": ["洗漱护肤", "零食食品"],
@@ -1270,7 +1346,13 @@ def fake_externals(page):
     def ai(route):
         body = route.request.post_data or ""
         LAST_AI.append(body)
-        if "想送身边的人什么礼物" in body:
+        if "微信问候" in body:
+            content = {"text": "编的问候：中秋快乐"}
+        elif "怎么还一个人情" in body:
+            content = {"ideas": [{"text": "请编的乙吃饭", "why": "编的理由", "place": "pl-food"}, {"text": "帮他一个忙", "why": "", "place": "pl-nope"}]}
+        elif "他和一个人之间的经历" in body:
+            content = {"stages": [{"title": "编的本科同宿舍", "from": "2019-09", "to": "2023-06", "text": "编的经历甲"}, {"title": "编的读研", "from": "2023-09", "to": "", "text": "编的经历乙"}]}
+        elif "想送身边的人什么礼物" in body:
             content = {"ideas": [{"name": "编的茶具", "price": 88, "why": "编的理由", "query": "编的 茶具"}]}
         elif "整理他身边的人" in body:
             content = {"name": "编的乙", "sex": "m", "groups": ["college", "grad"], "rel": "同学", "birthday": {"cal": "lunar", "m": 8, "d": 15, "y": None},

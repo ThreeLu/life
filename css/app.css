@@ -839,3 +839,20 @@ button.tl-text { background: none; padding: 0; min-height: 0; font-weight: 400; 
 .gift-row:last-of-type { border-bottom: 0; }
 .gift-row p { margin: 4px 0 6px; }
 .alert-actions { display: flex; gap: 4px; align-items: center; flex: none; }
+.stages { position: relative; margin-top: 4px; }
+.stage { display: block; width: 100%; text-align: left; background: none; color: var(--text); font-weight: 400; min-height: 0; padding: 4px 0 14px 18px; border-left: 2px solid color-mix(in srgb, var(--accent) 30%, var(--card)); position: relative; border-radius: 0; }
+.stage::before { content: ''; position: absolute; left: -6px; top: 8px; width: 10px; height: 10px; border-radius: 50%; background: var(--accent); }
+.stage:last-child { padding-bottom: 2px; }
+.stage-when { display: block; }
+.stage-title { display: block; font-family: var(--serif); margin: 2px 0; }
+.stage-text { display: block; white-space: pre-wrap; color: var(--text); line-height: 1.6; }
+.date-row { display: flex; width: 100%; align-items: baseline; gap: 10px; background: none; color: var(--text); font-weight: 400; min-height: 0; padding: 8px 0; border-bottom: 0.5px solid var(--line); border-radius: 0; text-align: left; }
+.date-row:last-child { border-bottom: 0; }
+.gift-line { display: flex; align-items: baseline; gap: 8px; padding: 6px 0; border-bottom: 0.5px solid var(--line); }
+.gift-line:last-child { border-bottom: 0; }
+.favor-item .link { margin-left: 4px; }
+.repay-ideas { margin: 2px 0 8px 10px; padding-left: 10px; border-left: 2px solid var(--line); }
+.repay-idea { padding: 4px 0; }
+.repay-idea a { font-size: 13px; }
+.greet-card textarea { margin-top: 8px; }
+.greet-card.done { opacity: 0.6; }

@@ -2,7 +2,9 @@
 //
 // people: [{ id（和账本 people 同一个 id）, name, sex: 'm'|'f', groups: [主要的档, 也在的档…], rel（妈妈 / 导师 / 同学…）, how（怎么认识的）,
 //            birthday: { cal: 'solar'|'lunar', m, d, y? } | null, likes（喜欢什么、不吃什么）, note（近况、要记得的）,
-//            log: [{ id, day, text, favor? }], at, archived?（归档的日期）, archiveNote? }]
+//            log: [{ id, day, text, favor?, gift?: 'out'|'in' }], at, archived?（归档的日期）, archiveNote?,
+//            tone（平时怎么称呼、怎么说话，DeepSeek 写问候时照着）, greet: [过节要问候的节 key], dates: [{ id, day, title, gift?, yearly? }]（重要的日子）,
+//            stages: [{ id, title, from, to?, text }]（我们的经历，from / to 写「2019」或「2019-09」） }]
 // 人情（不是钱的）存在账本 finance.json 的 favors 里，这里只读和写进去。
 
 import { nextBirthday } from './cal.js';
@@ -31,6 +33,49 @@ export function upcomingBirthdays(people, today, within = 30) {
     })
     .filter((x) => x && x.left <= within)
     .sort((a, b) => a.left - b.left);
+}
+
+// 重要的日子（婚礼、乔迁、满月……）：接下来 within 天里的；yearly 的每年算一次
+export function upcomingDates(people, today, within = 30) {
+  const out = [];
+  for (const p of people) {
+    if (p.archived) continue;
+    for (const x of p.dates || []) {
+      let day = x.day;
+      if (x.yearly && day) {
+        const y = Number(today.slice(0, 4));
+        day = [y, y + 1].map((yy) => `${yy}${x.day.slice(4)}`).find((d) => d >= today);
+      }
+      if (!day || day < today) continue;
+      const left = dayDiff(today, day);
+      if (left <= within) out.push({ p, x, day, left });
+    }
+  }
+  return out.sort((a, b) => a.left - b.left);
+}
+
+// 礼尚往来：账本里给他 / 他给的（tx.who），加上自己记的送礼、收礼（log.gift）。近的在前
+export function giftsWith(data, ledger, id) {
+  const p = data.people.find((x) => x.id === id);
+  const out = [];
+  for (const t of ledger?.tx || []) {
+    if (t.who !== id) continue;
+    const cat = ledger.categories?.find((c) => c.id === t.category)?.name || '';
+    out.push({ day: t.date, dir: t.type === 'income' ? 'in' : 'out', text: [t.what || cat, t.note].filter(Boolean).join(' · '), amount: t.cny ?? t.amount });
+  }
+  for (const l of p?.log || []) if (l.gift) out.push({ day: l.day, dir: l.gift, text: l.text });
+  return out.sort((a, b) => b.day.localeCompare(a.day));
+}
+// 一句话：以前来回送过多少，随礼的时候参考
+export function giftSummary(gifts, pronoun = '他') {
+  const sum = (dir) => gifts.filter((g) => g.dir === dir && g.amount).reduce((a, g) => a + g.amount, 0);
+  const last = (dir) => gifts.find((g) => g.dir === dir);
+  const parts = [];
+  const o = last('out'); const i = last('in');
+  if (o) parts.push(`上次你给${pronoun}：${o.text}${o.amount ? ` ¥${Math.round(o.amount)}` : ''}（${o.day.slice(0, 7)}）`);
+  if (i) parts.push(`上次${pronoun}给你：${i.text}${i.amount ? ` ¥${Math.round(i.amount)}` : ''}（${i.day.slice(0, 7)}）`);
+  if (gifts.filter((g) => g.amount).length > 2) parts.push(`一共：你给出 ¥${Math.round(sum('out'))}，收到 ¥${Math.round(sum('in'))}`);
+  return parts.join('；');
 }
 
 // 和账本名单对上：账本里新加的人搬过来（还没分组）；这边的名字、归档同步到账本
@@ -78,6 +123,11 @@ export function timeline(data, ledger, id) {
       out.push({ day: f.doneAt, kind: 'favor', text: `${f.dir === 'owe' ? '还了人情' : `${pr}还了人情`}：${f.text}${tx ? `（${yuan(tx.cny ?? tx.amount)}）` : f.doneNote ? `（${f.doneNote}）` : ''}` });
     }
   }
+  for (const g of giftsWith(data, ledger, id)) {
+    if (g.amount == null) continue; // 自己记的送礼收礼已经在 log 里
+    out.push({ day: g.day, kind: 'gift', text: `${g.dir === 'out' ? `送${pr}` : `${pr}送你`}：${g.text} ¥${Math.round(g.amount * 100) / 100}` });
+  }
+  for (const x of p?.dates || []) if (!x.yearly) out.push({ day: x.day, kind: 'date', text: x.title });
   for (const t of ledger?.tx || []) {
     if (t.person !== id) continue;
     const v = yuan(t.cny ?? t.amount);
