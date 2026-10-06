@@ -3,7 +3,7 @@
 //
 // 代码是公开的：这里只放通用的默认值。用的什么产品、祷告事项、密码（只存哈希）都在私有仓库的 life.json 里。
 
-import { STEPS, stepById, CHEERS, CHEER_VERSES, MILESTONE_TEXT, DEFAULT_PLANS, LOW_PLANS, IDENTITY, REFINED_TIPS, MED_KNOWLEDGE, FEVER_INGREDIENTS, FEVER_FROM, RECOVERY_DAYS, BIBLE_BOOKS } from './content.js';
+import { CHEERS, CHEER_VERSES, MILESTONE_TEXT, DEFAULT_PLANS, LOW_PLANS, MED_KNOWLEDGE, FEVER_INGREDIENTS, FEVER_FROM, RECOVERY_DAYS, BIBLE_BOOKS } from './content.js';
 
 export const DAY_START_HOUR = 4; // 凌晨 4 点前还算前一天（熬夜到 1 点洗的澡算「昨天」）
 
@@ -110,7 +110,7 @@ export const routineOf = (data, when) => data.look.routine.filter((r) => r.when 
 
 export const showeredOn = (data, day) => (data.events || []).some((e) => e.day === day && e.type === 'shower');
 // 洗过澡的那天，晚上的洗脸不用再做（洗澡时洗过了）
-export const careSkipped = (data, day, r) => r.when === 'pm' && r.step === 's-cleanse' && showeredOn(data, day);
+export const careSkipped = (data, day, r) => r.when === 'pm' && (r.step === 's-cleanse' || /洗脸|洁面/.test(r.name)) && showeredOn(data, day);
 
 export function careDone(data, day, when) {
   const items = routineOf(data, when).filter((r) => !r.optional && !careSkipped(data, day, r));
@@ -124,49 +124,6 @@ export function weekCount(data, routineId, day) {
   let n = 0;
   for (let i = 0; i < 7; i++) if (data.days[addDays(mon, i)]?.care?.[routineId]) n++;
   return n;
-}
-
-// 开始学一步：把这一步的打卡项、定期提醒加进来（已经有同名的就不重复加）
-export function startStep(data, stepId, today) {
-  const step = stepById(stepId);
-  if (!step) return;
-  data.look.steps[stepId] = { status: 'learning', since: today };
-  for (const r of step.routine || []) {
-    if (!data.look.routine.some((x) => x.step === stepId && x.name === r.name && x.when === r.when)) {
-      data.look.routine.push({ id: `r-${stepId}-${data.look.routine.length}`, step: stepId, ...r });
-    }
-  }
-  for (const p of step.periodic || []) {
-    if (!data.periodic.some((x) => x.name === p.name)) data.periodic.push({ id: `pd-${stepId}`, last: null, ...p });
-  }
-}
-// 不学了：打卡项拿掉（以前的打卡记录还在）
-export function stopStep(data, stepId) {
-  delete data.look.steps[stepId];
-  data.look.routine = data.look.routine.filter((r) => r.step !== stepId);
-  data.periodic = data.periodic.filter((p) => p.id !== `pd-${stepId}`);
-}
-
-export const stepStatus = (data, id) => data.look.steps[id]?.status || 'todo';
-
-// 每条线上「下一步可以是……」：第一个还没开始的
-export function nextStep(data, track) {
-  return STEPS.find((s) => s.track === track && stepStatus(data, s.id) === 'todo') || null;
-}
-
-// 一个打卡项最近 days 天做了几天（用来提示「差不多养成了」）
-export function streakInfo(data, routineId, today, days = 21) {
-  let n = 0;
-  for (let i = 0; i < days; i++) if (data.days[addDays(today, -i)]?.care?.[routineId]) n++;
-  return n;
-}
-
-// 学了 21 天、其中做到 15 天以上：可以问一句「算养成了吗」
-export function readyForHabit(data, stepId, today) {
-  const st = data.look.steps[stepId];
-  if (!st || st.status !== 'learning' || daysBetween(st.since, today) < 21) return false;
-  const items = data.look.routine.filter((r) => r.step === stepId && !r.optional && r.when !== 'week');
-  return items.length > 0 && items.every((r) => streakInfo(data, r.id, today) >= 15);
 }
 
 // ---------- 定期打理 ----------
@@ -334,7 +291,6 @@ export function newMilestones(data) {
     pray: allDays.filter((d) => data.days[d]?.prayer?.night).length,
     sport: data.events.filter((e) => e.type === 'sport').length,
     english: data.events.filter((e) => e.type === 'english').length,
-    habit: Object.values(data.look.steps).filter((x) => x.status === 'habit').length,
     night: allDays.filter((d) => data.days[d]?.note).length,
   };
   return Object.keys(MILESTONE_TEXT).filter((key) => {
@@ -631,32 +587,6 @@ export function goodDays(data, today, n = 3) {
     .slice(0, n).map(([day, r]) => ({ day, mood: r.mood, note: r.note }));
 }
 
-// ---------- 我是这样的人 ----------
-export function identityLines(data) {
-  if (data.look.identity?.length) return data.look.identity;
-  const dirs = (data.look.direction || []).filter((k) => IDENTITY[k]);
-  return [...(dirs.length ? dirs : ['refined', 'bookish']).flatMap((k) => IDENTITY[k]), ...IDENTITY.all];
-}
-export const lineOfDay = (lines, day) => lines[Math.floor(seeded(`id${day}`)() * lines.length)] || '';
-export const tipOfDay = (day) => REFINED_TIPS[Math.floor(seeded(`tip${day}`)() * REFINED_TIPS.length)];
-// 这一天为「想成为的自己」投的票：护肤打卡、洗澡、定期打理、默念、精致时刻
-export function identityVotes(data, day) {
-  const out = [];
-  const care = data.days[day]?.care || {};
-  for (const r of data.look.routine) if (care[r.id]) out.push(r.name);
-  if ((data.events || []).some((e) => e.day === day && e.type === 'shower')) out.push('洗澡');
-  for (const p of data.periodic || []) if (p.last === day) out.push(p.name);
-  if (data.days[day]?.affirm) out.push('默念「我是这样的人」');
-  for (const m of data.look.moments || []) if (m.day === day) out.push(m.text);
-  return out;
-}
-export function weekVotes(data, today) {
-  const mon = weekOf(today);
-  let n = 0;
-  for (let d = mon; d <= today; d = addDays(d, 1)) n += identityVotes(data, d).length;
-  return n;
-}
-
 // ---------- 节气 ----------
 // 寿星公式（21 世纪）：日 = [Y×0.2422 + C] − [L]，Y 是年份后两位；1、2 月的四个节气 L 用 (Y−1)/4，其余用 Y/4。个别年份可能差一天
 const TERMS = [
@@ -742,4 +672,44 @@ export function applyGoalPlan(g, out, newId) {
   }).filter((x) => x.text);
   g.status = 'active';
   return g;
+}
+
+// ---------- 形象：只看做了什么 ----------
+
+// 这个月：护肤做完几天（早晚都做完）、做了一部分几天、洗澡几次、每周 / 洗澡后的项各做了几次
+export function lookMonth(data, today) {
+  const from = [`${today.slice(0, 7)}-01`, data.startDate || today].sort().at(-1);
+  const days = Array.from({ length: Math.max(0, daysBetween(from, today)) + 1 }, (_, i) => addDays(from, i));
+  const full = new Set(days.filter((x) => careFullDay(data, x)));
+  const some = new Set(days.filter((x) => !full.has(x) && Object.keys(data.days[x]?.care || {}).length));
+  const showers = data.events.filter((e) => e.type === 'shower' && e.day >= from && e.day <= today).length;
+  const extra = data.look.routine.filter((r) => ['week', 'shower'].includes(r.when))
+    .map((r) => ({ r, n: days.filter((x) => data.days[x]?.care?.[r.id]).length }));
+  return { from, days: days.length, full, some, showers, extra };
+}
+
+// 最近 n 天每一项做到的比例。早晚的项：做了 / 该做的天数（洗澡那天晚上的洗脸不算）；洗澡后的项：做了 / 洗澡次数；每周的：这周几次
+export function careItemRates(data, today, n = 30) {
+  const from = [addDays(today, -(n - 1)), data.startDate || today].sort().at(-1);
+  const days = Array.from({ length: Math.max(0, daysBetween(from, today)) + 1 }, (_, i) => addDays(from, i));
+  return data.look.routine.map((r) => {
+    if (r.when === 'week') return { r, done: weekCount(data, r.id, today), total: r.times || 1, week: true };
+    const can = r.when === 'shower' ? days.filter((x) => showeredOn(data, x)) : days.filter((x) => !careSkipped(data, x, r));
+    const done = can.filter((x) => data.days[x]?.care?.[r.id]).length;
+    return { r, done, total: can.length, rate: can.length ? done / can.length : null };
+  });
+}
+
+// 护肤品开封后多久用完（月）：香水久一点，睫毛膏短，其他按 12 个月；自己改过的用自己的
+export function paoMonths(name, set) {
+  if (set) return set;
+  if (/香水|香氛/.test(name)) return 36;
+  if (/睫毛膏|眼线/.test(name)) return 6;
+  return 12;
+}
+export function openedStatus(opened, months, today) {
+  const days = daysBetween(opened, today);
+  const left = Math.round(months * 30.4) - days;
+  const age = days < 60 ? `开封 ${days} 天` : `开封 ${Math.floor(days / 30.4)} 个月`;
+  return { age, left, level: left < 0 ? 'over' : left <= 30 ? 'soon' : 'ok' };
 }

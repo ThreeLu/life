@@ -801,3 +801,14 @@ input.bare:focus, textarea.bare:focus { outline: 0; box-shadow: 0 1.5px 0 var(--
 .detail-chips { margin: 6px 0 2px; gap: 6px; }
 .detail-chips .chip { min-height: 30px; font-size: 13.5px; }
 textarea.bare { resize: none; }
+
+/* 形象：护肤数据 */
+.care-rate { display: flex; align-items: center; gap: 10px; min-height: 40px; border-top: 0.5px solid var(--line); }
+.rec-top + .care-rate { border-top: 0; }
+.care-rate .grow { flex: 1; min-width: 0; font-size: 15px; }
+.care-rate .bar-track { flex: none; width: 80px; }
+.care-rate .bar { background: var(--accent); }
+.care-rate .rate-num { flex: none; min-width: 52px; text-align: right; font-variant-numeric: tabular-nums; }
+.legend { display: flex; align-items: center; gap: 4px; margin: 6px 0 0; }
+.legend .sw { display: inline-block; width: 12px; height: 9px; border-radius: 3px; background: var(--accent); }
+.legend .sw.part { background: color-mix(in srgb, var(--accent) 35%, var(--chip)); }

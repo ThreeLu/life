@@ -45,7 +45,8 @@ export function barChart(bars, { title = '', color = 'var(--accent)', height = 1
 }
 
 // 月历：一个月，做了的日子涂色。marks = Set(日期)
-export function monthGrid(month, marks, { color = 'var(--accent)', title = '' } = {}) {
+// partial：做了一部分的日子，浅一点
+export function monthGrid(month, marks, { color = 'var(--accent)', title = '', partial = null } = {}) {
   const [y, m] = month.split('-').map(Number);
   const first = new Date(y, m - 1, 1);
   const n = new Date(y, m, 0).getDate();
@@ -57,7 +58,7 @@ export function monthGrid(month, marks, { color = 'var(--accent)', title = '' } 
     const k = off + d - 1;
     const day = `${month}-${String(d).padStart(2, '0')}`;
     const x = (k % 7) * (cell + gap); const yy = 14 + Math.floor(k / 7) * (cell * 0.62 + gap);
-    svg.append(s('rect', { x, y: yy, width: cell, height: cell * 0.62, rx: 5, style: `fill:${marks.has(day) ? color : 'var(--chip)'}` }));
+    svg.append(s('rect', { x, y: yy, width: cell, height: cell * 0.62, rx: 5, style: `fill:${marks.has(day) ? color : partial?.has(day) ? `color-mix(in srgb, ${color} 35%, var(--chip))` : 'var(--chip)'}` }));
     svg.append(s('text', { x: x + cell / 2, y: yy + cell * 0.42, 'text-anchor': 'middle', class: 'chart-label', style: marks.has(day) ? 'fill:#fff' : '' }, String(d)));
   }
   return svg;

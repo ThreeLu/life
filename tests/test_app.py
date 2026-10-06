@@ -120,28 +120,38 @@ def _(c):
     expect(p.locator(".card.period").first).to_be_visible()
 
 
-@step("形象：开始学温和洗脸、身体乳，打卡项进到今天")
+@step("形象：改打卡项（加、改名、删了可以撤销），打卡项进到今天")
 def _(c):
     p = c.page
     c.go("#/look")
-    expect(p.get_by_text("下一步可以是这个").first).to_be_visible()
-    p.get_by_role("link", name="温和洗脸").click()
-    expect(p.get_by_text("为什么")).to_be_visible()
-    p.get_by_role("button", name="开始学").click()
-    c.wait(lambda d: d["look"]["steps"]["s-cleanse"]["status"] == "learning", "开始学洗脸")
-    d = c.data()
-    assert [r["name"] for r in d["look"]["routine"]] == ["洗脸", "洗脸"], d["look"]["routine"]
+    expect(p.get_by_text("下一步可以是这个")).to_have_count(0)  # 没有路线图了
+    def add(name, when):
+        p.get_by_role("button", name="改打卡项").click()
+        c.sheet().get_by_role("button", name="＋ 加一项").click()
+        c.sheet().get_by_label("打卡项名字").fill(name)
+        c.sheet().get_by_role("group", name="什么时候").get_by_role("button", name=when).click()
+        c.sheet().get_by_role("button", name="好了").click()
+    add("洗脸", "早上")
+    add("洗脸", "晚上")
+    add("身体乳", "洗澡后")
+    c.wait(lambda d: [(r["name"], r["when"]) for r in d["look"]["routine"]] == [("洗脸", "am"), ("洗脸", "pm"), ("身体乳", "shower")], "加打卡项")
     # 改名字：写上用的什么
-    p.get_by_role("button", name="改名").first.click()
+    p.get_by_role("button", name="改打卡项").click()
+    c.sheet().get_by_role("button", name="改").first.click()
     c.sheet().get_by_label("打卡项名字").fill("洗脸（洗面奶甲）")
     c.sheet().get_by_role("button", name="好了").click()
     c.wait(lambda d: d["look"]["routine"][0]["name"] == "洗脸（洗面奶甲）", "改名")
-    c.go("#/step/s-body")
-    p.get_by_role("button", name="开始学").click()
-    c.wait(lambda d: any(r["when"] == "shower" for r in d["look"]["routine"]), "身体乳")
-    c.go("#/step/m-brow")
-    p.get_by_role("button", name="开始学").click()
-    c.wait(lambda d: any(x["name"] == "修眉" for x in d["periodic"]), "修眉进定期打理")
+    # 每周几次
+    add("面膜", "每周")
+    c.wait(lambda d: any(r["name"] == "面膜" and r["when"] == "week" and r["times"] == 1 for r in d["look"]["routine"]), "面膜")
+    expect(p.locator(".care-rate", has_text="面膜")).to_contain_text("这周 0/1")
+    # 删掉可以撤销
+    p.get_by_role("button", name="改打卡项").click()
+    c.sheet().locator(".event-row", has_text="面膜").get_by_role("button", name="改").click()
+    c.sheet().get_by_role("button", name="删掉这项").click()
+    c.wait(lambda d: not any(r["name"] == "面膜" for r in d["look"]["routine"]), "删面膜")
+    p.get_by_role("button", name="撤销").click()
+    c.wait(lambda d: any(r["name"] == "面膜" for r in d["look"]["routine"]), "撤销删面膜")
     # 今天：点早上的洗脸
     c.go("#/")
     am = c.period("早上")
@@ -151,12 +161,6 @@ def _(c):
     # 再点一下取消
     c.period("早上").get_by_role("button", name="洗脸（洗面奶甲）").click()
     c.wait(lambda d: not d["days"][TODAY]["care"], "取消打卡")
-    # 不学了 → 打卡项拿掉，可以撤销
-    c.go("#/step/m-brow")
-    p.get_by_role("button", name="不学了").click()
-    c.wait(lambda d: "m-brow" not in d["look"]["steps"], "不学修眉")
-    p.get_by_role("button", name="撤销").click()
-    c.wait(lambda d: "m-brow" in d["look"]["steps"], "撤销不学")
 
 
 @step("随手记：洗澡顺便问身体乳、运动、喝的（可以撤销）")
@@ -168,7 +172,7 @@ def _(c):
     expect(c.sheet().get_by_text("洗完澡了")).to_be_visible()
     c.sheet().get_by_role("button", name="身体乳").click()
     c.sheet().get_by_role("button", name="好了").click()
-    c.wait(lambda d: len(events(d, "shower")) == 1 and any(k.startswith("r-s-body") for k in d["days"][TODAY]["care"]), "洗澡 + 身体乳")
+    c.wait(lambda d: len(events(d, "shower")) == 1 and any(r["id"] in d["days"][TODAY]["care"] for r in d["look"]["routine"] if r["name"] == "身体乳"), "洗澡 + 身体乳")
     # 洗过澡：晚上多一行身体乳，晚上的洗脸划掉
     pm = c.period("晚上")
     expect(pm.locator(".mini.off")).to_have_text("洗脸 · 洗澡时洗过了")
@@ -319,7 +323,7 @@ def _(c):
     assert p.get_by_role("link", name="英文版").get_attribute("href") == f"https://www.bible.com/bible/116/PRO.{dom}"
 
 
-@step("每周：感恩、皮肤状态")
+@step("每周：感恩")
 def _(c):
     p = c.page
     c.go("#/pray")
@@ -327,11 +331,7 @@ def _(c):
     p.get_by_role("button", name="存好感恩").click()
     c.wait(lambda d: any(w.get("thanks") == "编的感恩" for w in d["weeks"].values()), "感恩")
     c.go("#/look")
-    p.get_by_role("group", name="皮肤状态").get_by_role("button", name="好", exact=True).click()
-    p.get_by_role("button", name="长痘").click()
-    c.wait(lambda d: any((w.get("skin") or {}).get("tags") == ["长痘"] for w in d["weeks"].values()), "皮肤")
-    w = next(w for w in c.data()["weeks"].values() if w.get("skin"))
-    assert w["skin"]["score"] == 4, w
+    expect(p.get_by_role("group", name="皮肤状态")).to_have_count(0)  # 不再打皮肤分
 
 
 @step("小记：设密码、记一次、三项勾选、锁上再解锁；文字从数据里读")
@@ -558,29 +558,30 @@ def _(c):
     expect(p.locator(".section-title", has_text="定期打理")).to_have_count(0)
 
 
-@step("形象：我的东西从物品档案读、我学到的卡片")
+@step("形象：这个月做了什么（护肤做完几天、月历、每一项做到多少）；护肤品开封多久、快用完了进物品档案购物清单")
 def _(c):
     p = c.page
     c.go("#/look")
+    expect(p.locator(".stat", has_text="护肤做完")).to_be_visible()
+    expect(p.locator(".month-grid")).to_be_visible()
+    expect(p.locator(".care-rate", has_text="洗脸（洗面奶甲）")).to_be_visible()
+    expect(p.get_by_text("我学到的")).to_have_count(0)
+    expect(p.get_by_text("我的方向")).to_have_count(0)
+    expect(p.locator(".whisper")).to_have_count(0)  # 形象页不放角落那句话
     p.get_by_role("button", name="编的洗面奶").click()
-    c.sheet().get_by_label("开封日期").fill("2026-09-01")
+    c.sheet().get_by_label("开封日期").fill((datetime.fromisoformat(TODAY) - timedelta(days=350)).date().isoformat())
     c.sheet().get_by_role("button", name="好用").click()
     c.sheet().get_by_role("button", name="好了").click()
-    c.wait(lambda d: d["look"]["products"]["inv-1"] == {"opened": "2026-09-01", "verdict": "good"}, "我的东西")
+    c.wait(lambda d: d["look"]["products"].get("inv-1", {}).get("verdict") == "good", "护肤品")
+    assert "pao" not in c.data()["look"]["products"]["inv-1"]  # 默认 12 个月不存
+    expect(p.locator(".product-row", has_text="编的洗面奶")).to_contain_text("快到时间了")
     expect(p.locator("main")).not_to_contain_text("编的零食")  # 不是洗漱护肤类的不显示
-    p.get_by_role("button", name="＋ 记一张").click()
-    c.sheet().get_by_label("标题").fill("编的知识")
-    c.sheet().get_by_label("内容").fill("先这样再那样")
-    c.sheet().get_by_role("button", name="化妆").click()
-    c.sheet().get_by_role("button", name="存好").click()
-    c.wait(lambda d: d["notes"][0]["title"] == "编的知识" and d["notes"][0]["track"] == "makeup", "卡片")
-    expect(p.get_by_text("先这样再那样")).to_be_visible()
-    p.locator(".card.direction").get_by_role("button", name="改", exact=True).click()
-    c.sheet().get_by_role("button", name="精致讲究").click()
-    c.sheet().get_by_role("button", name="温柔书卷气").click()
-    c.sheet().get_by_role("button", name="好了").click()
-    c.wait(lambda d: d["look"]["direction"] == ["refined", "bookish"], "方向")
-    expect(p.get_by_text("精致讲究 + 温柔书卷气")).to_be_visible()
+    # 快用完了 → 物品档案里标上（进购物清单）
+    p.get_by_role("button", name="编的洗面奶").click()
+    c.sheet().get_by_role("button", name="快用完了 → 放进购物清单").click()
+    expect(p.locator(".product-row", has_text="编的洗面奶")).to_contain_text("在购物清单上")
+    it = next(i for i in json.loads(INVENTORY.read("inventory.json"))["items"] if i["id"] == "inv-1")
+    assert it.get("runningLow") == TODAY, it
 
 
 @step("英语陪练：复制提示词、练完了记一次")
@@ -645,9 +646,6 @@ def _(c):
     expect(p.locator(".seal")).to_be_visible()  # 护肤、复盘、祷告都做了
     c.go("#/history")
     expect(p.get_by_text("这周的你")).to_be_visible()
-    # 喷香水在化妆这条线
-    c.go("#/look")
-    expect(p.locator(".track", has_text="化妆").get_by_role("link", name="喷香水")).to_be_visible()
 
 
 @step("生病：感冒→量到 37.8 切发烧、喝水、预案打勾、吃药（说明书、下次几点、同成分提醒）、去医院的情况变红、好了进手册")
@@ -1030,22 +1028,10 @@ def _(c):
     assert "编的给自己的话" in texts, texts
 
 
-@step("我是这样的人在形象页（首页不放）：改句子、记精致时刻；角落的话、问候、祷告页的难受入口")
+@step("角落的话、问候、祷告页的难受入口")
 def _(c):
     p = c.page
-    c.go("#/look")
-    look = p.locator(".card.identity")
-    look.get_by_role("button", name="改").click()
-    c.sheet().get_by_label("我是这样的人").fill("编的句子一\n编的句子二")
-    c.sheet().get_by_role("button", name="存好").click()
-    c.wait(lambda d: d["look"]["identity"] == ["编的句子一", "编的句子二"], "改句子")
-    p.get_by_role("button", name="＋ 记一个").click()
-    c.sheet().get_by_label("精致时刻").fill("编的精致时刻")
-    c.sheet().get_by_role("button", name="记下").click()
-    c.wait(lambda d: d["look"]["moments"][0]["text"] == "编的精致时刻", "精致时刻")
-    expect(p.locator(".card.identity")).to_contain_text("编的精致时刻")
     c.go("#/")
-    expect(p.locator(".card.identity")).to_have_count(0)  # 首页不放
     # 角落里的一句话：首页有，小记那一页没有
     expect(p.locator(".whisper")).to_have_count(1)
     # 首页开头：问候 + 节气；护肤圆环
@@ -1183,13 +1169,14 @@ def fake_externals(page):
 
 
 LEDGER = FakeRepo(ledger_seed())
+INVENTORY = FakeRepo(inventory_seed())
 
 
 def main():
     only = sys.argv[1:]
     ART.mkdir(exist_ok=True)
     repo = FakeRepo({"README.md": b"# life-data\n"})
-    serve({REPO: repo, "x/inventory-data": FakeRepo(inventory_seed()), "test/finance-data": LEDGER}, API_PORT)
+    serve({REPO: repo, "x/inventory-data": INVENTORY, "test/finance-data": LEDGER}, API_PORT)
     class Quiet(SimpleHTTPRequestHandler):
         def log_message(self, *a):
             pass

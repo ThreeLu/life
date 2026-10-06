@@ -2,17 +2,17 @@ import { GitHub, GitHubError } from './github.js';
 import { Store, newId, diff, apply as applyPatch } from './store.js';
 import {
   defaultData, dayKey, addDays, daysBetween, weekOf, weekLabel, hm, parseDay, WHEN, routineOf, careDone, weekCount,
-  startStep, stopStep, stepStatus, nextStep, readyForHabit, periodicDue, periodicTomorrow, eventsOn, privateStats,
+  periodicDue, periodicTomorrow, eventsOn, privateStats,
   prayedOn, prayerStats, stageReady, readingToday, markRead, bibleLink, programWeek, weekTasks, privateNote, fillText, pickOne, sessionPoints,
   dailyCheer, weekHighlights, newMilestones, careFullDay, showeredOn, careSkipped,
   sickActive, recoveryLeft, tempStats, medInfo, doseStatus, medConflicts, seasonWarning,
   sickDid, sickSymptoms, sickLessons, similarSick, planMissing, sickKinds,
-  boilerStatus, solarTerm, lowLessons, goodDays, identityLines, lineOfDay, tipOfDay, identityVotes, weekVotes,
+  boilerStatus, solarTerm, lowLessons, goodDays, 
   parseSummary, reviewCard, dueCards, mistakeTypes, REVIEW_STEPS,
-  goalProgress, goalLine, habitWeek, goalWeekDone, applyGoalPlan,
+  goalProgress, goalLine, habitWeek, goalWeekDone, applyGoalPlan, lookMonth, careItemRates, paoMonths, openedStatus,
 } from './life.js';
 import {
-  TRACKS, STEPS, stepById, DIRECTIONS, SKIN_TAGS, VERSES, MORNING_VERSES, CONFESS_VERSE, verseFor, LORDS_PRAYER,
+  VERSES, MORNING_VERSES, CONFESS_VERSE, verseFor, LORDS_PRAYER,
   STAGES, PRAISE_HINTS, THANKS_HINTS, CONFESS_HINT, ASK_HINT, ENTRUST_HINT, prayerPrompt,
   EN_MODES, EN_CYCLE, EN_TOPICS, englishPrompt, goalPrompt,
   CHEER_ON, cheerNight, MILESTONE_TEXT, SICK_KINDS, SYMPTOMS, LOW_KINDS, LOW_VERSES, HOTLINES, SELF_LINES, RED_FLAGS, FEVER_FROM, BIBLE_BOOKS,
@@ -133,7 +133,6 @@ const routes = [
   [/^\/day\/(\d{4}-\d\d-\d\d)$/, (d) => todayView(d)],
   [/^\/night$/, (_, q) => nightView(q.d || dayKey())],
   [/^\/look$/, () => lookView()],
-  [/^\/step\/([^/]+)$/, (id) => stepView(id)],
   [/^\/pray$/, () => prayView()],
   [/^\/pray\/go$/, (_, q) => prayGoView(q.m)],
   [/^\/english$/, () => englishView()],
@@ -161,7 +160,7 @@ const routes = [
 ];
 const NAV_GROUPS = {
   '/': [/^\/?$/, /^\/day\//, /^\/night/, /^\/sick$/],
-  '/look': [/^\/look/, /^\/step\//],
+  '/look': [/^\/look/],
   '/pray': [/^\/pray/, /^\/low/],
   '/more': [/^\/more/, /^\/english/, /^\/history/, /^\/settings/, /^\/places?/, /^\/stats/, /^\/report/, /^\/ask/, /^\/sick\/book/, /^\/periodic/, /^\/goals?(\/|$)/],
 };
@@ -213,7 +212,7 @@ document.addEventListener('click', (e) => {
 }, true);
 
 // 各页最下面角落的一句话（活出自己）：每页每天一句，同一天不变。小记、难受的时候一步一步、带着祷告、设置不放
-const NO_WHISPER = /^\/(p|p\/s|low\/go|pray\/go|settings)$/;
+const NO_WHISPER = /^\/(p|p\/s|low\/go|pray\/go|settings|look)$/;
 function whisper(path) {
   const n = [...`${dayKey()}${path || '/'}`].reduce((a, c) => (a * 31 + c.charCodeAt(0)) >>> 0, 11);
   const x = SELF_LINES[n % SELF_LINES.length];
@@ -443,8 +442,6 @@ function alertRows(today) {
   const gn = gentleNote(d, today);
   if (lowRecent || gn) out.push(alertLine(lowRecent ? '这两天心情有点低' : gn, lowRecent || /心情/.test(gn) ? { href: '#/low', tone: 'soft' } : { tone: 'soft' }));
   else if ((d.days[today]?.mood || 0) >= 8 && !d.low.notes.some((x) => x.at.slice(0, 10) >= addDays(today, -14))) out.push(alertLine('今天不错，写一句给以后的自己', { onclick: lowNoteSheet, tone: 'soft' }));
-  const dow = parseDay(today).getDay();
-  if ([5, 6, 0].includes(dow) && !d.weeks[weekOf(today)]?.skin && d.look.routine.length) out.push(alertLine('这周的皮肤还没记', { href: '#/look' }));
   return out.length ? h('div', { class: 'alerts' }, out) : null;
 }
 
@@ -763,25 +760,6 @@ function drinkSheet(day) {
 
 
 // 每周问一次皮肤状态：首页周五到周日出现，「形象」页一直有
-function skinWeekCard(today, onlyWeekend = false) {
-  const mon = weekOf(today);
-  const wk = store.data.weeks[mon]?.skin;
-  const dow = parseDay(today).getDay();
-  if (onlyWeekend && (wk || ![5, 6, 0].includes(dow))) return null;
-  const set = (patch) => saveRender('这周的皮肤', (data) => {
-    const w = (data.weeks[mon] ||= {});
-    w.skin = { ...(w.skin || {}), ...patch };
-  });
-  const tags = new Set(wk?.tags || []);
-  return h('div', { class: 'card' },
-    h('h3', {}, `这周的皮肤（${weekLabel(mon)}）`),
-    scoreRow('皮肤状态', 5, wk?.score || null, (v) => set({ score: v }), ['很差', '差', '一般', '好', '很好']),
-    h('div', { class: 'chips' }, SKIN_TAGS.map((t) => h('button', {
-      type: 'button', class: `chip small-chip${tags.has(t) ? ' on' : ''}`, 'aria-pressed': String(tags.has(t)),
-      onclick: () => { if (tags.has(t)) tags.delete(t); else tags.add(t); set({ tags: [...tags] }); },
-    }, t))));
-}
-
 function yearAgoCard(today) {
   const ago = addDays(today, -365);
   const rec = store.data.days[ago];
@@ -846,166 +824,115 @@ function careCardInline(day, when) {
 }
 
 // ---------- 形象 ----------
+// 只看做了什么：这个月、护肤（月历、每一项做到多少）、护肤品。不放口号，不涉及钱（钱在账本里看）
 
 const LOOK_HELP = [
-  ['这一页是什么', ['你的形象档案：方向、路线图、用的东西、学到的知识。它会跟着你慢慢长大，不用一次填满。']],
-  ['路线图怎么用', [
-    '分护肤、化妆、气质三条线，每条从上往下一样一样来，一次只加一样（万一过敏或爆痘，马上知道是哪样惹的）。',
-    '点一步看：为什么要做、买什么（大概多少钱）、怎么做。想好了点「开始学」，它的打卡项就进到「今天」里。',
-    '坚持三周左右、大部分天都做到了，网页会问你「算养成了吗」。养成了的也会继续出现在打卡里。',
-    '不会催你：只有你点开时才告诉你「下一步可以是……」。',
-  ]],
-  ['其他', [
-    '我的东西：从物品档案里读「洗漱护肤」类的东西，点一下记开封日期、好不好用；不想显示的可以藏起来。',
-    '我学到的：在小红书、B 站学到一招，就记成一张卡片。',
-    '这周的皮肤：每周打一次分，用来看护肤有没有效果。',
-  ]],
+  ['这一页是什么', ['看你在形象上做了什么：这个月护肤做完几天、洗澡几次，每一项做到了多少，用的护肤品开封多久了。']],
+  ['护肤', ['月历：早晚都做完是深紫，做了一部分是浅紫。', '每一项做到多少按最近 30 天算；洗过澡的那天，晚上的洗脸不算（洗澡时洗过了）。', '「改打卡项」可以加、改名、删掉每天的打卡项，比如加「防晒（早上）」「擦鞋（早上）」。']],
+  ['护肤品', ['从物品档案里读「洗漱护肤」类的东西。点一下记开封日期、好不好用、开封后多久用完（一般 12 个月）。', '快到时间会标出来。「快用完了」会放进物品档案的购物清单。']],
 ];
 
 function lookView() {
-  const d = store.data;
   const today = dayKey();
   return h('div', {},
-    headerSub('形象', '精致的生活，一步一步来', helpButton('形象这一页怎么用', LOOK_HELP)),
-    identityLookCard(today),
-    directionCard(),
-    h('div', { class: 'section-title' }, '路线图'),
-    Object.entries(TRACKS).map(([track, name]) => trackCard(track, name, today)),
-    skinWeekCard(today),
-    productsCard(),
-    notesCard());
+    headerSub('形象', '这个月做了什么', helpButton('形象这一页怎么用', LOOK_HELP)),
+    lookMonthCard(today),
+    careDataCard(today),
+    productsCard());
 }
 
-// 「我是这样的人」：句子（可以改）、这周投的票、精致时刻
-function identityLookCard(today) {
+function lookMonthCard(today) {
   const d = store.data;
-  const lines = identityLines(d);
-  const votes = identityVotes(d, today);
-  const grouped = Object.entries(votes.reduce((m, v) => ({ ...m, [v]: (m[v] || 0) + 1 }), {})).map(([k, n]) => (n > 1 ? `${k}×${n}` : k));
-  const moments = (d.look.moments || []).slice().sort((a, b) => b.day.localeCompare(a.day));
-  const edit = () => {
-    const ta = h('textarea', { rows: 9, 'aria-label': '我是这样的人' });
-    ta.value = lines.join('\n');
-    openSheet({
-      title: '我是这样的人',
-      body: [h('p', { class: 'muted small' }, '一行一句。用「我」开头，写成现在已经是的样子，不写「我要」「我会」。用你自己的话最好。'), ta],
-      confirmText: '存好',
-      onConfirm: () => saveRender('我是这样的人', (data) => { const l = ta.value.split('\n').map((x) => x.trim()).filter(Boolean); data.look.identity = l.length ? l : null; }),
-    });
-  };
-  return h('div', { class: 'card identity' },
-    h('div', { class: 'rec-top' }, h('h3', {}, '我是这样的人'), h('button', { class: 'link small', onclick: edit }, '改')),
-    h('ul', { class: 'identity-list' }, lines.map((l) => h('li', {}, l))),
-    h('div', { class: 'vote-box' },
-      h('div', { class: 'stat-grid' }, stat('今天', `${votes.length} 票`), stat('这周', `${weekVotes(d, today)} 票`)),
-      h('p', { class: 'muted small' }, votes.length ? `今天：${grouped.join('、')}` : '护肤、洗澡、打理、默念、精致时刻，做一件就是投一票。'),
-      h('p', { class: 'small' }, '每做一件小事，都算一票。')),
-    h('div', { class: 'rec-top', style: 'margin-top:12px' }, h('h3', {}, '精致时刻'), h('button', { class: 'link small', onclick: momentSheet }, '＋ 记一个')),
-    moments.length ? moments.slice(0, 5).map((m) => h('div', { class: 'event-row' }, h('span', { class: 'muted small ev-time' }, m.day.slice(5).replace('-', '/')), h('span', { class: 'grow small' }, m.text)))
-      : h('p', { class: 'muted small' }, '哪一刻觉得自己很精致、很温柔，就记一句。比如「今天衬衫熨得很平」「在图书馆安安静静读完一章」。'));
+  const m = lookMonth(d, today);
+  const tiles = [['护肤做完', `${m.full.size}/${m.days} 天`], ['洗澡', `${m.showers} 次`], ...m.extra.slice(0, 2).map((x) => [x.r.name, `${x.n} 次`])];
+  return h('div', { class: 'card' },
+    h('h3', {}, `${Number(today.slice(5, 7))} 月`),
+    h('div', { class: 'stat-grid' }, tiles.map(([a, b]) => stat(a, b))),
+    monthGrid(today.slice(0, 7), m.full, { partial: m.some, title: '这个月哪天护肤做完了' }),
+    h('p', { class: 'muted small legend' }, h('i', { class: 'sw full' }), '早晚都做完　', h('i', { class: 'sw part' }), '做了一部分'));
 }
-function momentSheet() {
-  const ta = h('textarea', { rows: 3, placeholder: '比如「今天衬衫熨得很平」', 'aria-label': '精致时刻' });
-  openSheet({
-    title: '精致时刻', body: ta, confirmText: '记下',
+
+function careDataCard(today) {
+  const d = store.data;
+  const rates = careItemRates(d, today);
+  const span = Math.min(30, daysBetween(d.startDate || today, today) + 1);
+  const pct = (x) => (x.rate === null ? '—' : `${Math.round(x.rate * 100)}%`);
+  const order = { am: 0, pm: 1, shower: 2, week: 3 };
+  const rows = rates.slice().sort((a, b) => order[a.r.when] - order[b.r.when]).map((x) => h('div', { class: 'care-rate' },
+    h('span', { class: 'grow' }, x.r.name, h('span', { class: 'muted small' }, ` · ${WHEN[x.r.when]}`)),
+    x.week ? h('span', { class: 'small' }, `这周 ${x.done}/${x.total}`)
+      : [h('span', { class: 'bar-track' }, h('span', { class: 'bar', style: `width:${Math.round((x.rate || 0) * 100)}%` })),
+        h('span', { class: 'small rate-num' }, x.r.when === 'shower' ? `${x.done}/${x.total} 次` : pct(x))]));
+  const forgot = span >= 7 ? rates.filter((x) => !x.week && x.total >= 5 && x.rate < 0.8 && !x.r.optional).sort((a, b) => a.rate - b.rate)[0] : null;
+  return h('div', { class: 'card' },
+    h('div', { class: 'rec-top' }, h('h3', {}, `护肤 · 最近 ${span} 天`), h('button', { class: 'link small', onclick: routineSheet }, '改打卡项')),
+    rates.length ? rows : h('p', { class: 'muted small' }, '还没有打卡项。点「改打卡项」加一个。'),
+    forgot ? h('p', { class: 'small soon' }, `最常忘：${WHEN[forgot.r.when]}的${forgot.r.name}（${forgot.total} 次里忘了 ${forgot.total - forgot.done} 次）`) : null,
+    span < 7 && rates.length ? h('p', { class: 'muted small' }, '记满一周后，会告诉你哪一项最常忘。') : null);
+}
+
+// 改打卡项：加、改名、改时间、删
+function routineSheet() {
+  const d = store.data;
+  const list = h('div', {});
+  const draw = () => list.replaceChildren(...store.data.look.routine.map((r) => h('div', { class: 'event-row' },
+    h('span', { class: 'grow' }, r.name, h('span', { class: 'muted small' }, ` · ${WHEN[r.when]}${r.when === 'week' ? ` ${r.times || 1} 次` : ''}`)),
+    h('button', { class: 'link small', onclick: () => { close(); routineItemSheet(r); } }, '改'))));
+  draw();
+  const close = openSheet({
+    title: '打卡项',
+    body: h('div', {}, d.look.routine.length ? list : h('p', { class: 'muted small' }, '还没有。'),
+      h('button', { class: 'secondary wide', onclick: () => { close(); routineItemSheet(); } }, '＋ 加一项')),
+    confirmText: null, cancelText: '好了', onConfirm: () => {},
+  });
+}
+function routineItemSheet(r = null) {
+  const name = h('input', { value: r?.name || '', placeholder: '比如「防晒」「洗脸（米粹）」', 'aria-label': '打卡项名字' });
+  let when = r?.when || 'am';
+  const times = h('input', { inputmode: 'numeric', value: String(r?.times || 1), 'aria-label': '每周几次' });
+  const whenRow = h('div', {});
+  const timesRow = h('label', {}, '每周几次', times);
+  const draw = () => {
+    whenRow.replaceChildren(choiceRow('什么时候', Object.entries(WHEN), when, (v) => { when = v || when; draw(); }));
+    timesRow.hidden = when !== 'week';
+  };
+  draw();
+  const close = openSheet({
+    title: r ? '改打卡项' : '加一项',
+    body: h('div', { class: 'form' }, name, h('div', { class: 'label-sm' }, '什么时候'), whenRow, timesRow,
+      h('p', { class: 'muted small' }, '早上、晚上的会出现在「今天」的清单里；洗澡后的在记洗澡时问；每周的在这一周里做够几次就行。'),
+      r ? h('button', { class: 'danger small', onclick: () => { close(); saveUndoable(`删掉打卡项：${r.name}`, (data) => {
+        data.look.routine = data.look.routine.filter((x) => x.id !== r.id);
+      }, `删掉了「${r.name}」（以前的打卡还在）`).then(render).catch(() => {}); } }, '删掉这项') : null),
+    confirmText: '好了',
     onConfirm: () => {
-      const t = ta.value.trim();
-      if (!t) return false;
-      return saveRender('精致时刻', (data) => { (data.look.moments ||= []).push({ id: newId('mo'), day: dayKey(), text: t }); }).then((ok) => { if (ok) toast('记下了。'); return ok; });
+      const v = name.value.trim();
+      if (!v) { toast('写个名字', 'error'); return false; }
+      const n = Math.min(7, Math.max(1, Number(times.value) || 1));
+      return saveRender(r ? `改打卡项：${v}` : `加打卡项：${v}`, (data) => {
+        const x = { ...(r ? data.look.routine.find((y) => y.id === r.id) : { id: newId('r') }), name: v, when };
+        if (when === 'week') x.times = n; else delete x.times;
+        const i = data.look.routine.findIndex((y) => y.id === x.id);
+        if (i >= 0) data.look.routine[i] = x; else data.look.routine.push(x);
+      });
     },
   });
 }
 
-function directionCard() {
-  const d = store.data;
-  const dirs = d.look.direction.filter((k) => DIRECTIONS[k]);
-  const edit = () => {
-    const picked = new Set(dirs);
-    const body = h('div', { class: 'chips' }, Object.entries(DIRECTIONS).map(([k, v]) => {
-      const b = h('button', { type: 'button', class: `chip${picked.has(k) ? ' on' : ''}`, onclick: () => {
-        if (picked.has(k)) picked.delete(k); else picked.add(k);
-        b.classList.toggle('on', picked.has(k));
-      } }, v.name);
-      return b;
-    }));
-    openSheet({ title: '我的方向（可以选一两个）', body, confirmText: '好了', onConfirm: () => saveRender('形象方向', (data) => { data.look.direction = [...picked]; }) });
-  };
-  return h('div', { class: 'card direction' },
-    h('div', { class: 'rec-top' }, h('h3', {}, '我的方向'), h('button', { class: 'link small', onclick: edit }, '改')),
-    dirs.length ? h('div', { class: 'dir-name' }, dirs.map((k) => DIRECTIONS[k].name).join(' + ')) : h('p', { class: 'muted small' }, '还没选。点「改」选一两个方向。'),
-    dirs.length ? h('ul', { class: 'small dir-points' }, dirs.flatMap((k) => DIRECTIONS[k].points).map((p) => h('li', {}, p))) : null);
-}
-
-const STATUS = { todo: '没开始', learning: '在学', habit: '已养成' };
-function trackCard(track, name, today) {
-  const d = store.data;
-  const next = nextStep(d, track);
-  return h('div', { class: 'card track' },
-    h('h3', {}, name),
-    STEPS.filter((s) => s.track === track).map((s) => {
-      const st = stepStatus(d, s.id);
-      return h('a', { class: `step-row ${st}${next?.id === s.id ? ' next' : ''}`, href: `#/step/${s.id}` },
-        h('span', { class: `step-dot ${st}` }, st === 'habit' ? icon('check', 'i tiny') : null),
-        h('span', { class: 'grow' }, s.name, next?.id === s.id ? h('span', { class: 'muted small' }, ' · 下一步可以是这个') : null,
-          readyForHabit(d, s.id, today) ? h('span', { class: 'good-text small' }, ' · 差不多养成了') : null),
-        h('span', { class: `badge ${st === 'learning' ? 'accent' : st === 'habit' ? 'good' : ''}` }, STATUS[st]));
-    }));
-}
-
-function stepView(id) {
-  const s = stepById(id);
-  if (!s) return notFound();
-  const d = store.data;
-  const today = dayKey();
-  const st = stepStatus(d, id);
-  const info = d.look.steps[id];
-  const items = d.look.routine.filter((r) => r.step === id);
-  const start = () => saveRender(`开始学：${s.name}`, (data) => startStep(data, id, today)).then((ok) => ok && toast(`${CHEER_ON.stepStart}${s.routine ? '打卡项已经加进「今天」。' : ''}`));
-  const habit = () => saveRender(`养成了：${s.name}`, (data) => { data.look.steps[id] = { ...data.look.steps[id], status: 'habit', habitAt: today }; }).then((ok) => ok && toast(CHEER_ON.stepHabit));
-  const back = () => saveRender(`改回在学：${s.name}`, (data) => { data.look.steps[id] = { ...data.look.steps[id], status: 'learning' }; delete data.look.steps[id].habitAt; });
-  const stop = () => saveUndoable(`不学了：${s.name}`, (data) => stopStep(data, id), `「${s.name}」先放下了`).then(render).catch(() => {});
-  const rename = (r) => {
-    const input = h('input', { value: r.name, 'aria-label': '打卡项名字' });
-    openSheet({
-      title: '改名字', body: [h('p', { class: 'muted small' }, '可以写上用的什么，比如「洗脸（米粹）」。'), input], confirmText: '好了',
-      onConfirm: () => {
-        const v = input.value.trim();
-        if (!v) return false;
-        return saveRender('改打卡项名字', (data) => { const x = data.look.routine.find((y) => y.id === r.id); if (x) x.name = v; });
-      },
-    });
-  };
-  return h('div', {},
-    headerSub(s.name, `${TRACKS[s.track]} · ${STATUS[st]}${info?.since ? ` · ${info.since} 开始` : ''}`),
-    readyForHabit(d, id, today) ? h('div', { class: 'card good-card' }, h('p', {}, '这三周你大部分天都做到了。算养成了吗？'), h('button', { onclick: habit }, '算养成了')) : null,
-    h('div', { class: 'card explain' }, h('h3', {}, '为什么'), h('p', {}, s.why)),
-    h('div', { class: 'card help' }, h('h3', {}, '怎么做'), h('ul', {}, s.how.map((x) => h('li', {}, x)))),
-    h('div', { class: 'card' }, h('h3', {}, '要买什么'), h('p', { class: 'small' }, s.buy),
-      h('p', { class: 'muted small' }, '买了以后记得在账本里记一笔（类别选「形象」那几样），在物品档案里建档，这里「我的东西」就能看到。')),
-    st !== 'todo' && items.length ? h('div', { class: 'card' }, h('h3', {}, '每天打卡'),
-      items.map((r) => h('div', { class: 'event-row' },
-        h('span', { class: 'grow' }, r.name, h('span', { class: 'muted small' }, ` · ${WHEN[r.when]}${r.times ? ` ${r.times} 次` : ''}${r.optional ? ' · 可做可不做' : ''}`)),
-        h('button', { class: 'link small', onclick: () => rename(r) }, '改名')))) : null,
-    h('div', { class: 'actions' },
-      st === 'todo' ? h('button', { onclick: start }, '开始学') : null,
-      st === 'learning' ? h('button', { class: 'secondary', onclick: habit }, '算养成了') : null,
-      st === 'habit' ? h('button', { class: 'secondary', onclick: back }, '改回在学') : null,
-      st !== 'todo' ? h('button', { class: 'danger', onclick: stop }, '不学了') : null),
-    h('a', { class: 'small', href: '#/look' }, '‹ 回到形象'));
-}
-
 // 物品档案里「洗漱护肤」类的东西（缓存 5 分钟）
 const invCache = { at: 0, items: null, error: '' };
-async function loadProducts() {
-  if (invCache.items && Date.now() - invCache.at < 300000) return;
+const inventoryGh = () => {
   const inv = readJson('inventory-settings');
   const owner = (settings.repo || DEFAULT_REPO).split('/')[0];
-  const g = new GitHub({ token: inv.token || settings.token, repo: inv.repo || `${owner}/inventory-data` });
+  return new GitHub({ token: inv.token || settings.token, repo: inv.repo || `${owner}/inventory-data` });
+};
+async function loadProducts(force = false) {
+  if (!force && invCache.items && Date.now() - invCache.at < 300000) return;
   try {
-    const data = JSON.parse(await g.readText('inventory.json', 'main'));
+    const data = JSON.parse(await inventoryGh().readText('inventory.json', 'main'));
     const locs = Object.fromEntries((data.locations || []).map((l) => [l.id, l.name]));
     invCache.items = (data.items || []).filter((i) => !i.archived && (i.tags || []).includes('洗漱护肤'))
-      .map((i) => ({ id: i.id, name: i.name, where: (locs[i.location] || '').split(' ')[0], qty: i.quantity }));
+      .map((i) => ({ id: i.id, name: i.name, where: (locs[i.location] || '').split(' ')[0], qty: i.quantity, low: i.runningLow || '', out: Number(i.quantity) === 0 }));
     invCache.error = '';
   } catch (e) {
     invCache.items = [];
@@ -1013,28 +940,50 @@ async function loadProducts() {
   }
   invCache.at = Date.now();
 }
+// 改物品档案里的一件东西（直接提交，冲突了重来）
+async function updateInventoryItem(id, fn, message) {
+  const g = inventoryGh();
+  for (let attempt = 0; ; attempt++) {
+    const head = await g.headSha();
+    const data = JSON.parse(await g.readText('inventory.json', head));
+    const it = (data.items || []).find((x) => x.id === id);
+    if (!it) throw new Error('物品档案里找不到这件了');
+    fn(it);
+    try {
+      await g.commit(head, [{ path: 'inventory.json', content: JSON.stringify(data, null, 1) + '\n' }], message);
+      return;
+    } catch (e) {
+      if (!(e instanceof GitHubError && e.status === 422) || attempt === 3) throw e;
+    }
+  }
+}
 
 const VERDICT = { good: '好用', ok: '一般', bad: '不适合' };
+const PAO_TEXT = { over: '过了建议的时间，最好换新的', soon: '快到时间了' };
 function productsCard() {
   const box = h('div', {}, h('p', { class: 'muted small' }, '正在读物品档案……'));
   const draw = () => {
     const d = store.data;
+    const today = dayKey();
     const list = (invCache.items || []).filter((i) => !d.look.hide.includes(i.id));
     if (invCache.error) { box.replaceChildren(h('p', { class: 'muted small' }, `读不到物品档案：${invCache.error}`)); return; }
+    const rows = list.map((i) => {
+      const p = d.look.products[i.id] || {};
+      const st = p.opened ? openedStatus(p.opened, paoMonths(i.name, p.pao), today) : null;
+      return { i, p, st, rank: st ? { over: 0, soon: 1, ok: 2 }[st.level] : 3 };
+    }).sort((a, b) => a.rank - b.rank);
     box.replaceChildren(...[
-      ...(list.length ? list.map((i) => {
-        const p = d.look.products[i.id] || {};
-        const opened = p.opened ? `开封 ${daysBetween(p.opened, dayKey())} 天` : '';
-        return h('button', { class: 'event-row product-row', onclick: () => productSheet(i) },
-          h('span', { class: 'grow' }, i.name, h('span', { class: 'muted small block' }, [i.where, opened, p.verdict ? VERDICT[p.verdict] : ''].filter(Boolean).join(' · '))),
-          icon('chev', 'i chev'));
-      }) : [h('p', { class: 'muted small' }, '物品档案里还没有「洗漱护肤」类的东西。')]),
+      ...(rows.length ? rows.map(({ i, p, st }) => h('button', { class: 'event-row product-row', onclick: () => productSheet(i) },
+        h('span', { class: 'grow' }, i.name,
+          h('span', { class: 'muted small block' }, [st?.age || '还没记开封', p.verdict ? VERDICT[p.verdict] : '', i.out ? '用完了' : i.low ? '快用完了 · 在购物清单上' : ''].filter(Boolean).join(' · ')),
+          st && st.level !== 'ok' ? h('span', { class: `small block ${st.level === 'over' ? 'danger-text' : 'soon'}` }, PAO_TEXT[st.level]) : null),
+        icon('chev', 'i chev'))) : [h('p', { class: 'muted small' }, '物品档案里还没有「洗漱护肤」类的东西。')]),
       d.look.hide.length ? h('button', { class: 'link small', onclick: () => saveRender('显示藏起来的东西', (data) => { data.look.hide = []; }) }, `显示藏起来的 ${d.look.hide.length} 样`) : null,
     ].filter(Boolean));
   };
   loadProducts().then(() => { if (box.isConnected) draw(); });
   if (invCache.items) draw();
-  return h('div', { class: 'card' }, h('h3', {}, '我的东西'), box);
+  return h('div', { class: 'card' }, h('h3', {}, '护肤品'), box);
 }
 
 function productSheet(item) {
@@ -1042,54 +991,35 @@ function productSheet(item) {
   const opened = h('input', { type: 'date', value: p.opened || '', 'aria-label': '开封日期' });
   const note = h('input', { value: p.note || '', placeholder: '用起来怎么样（可以不填）', 'aria-label': '备注' });
   let verdict = p.verdict || null;
+  let pao = paoMonths(item.name, p.pao);
   const vRow = h('div', {});
-  const draw = () => vRow.replaceChildren(choiceRow('好不好用', Object.entries(VERDICT), verdict, (v) => { verdict = v; draw(); }));
+  const pRow = h('div', {});
+  const draw = () => {
+    vRow.replaceChildren(choiceRow('好不好用', Object.entries(VERDICT), verdict, (v) => { verdict = v; draw(); }));
+    pRow.replaceChildren(choiceRow('开封后多久用完', [[6, '6 个月'], [12, '12 个月'], [24, '24 个月'], [36, '36 个月']], pao, (v) => { pao = v || pao; draw(); }));
+  };
   draw();
+  const lowBtn = item.out ? null : h('button', { class: 'secondary small', onclick: async () => {
+    close();
+    try {
+      await saving(item.low ? '正在改……' : '正在放进购物清单……', () => updateInventoryItem(item.id, (it) => { if (item.low) delete it.runningLow; else it.runningLow = dayKey(); }, `${item.low ? '还够用' : '快用完了'}：${item.name}（从「生活」）`));
+      toast(item.low ? '好，还够用' : '放进购物清单了');
+      await loadProducts(true);
+      render();
+    } catch { /* 已提示 */ }
+  } }, item.low ? '还够用（从购物清单拿掉）' : '快用完了 → 放进购物清单');
   const close = openSheet({
     title: item.name,
-    body: h('div', { class: 'form' }, h('label', {}, '开封日期', opened), h('div', { class: 'label-sm' }, '用了两周以后：'), vRow, note,
+    body: h('div', { class: 'form' }, h('label', {}, '开封日期', opened),
+      h('div', { class: 'label-sm' }, '开封后多久用完'), pRow,
+      h('div', { class: 'label-sm' }, '用了两周以后：'), vRow, note, lowBtn,
       h('button', { class: 'link small', onclick: () => { close(); saveRender('藏起来', (data) => { data.look.hide.push(item.id); }); } }, '这个不是护肤品，不在这里显示')),
     confirmText: '好了',
-    onConfirm: () => saveRender(`我的东西：${item.name}`, (data) => {
-      const x = { ...(opened.value ? { opened: opened.value } : {}), ...(verdict ? { verdict } : {}), ...(note.value.trim() ? { note: note.value.trim() } : {}) };
+    onConfirm: () => saveRender(`护肤品：${item.name}`, (data) => {
+      const x = { ...(opened.value ? { opened: opened.value } : {}), ...(verdict ? { verdict } : {}), ...(note.value.trim() ? { note: note.value.trim() } : {}),
+        ...(pao !== paoMonths(item.name) ? { pao } : {}) };
       if (Object.keys(x).length) data.look.products[item.id] = x; else delete data.look.products[item.id];
     }),
-  });
-}
-
-function notesCard() {
-  const d = store.data;
-  return h('div', { class: 'card' },
-    h('div', { class: 'rec-top' }, h('h3', {}, '我学到的'), h('button', { class: 'link small', onclick: () => noteSheet() }, '＋ 记一张')),
-    d.notes.length ? d.notes.slice().reverse().map((n) => h('button', { class: 'note-card', onclick: () => noteSheet(n) },
-      h('b', { class: 'block' }, n.title), n.text ? h('span', { class: 'small pre block' }, n.text) : null,
-      h('span', { class: 'muted small' }, [TRACKS[n.track], n.at].filter(Boolean).join(' · '))))
-      : h('p', { class: 'muted small' }, '在小红书、B 站学到一招，就记一张，比如「修眉：先画出眉形再刮」。'));
-}
-
-function noteSheet(n = null) {
-  const title = h('input', { value: n?.title || '', placeholder: '标题，比如「修眉的顺序」', 'aria-label': '标题' });
-  const text = h('textarea', { rows: 5, placeholder: '学到了什么', 'aria-label': '内容' });
-  text.value = n?.text || '';
-  const link = h('input', { value: n?.link || '', placeholder: '链接（可以不填）', 'aria-label': '链接' });
-  let track = n?.track || null;
-  const tRow = h('div', {});
-  const draw = () => tRow.replaceChildren(choiceRow('属于哪条线', Object.entries(TRACKS), track, (v) => { track = v; draw(); }));
-  draw();
-  const close = openSheet({
-    title: n ? '我学到的' : '记一张',
-    body: h('div', { class: 'form' }, title, text, link, tRow,
-      n?.link ? h('a', { href: n.link, target: '_blank', rel: 'noopener', class: 'small' }, '打开链接') : null,
-      n ? h('button', { class: 'danger small', onclick: () => { close(); saveUndoable('删掉卡片', (data) => { data.notes = data.notes.filter((x) => x.id !== n.id); }, '删掉了一张卡片').then(render).catch(() => {}); } }, '删掉这张') : null),
-    confirmText: '存好',
-    onConfirm: () => {
-      if (!title.value.trim()) { toast('写个标题', 'error'); return false; }
-      const x = { id: n?.id || newId('n'), title: title.value.trim(), text: text.value.trim(), link: link.value.trim(), track, at: n?.at || dayKey() };
-      return saveRender('我学到的', (data) => {
-        const i = data.notes.findIndex((y) => y.id === x.id);
-        if (i >= 0) data.notes[i] = x; else data.notes.push(x);
-      });
-    },
   });
 }
 
@@ -2056,7 +1986,7 @@ function statsView() {
         h('span', { class: 'area-name' }, `${WHEN[c.r.when]}${c.r.name}`),
         h('span', { class: 'bar-track grow' }, h('span', { class: 'bar', style: `width:${c.total ? (c.done / c.total) * 100 : 0}%;background:var(--accent)` })),
         h('span', { class: 'small muted area-num' }, `${c.done}/${c.total}`))),
-        skinTrend())] : null,
+        null)] : null,
 
     plans.some((x) => x.n) ? [h('div', { class: 'section-title' }, '科研：说要做的做到了几成'),
       h('div', { class: 'card' }, barChart(plans.map((x) => ({ label: `${Number(x.mon.slice(5, 7))}/${Number(x.mon.slice(8))}`, v: x.rate === null ? 0 : Math.round(x.rate * 100) })), { title: '每周计划完成率', fmt: (v) => `${v}%`, color: 'var(--blue)' }),
@@ -2067,13 +1997,6 @@ function statsView() {
       h('div', { class: 'card' }, h('p', { class: 'small' }, `一共病过 ${bs.n} 次。生病前一周：平均睡 ${fmtH(bs.sleepBefore)}（平时 ${fmtH(bs.sleepUsual)}），压力 ${bs.stressBefore?.toFixed(1) ?? '—'}（平时 ${bs.stressUsual?.toFixed(1) ?? '—'}）。`),
         h('p', { class: 'muted small' }, bs.n < 3 ? '病过 3 次以上规律才看得清。' : '睡得少、压力大的时候，记得多照顾自己。'))] : null);
 }
-function skinTrend() {
-  const d = store.data;
-  const weeks = Object.entries(d.weeks).filter(([, w]) => w.skin?.score).sort((a, b) => a[0].localeCompare(b[0])).slice(-12);
-  if (weeks.length < 2) return h('p', { class: 'muted small' }, '每周给皮肤打个分，攒两周以上这里能看到变化。');
-  return [h('h3', { style: 'margin-top:12px' }, '每周的皮肤'), barChart(weeks.map(([mon, w]) => ({ label: `${Number(mon.slice(5, 7))}/${Number(mon.slice(8))}`, v: w.skin.score })), { title: '每周皮肤分', color: 'var(--good)' })];
-}
-
 // 报告：周 / 月 / 年。数字 + DeepSeek 写的一小段（存在 letters 里）
 function reportRange(k, day) {
   if (k === 'week') { const mon = weekOf(day); return { key: `w${mon}`, from: mon, to: addDays(mon, 6), title: `这周（${weekLabel(mon)}）`, prev: addDays(mon, -7), next: addDays(mon, 7) }; }
