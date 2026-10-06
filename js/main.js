@@ -1484,7 +1484,8 @@ function englishCardsView() {
 
 const PLACES_HELP = [
   ['怎么加', [
-    '在小红书里点「分享 → 复制链接」，回到这里点「＋ 加一个」，粘贴进第一个框，名字和链接会自动填好。',
+    '点「＋ 加一个」，第一个框里什么都能放：小红书、大众点评、美团、高德的分享，「店名 + 地址」，或者随便一句话，比如「芙蓉街那家排队很长的油旋」。',
+    '点「让 DeepSeek 帮我填」：名字、类型、区、地图上的位置会填好。写了地址的话，位置会准很多。',
     '选一下类型、在哪个区，在小地图上点一下它的位置（也可以点「用我现在的位置」）。其他都可以不填。',
   ]],
   ['去过了', ['点进一个地方 →「去过了」，打个分、写一句话，可以放一张照片。同一个地方可以去很多次。', '地图上空心的是想去的，实心的是去过的；颜色按类型分。']],
@@ -1655,34 +1656,38 @@ async function readLedgerFile() {
 }
 
 // 一个地方：新建 / 编辑
-const placeDraft = { id: null, data: null };
+const placeDraft = { id: null, data: null, raw: '', autoName: '' }; // raw：第一个框里写的；autoName：从分享里认出来的名字（DeepSeek 可以换掉）
 function placeEditView(id) {
   const d = store.data;
   const old = id === 'new' ? null : d.places.find((p) => p.id === id);
   if (id !== 'new' && !old) return notFound();
-  if (placeDraft.id !== id) { placeDraft.id = id; placeDraft.data = structuredClone(old || { kind: null, district: null, want: 2 }); }
+  if (placeDraft.id !== id) Object.assign(placeDraft, { id, data: structuredClone(old || { kind: null, district: null, want: 2 }), raw: '', autoName: '', ai: null });
   const x = placeDraft.data;
-  const share = h('textarea', { rows: 2, placeholder: '粘贴小红书「复制链接」的内容', 'aria-label': '小红书分享' });
+  const share = h('textarea', { rows: 3, placeholder: '粘贴小红书、大众点评、美团、高德的分享，\n或者写「店名 + 地址」，或者随便一句话', 'aria-label': '粘贴或写下地方' });
+  share.value = placeDraft.raw;
   const name = h('input', { value: x.name || '', placeholder: '名字', 'aria-label': '名字', oninput: (e) => { x.name = e.target.value; } });
   const link = h('input', { value: x.link || '', placeholder: '链接（可以不填）', 'aria-label': '链接', oninput: (e) => { x.link = e.target.value; } });
   const why = h('input', { value: x.why || '', placeholder: '为什么想去（可以不填）', 'aria-label': '为什么想去', oninput: (e) => { x.why = e.target.value; } });
   const cost = h('input', { inputmode: 'numeric', value: x.cost || '', placeholder: '大概花多少（可以不填）', 'aria-label': '大概花多少', oninput: (e) => { x.cost = Number(e.target.value) || null; } });
   const season = h('input', { value: x.season || '', placeholder: '什么时候去最好，比如「春天」「晚上」（可以不填）', 'aria-label': '什么时候去最好', oninput: (e) => { x.season = e.target.value; } });
   share.addEventListener('input', () => {
+    placeDraft.raw = share.value;
     const r = parseShare(share.value);
-    if (r.title && !name.value) { name.value = r.title; x.name = r.title; }
+    if (r.title && (!name.value || name.value === placeDraft.autoName)) { name.value = r.title; x.name = r.title; placeDraft.autoName = r.title; }
     if (r.url) { link.value = r.url; x.link = r.url; }
   });
   const pick = (k, v) => { x[k] = x[k] === v ? null : v; render(); };
   const ai = placeDraft.ai ||= { busy: false, note: '' };
   const aiFill = async () => {
-    if (!x.name?.trim()) { toast('先写名字', 'error'); return; }
+    const text = old ? '' : placeDraft.raw.trim();
+    if (!x.name?.trim() && !text) { toast('先写点什么：名字、地址或者一句话', 'error'); return; }
     ai.busy = true; ai.note = ''; render();
     try {
-      const list = await findPlace(x.name.trim());
+      const list = await findPlace(x.name?.trim() || '', text);
       ai.busy = false;
       if (!list.length) { ai.note = 'DeepSeek 不认识这个地方。在地图上点一下就好。'; render(); return; }
-      if (list.length === 1) { applyCandidate(x, list[0]); ai.note = aiNote(list[0]); render(); return; }
+      const rename = !x.name?.trim() || x.name === placeDraft.autoName; // 名字是自己写的就不动
+      if (list.length === 1) { applyCandidate(x, list[0], rename); ai.note = aiNote(list[0]); render(); return; }
       render();
       chooseCandidates(list, x, old);
     } catch (e) { ai.busy = false; ai.note = ''; render(); toast(e.message, 'error'); }
@@ -1714,15 +1719,15 @@ function placeEditView(id) {
     }).then((ok) => { if (ok) { placeDraft.id = null; placeDraft.ai = null; toast(old ? '改好了' : '记下了。'); go(old ? `#/place/${pid}` : '#/places'); } });
   };
   const districts = d.settings.city?.districts || [];
+  const aiRow = h('div', { class: 'ai-fill' },
+    h('button', { class: 'small secondary', disabled: ai.busy, onclick: aiFill }, ai.busy ? '正在找……' : '让 DeepSeek 帮我填'),
+    h('span', { class: 'muted small' }, old ? '类型、区、地图上的位置' : '名字、类型、区、地图上的位置'));
   return h('div', { class: 'form' },
     headerSub(old ? '改一下' : '想去的地方', old ? old.name : '名字之外都可以不填'),
-    old ? null : h('div', { class: 'card' }, share, h('p', { class: 'muted small' }, '在小红书点「分享 → 复制链接」，粘贴到这里。')),
+    old ? null : h('div', { class: 'card' }, share, aiRow, ai.note ? h('p', { class: 'small muted' }, ai.note) : null),
     h('div', { class: 'card' },
       name,
-      h('div', { class: 'ai-fill' },
-        h('button', { class: 'small secondary', disabled: ai.busy, onclick: aiFill }, ai.busy ? '正在找……' : '让 DeepSeek 帮我填'),
-        h('span', { class: 'muted small' }, '类型、区、地图上的位置')),
-      ai.note ? h('p', { class: 'small muted' }, ai.note) : null,
+      old ? [aiRow, ai.note ? h('p', { class: 'small muted' }, ai.note) : null] : null,
       x.address ? h('p', { class: 'small' }, `📍 ${x.address}`) : null,
       h('div', { class: 'label-sm' }, '类型'), choiceRow('类型', Object.entries(PLACE_KINDS).map(([k, v]) => [k, v.name]), x.kind, (v) => pick('kind', v)),
       districts.length ? [h('div', { class: 'label-sm' }, '在哪个区'), choiceRow('区', [...districts, '外地'].map((v) => [v, v]), x.district, (v) => pick('district', v))] : null,
@@ -1733,18 +1738,21 @@ function placeEditView(id) {
     h('div', { class: 'actions sticky' }, h('button', { class: 'grow', onclick: submit }, '存好'), h('a', { class: 'button secondary', href: old ? `#/place/${old.id}` : '#/places', onclick: () => { placeDraft.id = null; placeDraft.ai = null; } }, '取消')));
 }
 
-// 让 DeepSeek 按名字找：类型、区、坐标（高德坐标）。连锁店会列出这个城市的每一家
-async function findPlace(name) {
+// 让 DeepSeek 找：名字，或者第一个框里写的（分享文字、店名 + 地址、一句话）→ 类型、区、坐标（高德坐标）。连锁店会列出这个城市的每一家
+async function findPlace(name, text = '') {
   const city = store.data.settings.city || { name: '济南' };
   const districts = city.districts || [];
   const kinds = Object.entries(PLACE_KINDS).map(([k, v]) => `${k} ${v.name}`).join('、');
-  const system = `你帮他把想去的地方标在地图上。他在${city.name}。根据他给的名字，用你知道的信息找出这个地方。`
+  const system = `你帮他把想去的地方标在地图上。他在${city.name}。他给你的可能是：一个名字；从小红书、大众点评、美团、高德复制的分享文字；「店名 + 地址」；或者一句描述。先认出他说的是哪个地方，用你知道的信息找出来。`
+    + '他写了地址的，按地址定位置，坐标要和地址对得上；name 写干净的店名（分店名放括号里），不要带地址、广告词和表情。'
     + `如果是连锁店（比如 MUJI、星巴克）或者同名的有好几个，把${city.name}的每一家都列出来（最多 8 个，名字带上分店名或者所在商场）。`
     + '坐标用高德地图的坐标（GCJ-02），保留 6 位小数；不知道确切位置就给你最有把握的估计，并把 sure 写成 false。'
     + `不认识这个地方、或者${city.name}没有，就返回空列表，绝对不要编。`
     + `kind 只能从这些里选：${kinds}。district 只能从这些里选：${districts.join('、') || '（没有，写空字符串）'}，在${city.name}以外就写「外地」。`
     + '返回 JSON：{"places": [{"name": "完整名字", "address": "地址或者在哪个商场", "district": "区", "kind": "类型", "lat": 纬度, "lng": 经度, "sure": true}]}';
-  const out = await askJson(await aiConfig(), system, `名字：${name}`, { maxTokens: 6000, timeout: 90000 });
+  const said = text.replace(/https?:\/\/\S+/g, ' ').replace(/\s+/g, ' ').trim(); // 链接它打不开，不发
+  const user = [said ? `他写的：${said}` : '', name && !said.includes(name) ? `名字：${name}` : ''].filter(Boolean).join('\n');
+  const out = await askJson(await aiConfig(), system, user || `名字：${name}`, { maxTokens: 6000, timeout: 90000 });
   return cleanCandidates(out.places, { center: city.lat ? [city.lat, city.lon] : null, districts });
 }
 function applyCandidate(x, c, withName = false) {
@@ -1811,7 +1819,7 @@ function chooseCandidates(list, x, old) {
         }
       });
       if (!ok) return false;
-      placeDraft.id = null; placeDraft.ai = null;
+      placeDraft.id = null;
       toast(`记下了 ${picked.length} 个地方。`);
       go('#/places');
       return true;

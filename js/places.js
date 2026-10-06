@@ -14,11 +14,22 @@ export const PLACE_KINDS = {
   other: { name: '其他', color: '#8a857c', indoor: true },
 };
 
-// 小红书「分享 → 复制链接」复制出来的一段：标题 + 作者 + 链接 + 「复制本条信息……」
+// 分享出来的一段文字 → 名字、链接、哪个 App。
+// 小红书：标题 + 作者 + 链接 + 「复制本条信息……」；大众点评、美团、高德：「【店名】地址……链接」之类。
+// 没有链接的（「店名 + 地址」、随便一句话）不猜名字，交给 DeepSeek。
+export const SHARE_SOURCES = [
+  [/xhslink|xiaohongshu/, '小红书'], [/dianping|dpurl/, '大众点评'], [/meituan/, '美团'], [/amap|gaode/, '高德地图'], [/map\.baidu|j\.map/, '百度地图'], [/douyin/, '抖音'],
+];
 export function parseShare(text) {
   const s = String(text || '').trim();
   const url = (s.match(/https?:\/\/[^\s，。！!）)]+/) || [])[0] || '';
-  let title = url ? s.slice(0, s.indexOf(url)) : s;
+  const source = url ? (SHARE_SOURCES.find(([re]) => re.test(url)) || [null, ''])[1] : '';
+  if (!url) return { title: '', url: '', source: '' };
+  let title = s.slice(0, s.indexOf(url));
+  if (source !== '小红书') { // 别的 App 格式说不准：只认括起来的店名，认不出就留空，交给 DeepSeek
+    const m = [...title.matchAll(/[【「]([^】」]+)[】」]/g)].map((x) => x[1]).find((x) => !/高德|点评|美团|百度|抖音|地图/.test(x));
+    return { title: m ? m.trim() : '', url, source };
+  }
   title = title
     .replace(/复制本条信息.*$/s, '')
     .replace(/[【】]/g, ' ')
@@ -28,7 +39,7 @@ export function parseShare(text) {
     .replace(/\b[A-Za-z0-9]{8,}\b/g, ' ') // 口令码
     .replace(/\s+/g, ' ')
     .trim();
-  return { title, url };
+  return { title, url, source };
 }
 
 // DeepSeek 找到的地方 → 整理一下：类型、区只能是已有的；坐标离城市太远（大于 80 公里）就不要，算不准

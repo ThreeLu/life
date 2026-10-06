@@ -808,7 +808,7 @@ def _(c):
     p.reload()
     expect(p.get_by_text("还没有地方")).to_be_visible()
     p.get_by_role("link", name="＋ 加一个").click()
-    p.get_by_label("小红书分享").fill("【编的书店 - 编的作者 | 小红书 - 你的生活指南】 😆 AbCdEfGh12 😆 http://xhslink.com/a/abc123 复制本条信息，打开【小红书】App查看精彩内容！")
+    p.get_by_label("粘贴或写下地方").fill("【编的书店 - 编的作者 | 小红书 - 你的生活指南】 😆 AbCdEfGh12 😆 http://xhslink.com/a/abc123 复制本条信息，打开【小红书】App查看精彩内容！")
     expect(p.get_by_label("名字")).to_have_value("编的书店")
     expect(p.get_by_label("链接")).to_have_value("http://xhslink.com/a/abc123")
     p.get_by_role("group", name="类型").get_by_role("button", name="店").click()
@@ -862,6 +862,21 @@ def _(c):
     c.wait(lambda d: len(d["places"]) == 3, "博物馆")
     mu = c.data()["places"][2]
     assert mu["kind"] == "museum" and mu["district"] == "乙区" and mu["lat"] == 36.661 and mu["address"] == "编的路 1 号", mu
+    # 店名 + 地址：DeepSeek 认出名字、按地址定位置；链接不发
+    c.go("#/place/new")
+    p.get_by_label("粘贴或写下地方").fill("编的咖啡 甲区编的路 9 号")
+    expect(p.get_by_label("名字")).to_have_value("")
+    p.get_by_role("button", name="让 DeepSeek 帮我填").click()
+    expect(p.get_by_label("名字")).to_have_value("编的咖啡（编的路店）")
+    expect(p.get_by_role("group", name="类型").get_by_role("button", name="吃的")).to_have_attribute("aria-pressed", "true")
+    assert "他写的：编的咖啡 甲区编的路 9 号" in LAST_AI[-1], LAST_AI[-1][-300:]
+    p.get_by_role("link", name="取消").click()
+    # 大众点评的分享：认出店名、链接
+    c.go("#/place/new")
+    p.get_by_label("粘贴或写下地方").fill("【大众点评】推荐给你「编的面馆(编的店)」，地址：乙区编的街 3 号 https://m.dianping.com/shopshare/x1")
+    expect(p.get_by_label("名字")).to_have_value("编的面馆(编的店)")
+    expect(p.get_by_label("链接")).to_have_value("https://m.dianping.com/shopshare/x1")
+    p.get_by_role("link", name="取消").click()
     # 不认识 → 说一声
     c.go("#/place/new")
     p.get_by_label("名字").fill("编的不存在")
@@ -1085,6 +1100,8 @@ def fake_externals(page):
                     {"name": "编的连锁（一店）", "address": "编的商场一楼", "district": "甲区", "kind": "shop", "lat": 36.67, "lng": 117.03, "sure": True},
                     {"name": "编的连锁（二店）", "address": "编的广场", "district": "乙区", "kind": "shop", "lat": 36.65, "lng": 117.05, "sure": False},
                     {"name": "编的连锁（远店）", "address": "很远", "district": "丙区", "kind": "店", "lat": 39.9, "lng": 116.4}]}
+            elif "编的咖啡" in body:
+                content = {"places": [{"name": "编的咖啡（编的路店）", "address": "甲区编的路 9 号", "district": "甲区", "kind": "food", "lat": 36.662, "lng": 117.022, "sure": True}]}
             elif "编的博物馆" in body:
                 content = {"places": [{"name": "编的博物馆", "address": "编的路 1 号", "district": "乙区", "kind": "museum", "lat": 36.661, "lng": 117.021, "sure": True}]}
             else:
