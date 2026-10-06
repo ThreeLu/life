@@ -238,7 +238,7 @@ def _(c):
     expect(c.period("晚上").get_by_text("心情 7 · 测试的一天，还不错")).to_be_visible()
 
 
-@step("祷告：带着走一遍简短版，记下近了")
+@step("祷告：带着走一遍简短版，记下一句话（不再问近了远了）")
 def _(c):
     p = c.page
     c.go("#/pray")
@@ -250,13 +250,13 @@ def _(c):
             break
         btn = p.get_by_role("button", name="阿们") if p.get_by_role("button", name="阿们").is_visible() else p.get_by_role("button", name="下一步")
         btn.click()
-    expect(p.get_by_text("今天离神")).to_be_visible()
-    p.get_by_role("button", name="近了").click()
+    expect(p.get_by_label("祷告后的一句话")).to_be_visible()
+    expect(p.get_by_text("今天离神")).to_have_count(0)
     p.get_by_label("祷告后的一句话").fill("编的一句话")
     p.get_by_role("button", name="完成").click()
-    c.wait(lambda d: d["days"][TODAY]["prayer"]["night"]["near"] == "near", "祷告")
+    c.wait(lambda d: d["days"][TODAY].get("prayer", {}).get("night"), "祷告")
     n = c.data()["days"][TODAY]["prayer"]["night"]
-    assert n["mode"] == "short" and n["note"] == "编的一句话", n
+    assert n["mode"] == "short" and n["note"] == "编的一句话" and "near" not in n, n
     expect(p.get_by_text("这个月祷告了 1 天")).to_be_visible()
 
 
@@ -289,7 +289,7 @@ def _(c):
     c.sheet().get_by_role("button", name="复制").click()
     assert p.evaluate("navigator.clipboard.readText()") == prompt
     c.sheet().get_by_label("ChatGPT 的小结").fill("感谢：编的\n祈求：编的\n经文：诗篇 23:1")
-    c.sheet().get_by_role("button", name="平常").click()
+    expect(c.sheet().get_by_text("今天离神")).to_have_count(0)
     c.sheet().get_by_role("button", name="记成今晚的祷告").click()
     c.wait(lambda d: d["days"][TODAY]["prayer"]["night"]["mode"] == "chatgpt", "ChatGPT 祷告")
     p.get_by_role("button", name="看到回应").click()
@@ -531,7 +531,7 @@ def _(c):
         expect(c.period("晚上").locator(".it.skipped", has_text="今天不打了")).to_be_visible()
 
 
-@step("定期打理：到日子出现在今天，点做了")
+@step("定期打理：到日子出现在今天，点做了；前一天预告；入口在「生活」")
 def _(c):
     p = c.page
     c.go("#/")
@@ -544,6 +544,18 @@ def _(c):
     c.sheet().get_by_label("几天一次").fill("10")
     c.sheet().get_by_role("button", name="好了").click()
     c.wait(lambda d: any(x["name"] == "编的打理" and x["every"] == 10 for x in d["periodic"]), "加定期")
+    # 前一天先说一声；其他时候不出现；入口在「生活」里，不在形象页
+    p.locator(".per-row", has_text="编的打理").locator(".per-main").click()
+    c.sheet().get_by_label("上次做").fill((datetime.fromisoformat(TODAY) - timedelta(days=9)).date().isoformat())
+    c.sheet().get_by_role("button", name="好了").click()
+    c.wait(lambda d: next(x for x in d["periodic"] if x["name"] == "编的打理")["last"], "改上次")
+    c.go("#/")
+    expect(p.locator(".alert-line", has_text="明天该编的打理了")).to_be_visible()
+    expect(p.locator(".alert-line", has_text="剪指甲")).to_have_count(0)
+    c.go("#/more")
+    expect(p.get_by_role("link", name="定期打理")).to_be_visible()
+    c.go("#/look")
+    expect(p.locator(".section-title", has_text="定期打理")).to_have_count(0)
 
 
 @step("形象：我的东西从物品档案读、我学到的卡片")

@@ -81,6 +81,10 @@ export function migrate(data) {
   data.look = { ...d.look, ...(data.look || {}) };
   data.notes ||= [];
   data.periodic ||= d.periodic;
+  data.periodic = data.periodic.filter((p) => p.name !== '擦鞋'); // 2026-10-06 擦鞋改成每天早上打卡
+  if (data.look.steps['g-clothes'] && !data.look.routine.some((r) => r.step === 'g-clothes' && r.name === '擦鞋')) {
+    data.look.routine.push({ id: `r-g-clothes-${data.look.routine.length}`, step: 'g-clothes', name: '擦鞋', when: 'am' });
+  }
   data.weeks ||= {};
   data.prayer = { ...d.prayer, ...(data.prayer || {}) };
   data.private = { ...d.private, ...(data.private || {}) };
@@ -165,12 +169,15 @@ export function readyForHabit(data, stepId, today) {
 
 // ---------- 定期打理 ----------
 
+// 到日子了的（没做就一直在，直到点「做了」，从那天重新数）
 export function periodicDue(data, today) {
   return data.periodic
     .map((p) => ({ ...p, left: p.last ? p.every - daysBetween(p.last, today) : 0 }))
     .filter((p) => p.left <= 0)
     .sort((a, b) => a.left - b.left);
 }
+// 明天到日子的：前一天先说一声
+export const periodicTomorrow = (data, today) => data.periodic.filter((p) => p.last && p.every - daysBetween(p.last, today) === 1);
 
 // ---------- 事件 ----------
 

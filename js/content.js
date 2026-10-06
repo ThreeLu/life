@@ -115,9 +115,9 @@ export const STEPS = [
   {
     id: 'g-clothes', track: 'grace', name: '衣服整洁、颜色柔和',
     why: '衣服平整、没有球、鞋干净，比衣服贵不贵重要得多。温柔书卷气的颜色是米白、燕麦色、浅灰、雾紫、藏青；料子是棉麻、针织、衬衫。',
-    how: ['衣服洗完挂起来晾，皱了用挂烫机或蒸汽熨斗过一下。', '起球了用去球器打一打。', '鞋两周擦一次，白鞋脏了马上擦。', '买新衣服时先想：和这几种颜色搭不搭。'],
+    how: ['衣服洗完挂起来晾，皱了用挂烫机或蒸汽熨斗过一下。', '起球了用去球器打一打。', '出门前擦一下鞋，白鞋脏了马上擦。', '买新衣服时先想：和这几种颜色搭不搭。'],
     buy: '去球器 ¥20–40；挂烫机 ¥80–200（可以以后再买）',
-    periodic: [{ name: '擦鞋', every: 14 }],
+    routine: [{ name: '擦鞋', when: 'am' }],
   },
   {
     id: 'g-hair', track: 'grace', name: '柔和的发型',
@@ -230,7 +230,6 @@ export const THANKS_HINTS = ['谢谢你今天保守我平安。', '谢谢你今�
 export const CONFESS_HINT = '主，今天我在＿＿上没有做好，求你赦免我，帮助我明天改变。';
 export const ASK_HINT = '主，我把＿＿交在你手里，求你按你的心意带领。';
 export const ENTRUST_HINT = '主，明天的事我交给你，求你给我智慧和平安。';
-export const NEAR = { near: '近了', same: '平常', far: '远了' };
 
 export const PRAYER_ABOUT = '我想和神更亲近，正在养成每天睡前祷告的习惯。';
 export function prayerPrompt({ verse, items, plan, about = PRAYER_ABOUT }) {

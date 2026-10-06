@@ -17,7 +17,7 @@
 { version, startDate,
   settings: { rhythmDays, checks, bibleVersion, bibleVersionEn?, sportKinds, drinkKinds, pin: { salt, iter, hash }, city?: { name, lat, lon, districts: [] } },
   days: { 日期: { mood 1–10, note, energy 1–5, stress 1–5, did, plan, planDone: yes|part|no,
-                  sleep: { bed, wake, q }, fetch: { mid, eve }（打水）, affirm（默念了）, care: { 打卡项id: true }, prayer: { night: { at, mode, near, note, summary }, morning: { at } }, read, readBook } },
+                  sleep: { bed, wake, q }, fetch: { mid, eve }（打水）, affirm（默念了）, care: { 打卡项id: true }, prayer: { night: { at, mode, note, summary }, morning: { at } }, read, readBook } },
   events: [{ id, day, at, type: shower|sport|drink|english|p|p2, kind?, minutes?, km?, level?, note?, mode?, topic?, mistakes?, exprs?, score?, flag?, checks?: { c1, c2, c3 } }],
   look: { direction: [refined|bookish|clean|crisp], steps: { 步骤id: { status: learning|habit, since, habitAt } },
           routine: [{ id, step, name, when: am|pm|shower|week, times?, optional? }], products: { 物品档案id: { opened, verdict, note } }, hide: [物品档案id],
@@ -42,7 +42,8 @@
 - **一天从凌晨 4 点开始**（`dayKey`）。周从周一开始，`weeks` 的键是周一。
 - 形象路线图 `STEPS`（content.js）：护肤 / 化妆 / 气质三条线，开始学（`startStep`）把这一步的 `routine` 打卡项和 `periodic` 定期提醒加进来，不学了（`stopStep`）拿掉。学满 21 天、15 天以上做到 → 问「算养成了吗」（`readyForHabit`）。「喷香水」在化妆这条线（id 仍是 `g-scent`，老数据兼容）。
 - 「我的东西」读物品档案里「洗漱护肤」类的物品（只读），开封日期、好不好用存在 `look.products`。
-- 祷告分 3 个阶段（`STAGES`），满 4 周问要不要进下一步（`stageReady`）。带着祷告 `#/pray/go?m=short|full|morning` 一步一页；主祷文、经文是新标点和合本（对照 Bible App 版本 48 核对过）。和 ChatGPT 祷告 / 英语陪练的提示词在 content.js（`prayerPrompt`、`englishPrompt`），网页填好当天的内容给用户复制。
+- 定期打理（`#/periodic`，入口在「生活」页，不在形象页）：做了从那天重新数；到期后每天出现在「今天」直到点「做了」（`periodicDue`），前一天出现「明天该……了」（`periodicTomorrow`），其余时候不出现，不推送（用户 2026-10-06 定）。擦鞋是每天早上的打卡（`g-clothes` 的 routine），`migrate` 会拿掉老的「擦鞋」定期项。
+- 祷告分 3 个阶段（`STAGES`），满 4 周问要不要进下一步（`stageReady`）。带着祷告 `#/pray/go?m=short|full|morning` 一步一页；主祷文、经文是新标点和合本（对照 Bible App 版本 48 核对过）。祷告完只记一句话（可以不写），**不问「近了 / 远了」**（用户 2026-10-06 说奇怪，旧数据已删）。和 ChatGPT 祷告 / 英语陪练的提示词在 content.js（`prayerPrompt`、`englishPrompt`），网页填好当天的内容给用户复制。
 - 读经可以换卷（`BIBLE_BOOKS`、`readingToday`、`markRead`）：诗篇一天一篇（119 篇拆 4 天，进度 `prayer.next`），箴言按几号读第几章，其他一天一章（`prayer.pos`）。链接 bible.com（48 = 新标点和合本简体神版，`bibleVersionEn` 116 = NLT）。
 - 鼓励（用户要求「让我感到自信、有激励」）：首页每天一句（`CHEERS` / `CHEER_VERSES`）、做完一件事一句（`CHEER_ON`、`cheerNight` 按心情）、「这周的你」只数做到的（`weekHighlights`）、里程碑（`MILESTONE_TEXT`，首页祝贺 3 天）、状态不对轻轻提一句（`gentleNote`）。温和具体，不喊口号、不说教。
 - 小记（`#/p`，首页右上角叶子图标）：单独 6 位密码，PBKDF2 哈希存 `settings.pin`，离开网站就锁。**这一页的文字（名字、按钮、勾选项、说明）都在 `private.ui`，公开代码里只有中性默认值（`P_DEFAULT`），不要把具体用途写进代码、提交说明或这份文件。** 只做中性记录和统计，不要「减少 / 坚持天数」之类；节奏只在这一页提，不推送；别的页面不出现（「问问我的记录」只在这一页开着锁时才带上它的数字）。忘了密码：在数据仓库里删掉 `settings.pin` 让用户重设。这一页还有按周解锁的任务（`programWeek` / `weekTasks`，每周一换；超过最后一周就是最后一周 + 自己写的）和计时的一段时间 `#/p/s`（开始前安全提醒 → 任务一张一张做或跳过，含「绝对不要」里的字的任务不出现 → 收尾清单 + 感受），任务文字里 `{3-6}` 随机整数、`{甲|乙}` 随机选一个（`fillText`，同一次时间里不变）；每次开始抽一个情景；收尾有得分（做到的按强度 10/20/30），全做到抽奖励卡、跳过两张以上抽惩罚卡（可以不做）；任务可以带 `rule`（做到了加进规矩手册 `private.rules`），track 有 a / b / c（显示名 `ui.trackA/B/C`），`{称呼}` 换成 `private.callNames`、`{求}` 换成 `private.begs` 里随机一个（都是用户自己写的）；一段时间里可以开语音（浏览器中文朗读，建议耳机；声音、语速、音调在小记页面选，存在这台设备的 localStorage `life-voice`，默认挑女声；任务和突击检查前后会随机加 `private.voiceLines.before/after` 里的一句）、黑暗模式（body.dark-session），任务里出现「N 分钟 / N 秒」就有计时按钮，突击检查按 `checkEvery` 随机出现；等级按累计得分（`levels`）；以及 `privateNote`（这周次数超过 `perWeek`、最近几次结束后心情低、老超时 → 只在这一页轻轻提）。任务内容只写在私有仓库。
@@ -71,4 +72,4 @@
 1. ✅ 骨架、今天、形象、祷告、小记、英语提示词、22:30 推送。
 2. ✅ 鼓励的话和里程碑、生病模式、换季提醒、英语错句本表达本和复习、读经换卷。
 3. ✅ 想去的地方（地图、按区、足迹、周末去哪）、分析（什么在影响我、走势、作息、规律、回顾、问问我的记录）。
-4. 爱好：还没和用户聊。
+4. 爱好：2026-10-06 聊过，用户决定不做。

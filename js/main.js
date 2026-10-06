@@ -2,7 +2,7 @@ import { GitHub } from './github.js';
 import { Store, newId, diff, apply as applyPatch } from './store.js';
 import {
   defaultData, dayKey, addDays, daysBetween, weekOf, weekLabel, hm, parseDay, WHEN, routineOf, careDone, weekCount,
-  startStep, stopStep, stepStatus, nextStep, readyForHabit, periodicDue, eventsOn, privateStats,
+  startStep, stopStep, stepStatus, nextStep, readyForHabit, periodicDue, periodicTomorrow, eventsOn, privateStats,
   prayedOn, prayerStats, stageReady, readingToday, markRead, bibleLink, programWeek, weekTasks, privateNote, fillText, pickOne, sessionPoints,
   dailyCheer, weekHighlights, newMilestones, careFullDay, showeredOn, careSkipped,
   sickActive, recoveryLeft, tempStats, medInfo, doseStatus, medConflicts, seasonWarning,
@@ -12,7 +12,7 @@ import {
 } from './life.js';
 import {
   TRACKS, STEPS, stepById, DIRECTIONS, SKIN_TAGS, VERSES, MORNING_VERSES, CONFESS_VERSE, verseFor, LORDS_PRAYER,
-  STAGES, PRAISE_HINTS, THANKS_HINTS, CONFESS_HINT, ASK_HINT, ENTRUST_HINT, NEAR, prayerPrompt,
+  STAGES, PRAISE_HINTS, THANKS_HINTS, CONFESS_HINT, ASK_HINT, ENTRUST_HINT, prayerPrompt,
   EN_MODES, EN_CYCLE, EN_TOPICS, englishPrompt,
   CHEER_ON, cheerNight, MILESTONE_TEXT, SICK_KINDS, SYMPTOMS, LOW_KINDS, LOW_VERSES, HOTLINES, SELF_LINES, RED_FLAGS, FEVER_FROM, BIBLE_BOOKS,
 } from './content.js';
@@ -158,9 +158,9 @@ const routes = [
 ];
 const NAV_GROUPS = {
   '/': [/^\/?$/, /^\/day\//, /^\/night/, /^\/sick$/],
-  '/look': [/^\/look/, /^\/step\//, /^\/periodic/],
+  '/look': [/^\/look/, /^\/step\//],
   '/pray': [/^\/pray/, /^\/low/],
-  '/more': [/^\/more/, /^\/english/, /^\/history/, /^\/settings/, /^\/places?/, /^\/stats/, /^\/report/, /^\/ask/, /^\/sick\/book/],
+  '/more': [/^\/more/, /^\/english/, /^\/history/, /^\/settings/, /^\/places?/, /^\/stats/, /^\/report/, /^\/ask/, /^\/sick\/book/, /^\/periodic/],
 };
 
 function setupNav() {
@@ -433,6 +433,8 @@ function alertRows(today) {
       const x = data.periodic.find((y) => y.id === p.id); if (x) x.last = today;
     }, '好了').then(render).catch(() => {}) }, '做了') }));
   } else if (due.length > 1) out.push(alertLine(`该打理了：${due.map((p) => p.name).join('、')}`, { href: '#/periodic' }));
+  const soon = periodicTomorrow(d, today);
+  if (soon.length) out.push(alertLine(`明天该${soon.map((p) => p.name).join('、')}了`, { href: '#/periodic', tone: 'soft' }));
   const lowRecent = [today, addDays(today, -1)].some((x) => d.days[x]?.mood && d.days[x].mood <= 3) && !d.low.log.some((x) => x.day >= addDays(today, -1));
   const gn = gentleNote(d, today);
   if (lowRecent || gn) out.push(alertLine(lowRecent ? '这两天心情有点低' : gn, lowRecent || /心情/.test(gn) ? { href: '#/low', tone: 'soft' } : { tone: 'soft' }));
@@ -478,7 +480,7 @@ function periodList(day, p) {
     careItem(list, day, 'pm', '晚上护肤');
     careItem(list, day, 'week', '这周', null, false);
     item('night', Boolean(r.mood || r.note), '睡前复盘', r.mood ? `心情 ${r.mood}${r.note ? ` · ${r.note}` : ''}` : '心情、一句话、科研、明天', { href: day === dayKey() ? '#/night' : `#/night?d=${day}` });
-    if (day === dayKey()) item('prayer', Boolean(r.prayer?.night), '祷告', r.prayer?.night ? NEAR[r.prayer.night.near] || '祷告了' : '22:30', { href: '#/pray/go' });
+    if (day === dayKey()) item('prayer', Boolean(r.prayer?.night), '祷告', r.prayer?.night ? '祷告了' : '22:30', { href: '#/pray/go' });
   }
   return list;
 }
@@ -839,7 +841,7 @@ function careCardInline(day, when) {
 // ---------- 形象 ----------
 
 const LOOK_HELP = [
-  ['这一页是什么', ['你的形象档案：方向、路线图、用的东西、学到的知识、定期打理。它会跟着你慢慢长大，不用一次填满。']],
+  ['这一页是什么', ['你的形象档案：方向、路线图、用的东西、学到的知识。它会跟着你慢慢长大，不用一次填满。']],
   ['路线图怎么用', [
     '分护肤、化妆、气质三条线，每条从上往下一样一样来，一次只加一样（万一过敏或爆痘，马上知道是哪样惹的）。',
     '点一步看：为什么要做、买什么（大概多少钱）、怎么做。想好了点「开始学」，它的打卡项就进到「今天」里。',
@@ -864,14 +866,7 @@ function lookView() {
     Object.entries(TRACKS).map(([track, name]) => trackCard(track, name, today)),
     skinWeekCard(today),
     productsCard(),
-    notesCard(),
-    h('div', { class: 'section-title' }, '定期打理'),
-    h('div', { class: 'group' },
-      d.periodic.map((p) => cell({ href: '#/periodic', title: p.name, meta: p.last ? nextDueText(p, today) : '还没记过' }))));
-}
-function nextDueText(p, today) {
-  const left = p.every - daysBetween(p.last, today);
-  return left <= 0 ? '该做了' : `${left} 天后`;
+    notesCard());
 }
 
 // 「我是这样的人」：句子（可以改）、这周投的票、精致时刻
@@ -1120,7 +1115,7 @@ function periodicView() {
   const due = withLeft.filter((x) => x.left <= 0).sort((a, b) => a.left - b.left).map((x) => x.p);
   const later = withLeft.filter((x) => x.left > 0).sort((a, b) => a.left - b.left).map((x) => x.p);
   return h('div', {},
-    headerSub('定期打理', '到日子了会出现在「今天」', helpButton('定期打理怎么用', [['怎么用', ['到了该做的日子，「今天」页会出现这一项，点「做了」就从那天重新算。', '点一项可以改名字、几天一次、上次是哪天；也可以自己加，比如洗枕头、擦眼镜。', '「形象」里开始学修眉这类步骤时，会自动加上对应的一项。']]])),
+    headerSub('定期打理', '到日子了会出现在「今天」', helpButton('定期打理怎么用', [['怎么用', ['平时不打扰你：前一天「今天」页会说一声「明天该……了」；到了日子出现在「今天」，没做就每天都在，点「做了」就从那天重新数。', '点一项可以改名字、几天一次、上次是哪天；也可以自己加，比如洗枕头、擦眼镜。', '「形象」里开始学修眉这类步骤时，会自动加上对应的一项。']]])),
     due.length ? [h('div', { class: 'section-title' }, `该做了（${due.length}）`), h('div', { class: 'card list-card' }, due.map((p) => periodicRow(p, today, edit)))] : null,
     later.length ? [h('div', { class: 'section-title' }, '还早'), h('div', { class: 'card list-card' }, later.map((p) => periodicRow(p, today, edit)))] : null,
     h('button', { class: 'secondary wide', onclick: () => edit() }, '＋ 加一项'));
@@ -1163,7 +1158,7 @@ function prayView() {
     headerSub('祷告', `第 ${d.prayer.stage} 阶段 · ${stage.name}`, helpButton('祷告怎么用', PRAY_HELP)),
     h('div', { class: 'card pray-card' },
       h('p', { class: 'small' }, stage.text),
-      tonight ? h('p', { class: 'good-text' }, `今晚祷告了 · ${NEAR[tonight.near] || '记下了'}${tonight.note ? `：${tonight.note}` : ''}`) : null,
+      tonight ? h('p', { class: 'good-text' }, `今晚祷告了${tonight.note ? `：${tonight.note}` : ''}`) : null,
       h('a', { class: 'button wide', href: '#/pray/go' }, icon('candle'), tonight ? '再祷告一次' : '开始祷告'),
       d.prayer.stage < 3 ? h('a', { class: 'link small center block', href: '#/pray/go?m=full' }, '用完整版') : null,
       h('button', { class: 'secondary wide', onclick: chatgptPraySheet }, '和 ChatGPT 一起祷告')),
@@ -1208,7 +1203,7 @@ function weekCard(today) {
     h('button', { class: 'small secondary', onclick: saveThanks, style: 'margin-top:8px' }, '存好感恩'),
     h('p', { class: 'small muted' }, `这周祷告了 ${nights.length} 晚，读经 ${reads} 篇。`),
     nights.filter((x) => x.p.note || x.p.summary).map((x) => h('div', { class: 'small night-note' },
-      h('span', { class: 'muted' }, `${dayLabel(x.day)} · ${NEAR[x.p.near] || ''}　`), x.p.note || x.p.summary)));
+      h('span', { class: 'muted' }, `${dayLabel(x.day)}　`), x.p.note || x.p.summary)));
 }
 
 function itemsCard() {
@@ -1284,20 +1279,16 @@ function chatgptPraySheet() {
   const box = h('textarea', { rows: 8, readonly: true, class: 'prompt-box', 'aria-label': '祷告提示词' });
   box.value = text;
   const back = h('textarea', { rows: 4, placeholder: '祷告完，把 ChatGPT 最后写的小结（感谢 / 祈求 / 经文）贴在这里', 'aria-label': 'ChatGPT 的小结' });
-  let near = null;
-  const nRow = h('div', {});
-  const draw = () => nRow.replaceChildren(choiceRow('今天和神', Object.entries(NEAR), near, (v) => { near = v; draw(); }));
-  draw();
   openSheet({
     title: '和 ChatGPT 一起祷告',
     body: h('div', { class: 'form' },
       h('ol', { class: 'small steps' }, h('li', {}, '点「复制」，打开 ChatGPT，新开一个对话粘贴发送。'), h('li', {}, '点右下角的语音按钮，跟着它祷告。'), h('li', {}, '结束后回到文字，把它写的小结复制，贴到下面。')),
       box, h('button', { class: 'secondary small', onclick: () => copyText(text) }, icon('copy'), '复制'),
-      h('div', { class: 'label-sm' }, '祷告完：'), back, h('div', { class: 'label-sm' }, '今天离神'), nRow),
+      h('div', { class: 'label-sm' }, '祷告完：'), back),
     confirmText: '记成今晚的祷告',
     onConfirm: () => saveRender('祷告（和 ChatGPT）', (data) => {
       const p = (dayOf(data, today).prayer ||= {});
-      p.night = { at: nowIso(), mode: 'chatgpt', ...(near ? { near } : {}), ...(back.value.trim() ? { summary: back.value.trim() } : {}) };
+      p.night = { at: nowIso(), mode: 'chatgpt', ...(back.value.trim() ? { summary: back.value.trim() } : {}) };
     }).then((ok) => ok && toast(CHEER_ON.prayer)),
   });
 }
@@ -1357,16 +1348,12 @@ function finishMorning(today) {
   return [h('h2', { class: 'pray-title' }, '去过今天吧'), h('button', { class: 'wide', onclick: done }, '好')];
 }
 function finishNight(today, m) {
-  let near = null;
-  const nRow = h('div', {});
   const note = h('textarea', { rows: 3, placeholder: '想写的话写一两句（可以不写）', 'aria-label': '祷告后的一句话' });
-  const draw = () => nRow.replaceChildren(choiceRow('今天离神', Object.entries(NEAR), near, (v) => { near = v; draw(); }));
-  draw();
   const done = () => saveRender('祷告', (data) => {
     const p = (dayOf(data, today).prayer ||= {});
-    p.night = { at: nowIso(), mode: m, ...(near ? { near } : {}), ...(note.value.trim() ? { note: note.value.trim() } : {}) };
+    p.night = { at: nowIso(), mode: m, ...(note.value.trim() ? { note: note.value.trim() } : {}) };
   }).then((ok) => { if (!ok) return; prayState.key = ''; toast(CHEER_ON.prayer); go('#/pray'); });
-  return [h('h2', { class: 'pray-title' }, '今天离神'), nRow, note, h('button', { class: 'wide', onclick: done }, '完成')];
+  return [h('h2', { class: 'pray-title' }, '想写点什么吗'), note, h('button', { class: 'wide', onclick: done }, '完成')];
 }
 
 // ---------- 英语陪练 ----------
@@ -2145,7 +2132,7 @@ function recordContext() {
       ev.filter((e) => e.type === 'sport').map((e) => `运动${e.kind}${e.minutes ? `${e.minutes}分` : ''}`).join(' '),
       ev.filter((e) => e.type === 'drink').map((e) => `${e.kind}@${hm(e.at)}`).join(' '),
       careFullDay(d, day) ? '护肤做完' : Object.keys(r.care || {}).length ? '护肤做了一部分' : '',
-      r.prayer?.night ? `祷告(${NEAR[r.prayer.night.near] || ''})` : '', r.read !== undefined ? '读经' : '',
+      r.prayer?.night ? '祷告' : '', r.read !== undefined ? '读经' : '',
       r.note ? `「${r.note}」` : '', r.did ? `科研:${r.did}` : '', r.planDone ? `计划${{ yes: '做到', part: '部分', no: '没做' }[r.planDone]}` : '',
     ].filter(Boolean);
     if (parts.length) lines.push(`${day} ${parts.join('，')}`);
@@ -3491,6 +3478,8 @@ function moreView() {
     h('div', { class: 'group' },
       cell({ href: '#/stats', ic: 'chart', color: 'var(--blue)', title: '分析和回顾', sub: '什么在影响我、作息、周报月报' }),
       cell({ href: '#/history', ic: 'list', color: 'var(--amber)', title: '最近的记录', sub: '这周的你、一年前的今天' })),
+    h('div', { class: 'group' },
+      cell({ href: '#/periodic', ic: 'calendar', color: 'var(--muted)', title: '定期打理', sub: '剪指甲、换床单这些，到日子才出现' })),
     h('div', { class: 'group' },
       cell({ href: '#/settings', ic: 'gear', color: 'var(--muted)', title: '设置' })));
 }
