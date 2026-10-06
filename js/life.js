@@ -63,6 +63,7 @@ export function defaultData(today) {
     places: [], // 想去的地方，见 places.js
     letters: {}, // DeepSeek 写的回顾：{ w周一 / m月份 / y年份: { at, text, research } }
     goals: [], // 想做到的事，见下面「想做到的事」
+    people: [], // 身边的人，见 people.js
   };
 }
 
@@ -98,6 +99,7 @@ export function migrate(data) {
   data.places ||= [];
   data.letters ||= {};
   data.goals ||= [];
+  data.people ||= [];
   return data;
 }
 

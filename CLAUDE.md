@@ -33,8 +33,9 @@
           history: [同上 + end, helped: [觉得管用的], how], plans: { kind: [一行一件事] }, meds: { 物品档案id: { dose, gapHours, perDay } } },
   english: { cards: [{ id, kind: mistake|expr, front, back, type?, cn?, at, due, level, seen }], next },
   milestones: { key: 日期, seen: { key: true } },
-  places: [{ id, name, kind: spot|walk|shop|food|show|museum|other, district, address?, why, link, cost, season, want 1–3, lat, lng（高德坐标 GCJ-02）, at, visits: [{ id, day, score, note, photo? }] }],
+  places: [{ id, name, kind: spot|walk|shop|food|show|museum|other, district, address?, why, link, cost, season, want 1–3, lat, lng（高德坐标 GCJ-02）, at, visits: [{ id, day, score, with?: [人 id], note, photo? }] }],
   letters: { w周一 | m月份 | y年份: { at, text, research } },
+  people: [{ id（和账本 people 同一个）, name, groups: [主要的档, …]（family|relative|primary|middle|high|college|grad）, rel, how, birthday?: { cal: solar|lunar, m, d, y? }, likes, note, log: [{ id, day, text, favor? }], at, archived?, archiveNote? }],
   goals: [{ id, wish, title, status: talking|active|done|dropped, at, chat, why, key, note, stages: [{ id, title, tasks: [{ id, text, done: 日期|null, buy?: { name, price, query }, wishId? }] }], habits: [{ id, text, perWeek }], doneAt?, droppedAt? }] }
 ```
 
@@ -55,11 +56,12 @@
 - 想去的地方（`#/places`、`#/place/:id`，js/places.js）：新建时第一个框什么都能放（2026-10-06）：小红书 / 大众点评 / 美团 / 高德的分享、「店名 + 地址」、一句话；`parseShare` 只认小红书标题和别的 App 里括起来的店名，认不出就留空；「一键补全」（DeepSeek）（`findPlace(name, text)`，用户点了才问，链接不发）认出是哪里，给名字（名字是用户自己写的就不换）、类型、区、地址、高德坐标，有地址按地址定位。**不填人均、营业时间**（用户不要），`cleanCandidates` 只留已有的类型和区、离城市 80 公里以外的坐标不要；连锁店列出每一家，地图标号勾选，新建时勾几家就分开记几个；坐标是估计的，提示用户在地图上核对；地图是 Leaflet（`vendor/leaflet`，按需加载）+ 高德底图（不用密钥），坐标存高德坐标，手机定位用 `wgsToGcj` 转；按区（`settings.city.districts`）、足迹、去过可以打分写话放照片（压缩后存数据仓库 `photos/places/`）。周末去哪（`weekendPicks`）只从自己写的地方挑，周五到周日首页出现，周末下雨先推室内的，周五睡前推送也带上（python 里同样的规则 `weekend_picks`）。
 - 分析（`#/stats`，js/stats.js、js/charts.js）：什么在影响我（`influences`：做了 vs 没做，心情记满 21 天才给结论，天数少标「还不太可靠」；天气用 Open-Meteo 历史接口，花钱读账本），走势、作息、规律、护肤完成率、计划完成率、生病前一周。回顾 `#/report?k=week|month|year`：数字 + DeepSeek 写一段存 `letters`（月报加科研回顾）。问问我的记录 `#/ask`：DeepSeek 读最近 60 天，聊天只在内存。DeepSeek 密钥读物品档案仓库 `config/ai.json`。
 - 想做到的事（`#/goals`、`#/goal/:id`，入口在「生活」页，2026-10-06）：写一句心愿 → 复制 `goalPrompt`（content.js）和 ChatGPT **语音**聊，说「整理一下」写固定格式小结 → 贴回来 → DeepSeek（`goalPlan`）拆成 2–4 阶段、每阶段 2–5 件能勾掉的小事、每周习惯、要买的东西（`buy.query` 搜索词）→ `applyGoalPlan` 存（重新整理时同样文字的事保留「做了」）。DeepSeek 带上物品档案（`goalInventory`：衣服鞋子写风格季节穿的次数备注，看不了照片；其他东西只写名字类别）和账本里没买的心愿。要买的：小红书 / 淘宝搜索链接；「放进心愿单」确认名字价格后直接提交到账本仓库 finance.json 的 `wishes`（`addLedgerWish`，记 `wishId`）。首页每个在做的目标一行进度（`goalLines`），周报有一张卡（`goalWeekCard`），做到了 3 天内首页里程碑（`goal-<id>` 记在 `milestones.seen`）。不推送。
+- 身边的人（`#/people`、`#/person/:id`、`/new`、`/edit`，js/people.js，入口在「生活」页，2026-10-06）：只记名字（不记昵称、手机号、微信）；分组（`PEOPLE_GROUPS`）家人、亲戚、小学、初中、高中、本科、研究生，一个人可以在几档、第一个是主要的；关系 `rel`（家人亲戚写具体称呼，研究生写导师 / 师兄师姐 / 同门 / 同事……，`relChoices`）；生日公历或农历（`js/cal.js`，和账本同一份），年份可空，前一天和当天「今天」里一行；新建时写一段话「一键补全」（`personFromText`，DeepSeek 只填说到的）；来往时间线（`timeline`：自己记的 `log`、想去的地方里 `with` 他的、账本里的人情和钱）；「记成人情」/「记一个人情」直接提交账本 `favors`；「想想送什么」（`giftIdeas`）→ 小红书 / 淘宝搜索、放进账本心愿单（`kind: gift`，`targetDate` 下一次生日）；不再来往的归档不删（`archived`，列表最下面），因为以后聊天会提到。**不要**远近圈、关系打分、关系图、很久没联系提醒、周回顾里的来往（用户说的）。和账本名单：`syncPeople` 打开时把账本里新加的人搬过来（还没分组，同名的认成同一个），名字和归档写到账本（`ledgerSync`）；账本那边不改名字。节假日人情（`peopleAlerts`）：放假前一天到假期结束，「今天」里问欠的人情这次还不还（写账本 `favors` 的 `plan` / `skip`，规则和账本 `holidayFavors` 一样）。改账本统一用 `updateLedger`；读账本缓存 5 分钟 `ledgerSnap`。
 - 推送：`tools/life_push.py`（公开，规则可测：`tests/test_push.py`），数据仓库 `.github/workflows/push.yml` 每晚 22:31 / 22:43 / 22:57（睡前）、白天 10–20 点每 2 小时（只在生病时：喝水、发烧量体温）和打水的时间下载它运行，`config/push-sent.json` 保证不重复；私钥在 life-data 的 secret `VAPID_PRIVATE_KEY`，公钥在 `js/push.js`（和账本、物品档案不是一对）。推送文字只写「睡前」「照顾自己」这类看不出私事的话。
 
 ## 代码
 
-- `js/life.js` 纯计算；`js/places.js` 想去的地方；`js/stats.js` 分析；`js/charts.js` SVG 图表；`js/ai.js` DeepSeek；`js/content.js` 写死的内容；`js/store.js`、`github.js`、`util.js`、`icons.js` 和账本同一套（先存手机、后台上传）；`js/main.js` 路由和页面。语法检查 `node --input-type=module --check < js/main.js`。
+- `js/life.js` 纯计算；`js/places.js` 想去的地方；`js/people.js` 身边的人；`js/cal.js` 节假日、农历、生日（和账本同一份）；`js/stats.js` 分析；`js/charts.js` SVG 图表；`js/ai.js` DeepSeek；`js/content.js` 写死的内容；`js/store.js`、`github.js`、`util.js`、`icons.js` 和账本同一套（先存手机、后台上传）；`js/main.js` 路由和页面。语法检查 `node --input-type=module --check < js/main.js`。
 - `h()` 的子元素传数组没问题，但 `replaceChildren` 要展开（`...`）并去掉 null。
 
 ## 测试

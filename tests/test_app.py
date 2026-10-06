@@ -1100,6 +1100,129 @@ def _(c):
     expect(p.locator(".goal-line")).to_have_count(0)
 
 
+@step("身边的人：账本里的人搬过来、一段话一键补全、主要的档、来往、记成人情（进账本）、想想送什么进心愿单、改名同步账本、生日和节假日人情在今天、和谁去的地方、归档")
+def _(c):
+    p = c.page
+    sh = c.sheet()
+    f = json.loads(LEDGER.read("finance.json"))
+    f.setdefault("people", []).append({"id": "p-led", "name": "编的甲"})
+    LEDGER.external_write("finance.json", json.dumps(f, ensure_ascii=False).encode())
+    c.go("#/more")
+    p.get_by_role("link", name="身边的人").click()
+    expect(p.locator(".section-title", has_text="还没分组")).to_be_visible()
+    expect(p.locator(".cell", has_text="编的甲")).to_be_visible()
+    c.wait(lambda d: any(x["id"] == "p-led" and x["groups"] == [] for x in d["people"]), "账本里的人搬过来")
+    # 一段话一键补全
+    p.get_by_role("link", name="加一个人").click()
+    p.get_by_label("写一段话").fill("编的乙，本科同学，后来是研究生同门，喜欢喝茶，农历八月十五生日")
+    p.get_by_role("button", name="一键补全").click()
+    expect(p.get_by_label("名字", exact=True)).to_have_value("编的乙")
+    groups = p.get_by_role("group", name="分组")
+    expect(groups.get_by_role("button", name="本科 · 主要")).to_have_attribute("aria-pressed", "true")
+    expect(groups.get_by_role("button", name="研究生")).to_have_attribute("aria-pressed", "true")
+    p.get_by_role("group", name="主要的档").get_by_role("button", name="研究生").click()
+    expect(groups.get_by_role("button", name="研究生 · 主要")).to_be_visible()
+    p.get_by_role("group", name="关系").get_by_role("button", name="同门").click()
+    expect(p.get_by_role("group", name="公历还是农历").get_by_role("button", name="农历")).to_have_attribute("aria-pressed", "true")
+    expect(p.get_by_label("喜欢什么")).to_have_value("编的喜欢喝茶")
+    p.get_by_role("button", name="存好").click()
+    c.wait(lambda d: any(x["name"] == "编的乙" for x in d["people"]), "存好一个人")
+    me = next(x for x in c.data()["people"] if x["name"] == "编的乙")
+    assert me["groups"] == ["grad", "college"] and me["rel"] == "同门" and me["birthday"] == {"cal": "lunar", "m": 8, "d": 15}, me
+    pid = me["id"]
+    for _ in range(50):
+        if any(x["id"] == pid for x in json.loads(LEDGER.read("finance.json"))["people"]):
+            break
+        p.wait_for_timeout(200)
+    assert any(x["id"] == pid and x["name"] == "编的乙" for x in json.loads(LEDGER.read("finance.json"))["people"]), "名单同步到账本"
+    expect(p.locator(".person-card")).to_contain_text("农历八月十五")
+    # 来往 → 记成人情
+    p.get_by_role("button", name="记一笔来往").click()
+    sh.get_by_label("发生了什么").fill("编的帮我改论文")
+    sh.get_by_role("button", name="存好").click()
+    expect(p.locator(".tl-row", has_text="编的帮我改论文")).to_be_visible()
+    p.locator(".tl-row", has_text="编的帮我改论文").get_by_role("button", name="记成人情").click()
+    expect(sh.get_by_role("group", name="谁欠谁").get_by_role("button", name="我欠他")).to_have_attribute("aria-pressed", "true")
+    sh.get_by_label("哪天").fill("2026-09-01")
+    sh.get_by_role("button", name="记好了").click()
+    expect(p.locator(".tl-row.favor", has_text="欠他一个人情")).to_be_visible()
+    fav = json.loads(LEDGER.read("finance.json"))["favors"][-1]
+    assert fav["person"] == pid and fav["dir"] == "owe" and fav["text"] == "编的帮我改论文" and fav["status"] == "open", fav
+    c.wait(lambda d: next(x for x in d["people"] if x["id"] == pid)["log"][0]["favor"] == fav["id"], "来往记上人情")
+    expect(p.locator(".tl-row", has_text="编的帮我改论文").get_by_role("button", name="记成人情")).to_have_count(0)
+    # 想想送什么 → 心愿单（送人）
+    p.get_by_role("button", name="想想送什么").click()
+    gift = p.locator(".gift-card")
+    expect(gift).to_contain_text("编的茶具")
+    assert "编的喜欢喝茶" in LAST_AI[-1]
+    expect(gift.get_by_role("link", name="淘宝")).to_have_attribute("href", re.compile("taobao.com.*%E7%BC%96"))
+    gift.get_by_role("button", name="放进心愿单").click()
+    sh.get_by_role("button", name="放进去").click()
+    expect(gift.get_by_text("在心愿单里了")).to_be_visible()
+    p.wait_for_timeout(500)
+    p.screenshot(path=ART / "person.png", full_page=True)
+    w = json.loads(LEDGER.read("finance.json"))["wishes"][-1]
+    assert w["kind"] == "gift" and w["name"] == "编的茶具" and w["price"] == 88 and w["reason"].startswith("送编的乙"), w
+    # 账本里来的人：分进家人、写妈妈、改名字、生日是明天 → 账本名单跟着改，今天里有生日
+    tomorrow = (datetime.fromisoformat(TODAY) + timedelta(days=1)).date()
+    c.go("#/person/p-led/edit")
+    p.get_by_role("group", name="分组").get_by_role("button", name="家人").click()
+    p.get_by_role("group", name="关系").get_by_role("button", name="妈妈").click()
+    p.get_by_label("名字", exact=True).fill("编的丙")
+    p.get_by_label("生日月").select_option(str(tomorrow.month))
+    p.get_by_label("生日日").select_option(str(tomorrow.day))
+    p.get_by_role("button", name="存好").click()
+    c.wait(lambda d: next(x for x in d["people"] if x["id"] == "p-led")["name"] == "编的丙", "改名")
+    for _ in range(50):
+        if any(x["name"] == "编的丙" for x in json.loads(LEDGER.read("finance.json"))["people"]):
+            break
+        p.wait_for_timeout(200)
+    assert any(x["id"] == "p-led" and x["name"] == "编的丙" for x in json.loads(LEDGER.read("finance.json"))["people"]), "改名同步到账本"
+    c.go("#/")
+    expect(p.locator(".alert-line", has_text="明天是编的丙的生日")).to_be_visible()
+    c.go("#/people")
+    expect(p.locator(".birthday-card")).to_contain_text("编的丙")
+    expect(p.locator(".section-title", has_text="家人（1）")).to_be_visible()
+    expect(p.locator(".section-title", has_text="本科（1）")).to_be_visible()
+    p.wait_for_timeout(500)
+    p.screenshot(path=ART / "people.png", full_page=True)
+    # 和谁一起去的
+    c.write(lambda d: d["places"].append({"id": "pl-friend", "name": "编的公园", "kind": "walk", "visits": [], "at": TODAY}))
+    c.go("#/places")
+    p.reload()
+    p.locator("a", has_text="编的公园").first.click()
+    p.get_by_role("button", name="去过了").click()
+    sh.get_by_role("group", name="和谁一起去的").get_by_role("button", name="编的乙").click()
+    sh.get_by_role("button", name="存好").click()
+    c.wait(lambda d: next(x for x in d["places"] if x["id"] == "pl-friend")["visits"][0]["with"] == [pid], "和谁去的")
+    expect(p.locator(".visit")).to_contain_text("和 编的乙 一起")
+    p.locator(".visit").get_by_role("link", name="编的乙").click()
+    expect(p.locator(".tl-row", has_text="一起去了编的公园")).to_be_visible()
+    # 节假日（国庆前一天）：今天里问欠的人情这次还不还
+    p.clock.set_fixed_time("2026-09-30T12:00:00")
+    c.go("#/")
+    line = p.locator(".alert-line", has_text="明天开始放国庆了")
+    expect(line).to_contain_text("还欠编的乙一个人情：编的帮我改论文")
+    line.get_by_role("button", name="这次还").click()
+    expect(p.locator(".alert-line", has_text="这个假期要还")).to_contain_text("编的乙")
+    assert json.loads(LEDGER.read("finance.json"))["favors"][-1]["plan"] == "2026-国庆"
+    p.clock.set_fixed_time(datetime.now().isoformat(timespec="seconds"))
+    # 归档：不再来往，账本里也标上
+    c.go("#/person/p-led")
+    p.get_by_role("button", name="不再来往了").click()
+    sh.get_by_label("为什么").fill("编的原因")
+    sh.get_by_role("button", name="归档").click()
+    expect(p.get_by_text("起不再来往：编的原因")).to_be_visible()
+    for _ in range(50):
+        if any(x["id"] == "p-led" and x.get("archived") for x in json.loads(LEDGER.read("finance.json"))["people"]):
+            break
+        p.wait_for_timeout(200)
+    assert any(x["id"] == "p-led" and x.get("archived") for x in json.loads(LEDGER.read("finance.json"))["people"]), "归档同步到账本"
+    c.go("#/people")
+    expect(p.locator("details summary", has_text="不再来往的（1）")).to_be_visible()
+    expect(p.locator(".section-title", has_text="家人")).to_have_count(0)
+
+
 def inventory_seed():
     inv = {
         "version": 1, "locations": [{"id": "L1", "name": "洗手池 Sink"}], "tags": ["洗漱护肤", "零食食品"],
@@ -1142,7 +1265,12 @@ def fake_externals(page):
     def ai(route):
         body = route.request.post_data or ""
         LAST_AI.append(body)
-        if "能一步一步做到的目标" in body:
+        if "想送身边的人什么礼物" in body:
+            content = {"ideas": [{"name": "编的茶具", "price": 88, "why": "编的理由", "query": "编的 茶具"}]}
+        elif "整理他身边的人" in body:
+            content = {"name": "编的乙", "groups": ["college", "grad"], "rel": "同学", "birthday": {"cal": "lunar", "m": 8, "d": 15, "y": None},
+                       "how": "", "likes": "编的喜欢喝茶", "note": ""}
+        elif "能一步一步做到的目标" in body:
             content = {"title": "编的目标", "why": "编的为什么", "key": "编的关键", "note": "",
                        "stages": [{"title": "编的第一步", "tasks": [{"text": "编的小事甲"}, {"text": "买一件编的外套", "buy": {"name": "编的外套", "price": 199, "query": "编的 外套 秋季"}}]},
                                   {"title": "编的第二步", "tasks": [{"text": "编的小事乙"}]}],

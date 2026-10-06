@@ -27,10 +27,12 @@ import {
 } from './stats.js';
 import { lineChart, barChart, monthGrid, sleepBars } from './charts.js';
 import { icon } from './icons.js';
+import { PEOPLE_GROUPS, relChoices, mainGroup, upcomingBirthdays, ledgerSync, moneyWith, timeline } from './people.js';
+import { nextBirthday, birthdayText, lunarName, holidayAround, holidayLine } from './cal.js';
 
 const SETTINGS_KEY = 'life-settings';
 const DEFAULT_REPO = 'ThreeLu/life-data';
-const EDITING_ROUTES = /^\/(night|pray\/go|p$|p\/s|english|place\/|ask)/;
+const EDITING_ROUTES = /^\/(night|pray\/go|p$|p\/s|english|place\/|ask|person\/new|person\/[^/]+\/edit)/;
 
 const readJson = (key) => { try { return JSON.parse(localStorage.getItem(key)) || {}; } catch { return {}; } };
 const writeJson = (key, v) => { try { localStorage.setItem(key, JSON.stringify(v)); } catch { /* 存不了就算了 */ } };
@@ -155,6 +157,10 @@ const routes = [
   [/^\/history$/, () => historyView()],
   [/^\/goals$/, () => goalsView()],
   [/^\/goal\/([^/]+)$/, (id) => goalView(id)],
+  [/^\/people$/, () => peopleView()],
+  [/^\/person\/new$/, () => personEditView('new')],
+  [/^\/person\/([^/]+)\/edit$/, (id) => personEditView(id)],
+  [/^\/person\/([^/]+)$/, (id) => personView(id)],
   [/^\/more$/, () => moreView()],
   [/^\/settings$/, () => settingsView()],
 ];
@@ -162,7 +168,7 @@ const NAV_GROUPS = {
   '/': [/^\/?$/, /^\/day\//, /^\/night/, /^\/sick$/],
   '/look': [/^\/look/],
   '/pray': [/^\/pray/, /^\/low/],
-  '/more': [/^\/more/, /^\/english/, /^\/history/, /^\/settings/, /^\/places?/, /^\/stats/, /^\/report/, /^\/ask/, /^\/sick\/book/, /^\/periodic/, /^\/goals?(\/|$)/],
+  '/more': [/^\/more/, /^\/english/, /^\/history/, /^\/settings/, /^\/places?/, /^\/stats/, /^\/report/, /^\/ask/, /^\/sick\/book/, /^\/periodic/, /^\/goals?(\/|$)/, /^\/people/, /^\/person\//],
 };
 
 function setupNav() {
@@ -436,6 +442,7 @@ function alertRows(today) {
       const x = data.periodic.find((y) => y.id === p.id); if (x) x.last = today;
     }, '好了').then(render).catch(() => {}) }, '做了') }));
   } else if (due.length > 1) out.push(alertLine(`该打理了：${due.map((p) => p.name).join('、')}`, { href: '#/periodic' }));
+  out.push(...peopleAlerts(today));
   const soon = periodicTomorrow(d, today);
   if (soon.length) out.push(alertLine(`明天该${soon.map((p) => p.name).join('、')}了`, { href: '#/periodic', tone: 'soft' }));
   const lowRecent = [today, addDays(today, -1)].some((x) => d.days[x]?.mood && d.days[x].mood <= 3) && !d.low.log.some((x) => x.day >= addDays(today, -1));
@@ -1825,6 +1832,7 @@ function placeView(id) {
     mapEl,
     visits.length ? [h('div', { class: 'section-title' }, `去过 ${visits.length} 次`), visits.map((v) => h('div', { class: 'card visit' },
       h('div', { class: 'rec-top' }, h('b', {}, `${v.day} ${v.score ? '★'.repeat(v.score) : ''}`), h('button', { class: 'link small', onclick: () => visitSheet(p, v) }, '改')),
+      v.with?.length ? h('p', { class: 'small muted' }, '和 ', v.with.map((pid, i) => [i ? '、' : '', h('a', { href: `#/person/${pid}` }, d.people.find((x) => x.id === pid)?.name || '某人')]), ' 一起') : null,
       v.note ? h('p', { class: 'small' }, v.note) : null,
       v.photo ? placePhoto(v.photo) : null))] : null,
     h('div', { class: 'actions' }, h('a', { class: 'button secondary', href: `#/place/${p.id}/edit` }, '改一下'), h('button', { class: 'danger', onclick: remove }, '删掉')),
@@ -1837,12 +1845,22 @@ function visitSheet(p, v = null) {
   note.value = v?.note || '';
   const file = h('input', { type: 'file', accept: 'image/*', 'aria-label': '照片' });
   let score = v?.score || null;
+  const withSet = new Set(v?.with || []);
+  const wRow = h('div', {});
+  const drawWith = () => {
+    const people = store.data.people.filter((x) => !x.archived || withSet.has(x.id)).sort((a, b) => a.name.localeCompare(b.name, 'zh'));
+    wRow.replaceChildren(people.length ? h('div', { class: 'chips', role: 'group', 'aria-label': '和谁一起去的' }, people.map((x) => h('button', {
+      type: 'button', class: `chip${withSet.has(x.id) ? ' on' : ''}`, 'aria-pressed': String(withSet.has(x.id)),
+      onclick: () => { if (withSet.has(x.id)) withSet.delete(x.id); else withSet.add(x.id); drawWith(); },
+    }, x.name))) : h('p', { class: 'muted small' }, '在「生活 → 身边的人」里加了人，就能在这里选。'));
+  };
+  drawWith();
   const sRow = h('div', {});
   const draw = () => sRow.replaceChildren(scoreRow('打分', 5, score, (x) => { score = x; draw(); }, ['1', '2', '3', '4', '5'].map((n) => `${n} ★`)));
   draw();
   const close = openSheet({
     title: v ? '这一次' : `去过「${p.name}」`,
-    body: h('div', { class: 'form' }, h('label', {}, '哪天', day), h('div', { class: 'label-sm' }, '打分'), sRow, note,
+    body: h('div', { class: 'form' }, h('label', {}, '哪天', day), h('div', { class: 'label-sm' }, '打分'), sRow, h('div', { class: 'label-sm' }, '和谁一起去的（可以不选）'), wRow, note,
       h('label', {}, v?.photo ? '换一张照片（可以不换）' : '一张照片（可以不放）', file),
       v ? h('button', { class: 'danger small', onclick: () => { close(); save('删掉一次去过', (data) => { const q = data.places.find((x) => x.id === p.id); q.visits = q.visits.filter((x) => x.id !== v.id); }, { online: Boolean(v.photo), removes: v.photo ? [v.photo] : [] }).then(render).catch(() => {}); } }, '删掉这一次') : null),
     confirmText: '存好',
@@ -1863,7 +1881,7 @@ function visitSheet(p, v = null) {
           const q = data.places.find((x) => x.id === p.id);
           if (!q) return false;
           q.visits ||= [];
-          const x = { id: vid, day: day.value || dayKey(), ...(score ? { score } : {}), ...(note.value.trim() ? { note: note.value.trim() } : {}), ...(photo ? { photo } : {}) };
+          const x = { id: vid, day: day.value || dayKey(), ...(score ? { score } : {}), ...(withSet.size ? { with: [...withSet] } : {}), ...(note.value.trim() ? { note: note.value.trim() } : {}), ...(photo ? { photo } : {}) };
           const i = q.visits.findIndex((y) => y.id === vid);
           if (i >= 0) q.visits[i] = x; else q.visits.push(x);
         }, uploads.length || removes.length ? { uploads, removes } : undefined);
@@ -3693,20 +3711,7 @@ const upd2 = (gid, tid, wid) => saveRender('放进心愿单', (data) => {
   if (y) y.wishId = wid;
 });
 async function addLedgerWish(wish) {
-  const lg = readJson('ledger-settings');
-  const owner = (settings.repo || DEFAULT_REPO).split('/')[0];
-  const g = new GitHub({ token: lg.token || settings.token, repo: lg.repo || `${owner}/finance-data` });
-  for (let attempt = 0; ; attempt++) {
-    const head = await g.headSha();
-    const f = JSON.parse(await g.readText('finance.json', head));
-    (f.wishes ||= []).push(wish);
-    try {
-      await g.commit(head, [{ path: 'finance.json', content: JSON.stringify(f, null, 1) + '\n' }], `新心愿：${wish.name}（从「生活」）`);
-      return;
-    } catch (e) {
-      if (!(e instanceof GitHubError && e.status === 422) || attempt === 3) throw e;
-    }
-  }
+  await updateLedger(`新心愿：${wish.name}（从「生活」）`, (f) => { (f.wishes ||= []).push(wish); });
 }
 
 // 首页：每个在做的目标一行进度
@@ -3714,6 +3719,417 @@ function goalLines() {
   const list = store.data.goals.filter((g) => g.status === 'active');
   if (!list.length) return null;
   return h('div', { class: 'goal-lines' }, list.map((g) => h('a', { class: 'goal-line', href: `#/goal/${g.id}` }, icon('sparkle', 'i'), h('span', { class: 'grow' }, goalLine(g)), icon('chev', 'i chev'))));
+}
+
+// ---------- 身边的人 ----------
+
+const PEOPLE_HELP = [
+  ['记什么', ['家人、亲戚，小学到研究生认识的人。只记名字。', '一个人可以在好几档，第一个选的是主要的。家人、亲戚写上具体关系（妈妈、二姨），研究生里的写导师、师兄、同门、同事……',
+    '生日可以选公历或农历，农历每年自动换算成那年的日子；不知道哪年生的可以不填年份。']],
+  ['怎么加', ['点右上角 ＋。可以直接填，也可以在第一个框里写一段话（比如「王一，本科同学，河南人，不吃辣，农历八月十二生日」），点「一键补全」，DeepSeek 填好后看一眼再存。']],
+  ['来往', ['在一个人的页面点「记一笔来往」：一起吃了饭、他帮了你什么……', '欠了人情想记得还：在那一行点「记成人情」，会记进账本的人情账。也可以直接点「记一个人情」。', '想去的地方里「和谁一起去的」、账本里和他有关的钱和人情，都会出现在他的来往里。']],
+  ['生日', ['前一天和当天，在「今天」里出现一行。不推送。', '点「想想送什么」，DeepSeek 按你记的他喜欢什么出几个主意，可以放进账本心愿单（送人）。']],
+  ['人情', ['只在法定节假日（元旦、春节、清明、劳动节、端午、中秋、国庆）放假前一天起，「今天」和账本首页问一句欠的人情这次还不还。周末不算。', '「这次不还」就先放着，下个假期再问。「这次还」的，记请客、礼物的钱时在账本里选上这个人情，就算还上了。']],
+  ['不再来往', ['归档，不删除。资料和来往都留着，平时不显示，在列表最下面能看到。']],
+  ['和账本', ['账本人情账里的人就是这份名单。在账本里新加的人，打开这一页时会出现在「还没分组」。名字在这里改，账本跟着改。']],
+];
+
+// 账本的数据（人情、和他有关的钱）：读一次存 5 分钟；读到了只重画看得到它的页面
+const ledgerCache = { at: 0, data: null, busy: false };
+function ledgerSnap(force = false) {
+  if (!ledgerCache.busy && (force || Date.now() - ledgerCache.at > 300000)) {
+    ledgerCache.busy = true;
+    readLedgerFile().then((f) => {
+      ledgerCache.busy = false; ledgerCache.at = Date.now();
+      if (!f) return;
+      ledgerCache.data = f;
+      if (/^\/?$|^\/people|^\/person\/[^/]+$/.test(currentPath()) && !/\/(new|edit)$/.test(currentPath())) render();
+    });
+  }
+  return ledgerCache.data;
+}
+// 改账本 finance.json：读最新的 → 改 → 提交，冲突重试
+async function updateLedger(message, fn) {
+  const lg = readJson('ledger-settings');
+  const owner = (settings.repo || DEFAULT_REPO).split('/')[0];
+  const g = new GitHub({ token: lg.token || settings.token, repo: lg.repo || `${owner}/finance-data` });
+  for (let attempt = 0; ; attempt++) {
+    const head = await g.headSha();
+    const f = JSON.parse(await g.readText('finance.json', head));
+    if (fn(f) === false) return f;
+    try {
+      await g.commit(head, [{ path: 'finance.json', content: JSON.stringify(f, null, 1) + '\n' }], message);
+      ledgerCache.data = f; ledgerCache.at = Date.now();
+      return f;
+    } catch (e) {
+      if (!(e instanceof GitHubError && e.status === 422) || attempt === 3) throw e;
+    }
+  }
+}
+
+// 和账本名单对上：账本里新加的搬过来，这边的名字、归档写过去
+const peopleSync = { at: 0, busy: false };
+async function syncPeople(force = false) {
+  if (peopleSync.busy || (!force && Date.now() - peopleSync.at < 60000)) return;
+  peopleSync.busy = true;
+  try {
+    const f = await readLedgerFile();
+    if (!f) return;
+    ledgerCache.data = f; ledgerCache.at = Date.now();
+    const { imports, merges, pushes } = ledgerSync(store.data.people, f.people || []);
+    if (imports.length || merges.length) {
+      await save(`身边的人：从账本来了 ${imports.length + merges.length} 个`, (data) => {
+        for (const m of merges) {
+          const p = data.people.find((x) => x.id === m.from);
+          if (p) p.id = m.to;
+          for (const pl of data.places) for (const v of pl.visits || []) if (v.with) v.with = v.with.map((x) => (x === m.from ? m.to : x));
+        }
+        for (const x of imports) if (!data.people.some((p) => p.id === x.id)) data.people.push({ id: x.id, name: x.name, groups: [], at: dayKey() });
+      });
+    }
+    const after = ledgerSync(store.data.people, f.people || []).pushes;
+    if (after.length) {
+      await updateLedger(`人情账名单：${after.map((x) => x.name).join('、')}（从「生活」）`, (fin) => {
+        fin.people ||= [];
+        for (const x of after) {
+          const t = fin.people.find((p) => p.id === x.id);
+          if (t) { t.name = x.name; if (x.archived) t.archived = true; else delete t.archived; } else fin.people.push({ id: x.id, name: x.name, ...(x.archived ? { archived: true } : {}) });
+        }
+      });
+    }
+    peopleSync.at = Date.now();
+    if (/^\/people|^\/person\/[^/]+$/.test(currentPath()) && !/\/(new|edit)$/.test(currentPath()) && (imports.length || merges.length || pushes.length)) render();
+  } catch { /* 下次再同步 */ } finally { peopleSync.busy = false; }
+}
+
+const peopleState = { archived: false };
+function peopleView() {
+  const d = store.data;
+  const today = dayKey();
+  syncPeople();
+  const live = d.people.filter((p) => !p.archived);
+  const gone = d.people.filter((p) => p.archived);
+  const bd = upcomingBirthdays(d.people, today, 30);
+  const row = (p, g) => {
+    const b = bd.find((x) => x.p.id === p.id);
+    const others = (p.groups || []).filter((x) => x !== g).map((x) => PEOPLE_GROUPS[x]);
+    return cell({ href: `#/person/${p.id}`, title: p.name,
+      sub: [p.rel, mainGroup(p) !== g && mainGroup(p) ? `主要在${PEOPLE_GROUPS[mainGroup(p)]}` : others.length ? `也在${others.join('、')}` : null,
+        b ? (b.left === 0 ? '今天生日' : b.left === 1 ? '明天生日' : `${b.left} 天后生日`) : null].filter(Boolean).join(' · ') });
+  };
+  const sections = Object.entries(PEOPLE_GROUPS).map(([g, name]) => {
+    const list = live.filter((p) => (p.groups || []).includes(g)).sort((a, b) => (mainGroup(a) !== g) - (mainGroup(b) !== g) || a.name.localeCompare(b.name, 'zh'));
+    return list.length ? [h('div', { class: 'section-title' }, `${name}（${list.length}）`), h('div', { class: 'group' }, list.map((p) => row(p, g)))] : null;
+  });
+  const loose = live.filter((p) => !(p.groups || []).length);
+  return h('div', {},
+    headerSub('身边的人', live.length ? `${live.length} 个人` : '家人、亲戚，一路上认识的人',
+      h('a', { class: 'icon-btn', href: '#/person/new', 'aria-label': '加一个人' }, icon('plus')), helpButton('身边的人怎么用', PEOPLE_HELP)),
+    bd.length ? h('div', { class: 'card birthday-card' }, h('h3', {}, '快到的生日'), bd.slice(0, 5).map((x) => h('a', { class: 'birthday-row', href: `#/person/${x.p.id}` },
+      h('span', { class: 'grow' }, h('b', {}, x.p.name), x.p.rel ? ` · ${x.p.rel}` : ''),
+      h('span', { class: 'muted small' }, `${x.left === 0 ? '今天' : x.left === 1 ? '明天' : `${x.left} 天后`} · ${Number(x.day.slice(5, 7))}月${Number(x.day.slice(8))}日${x.age ? ` · ${x.age} 岁` : ''}`)))) : null,
+    loose.length ? [h('div', { class: 'section-title' }, `还没分组（${loose.length}）`), h('div', { class: 'group' }, loose.map((p) => row(p, '')))] : null,
+    sections,
+    !d.people.length ? h('div', { class: 'card' }, h('p', { class: 'muted' }, '还没有人。点右上角 ＋ 加第一个。')) : null,
+    gone.length ? h('details', { class: 'card', open: peopleState.archived, ontoggle: (e) => { peopleState.archived = e.target.open; } },
+      h('summary', {}, `不再来往的（${gone.length}）`),
+      h('div', { class: 'group' }, gone.map((p) => cell({ href: `#/person/${p.id}`, title: p.name, sub: [PEOPLE_GROUPS[mainGroup(p)], p.rel, p.archiveNote].filter(Boolean).join(' · ') })))) : null);
+}
+
+// 加一个人 / 改资料。第一个框写一段话，「一键补全」让 DeepSeek 填
+const personDraft = { id: null, data: null, raw: '', ai: null };
+function personEditView(id) {
+  const d = store.data;
+  const old = id === 'new' ? null : d.people.find((p) => p.id === id);
+  if (id !== 'new' && !old) return notFound();
+  if (personDraft.id !== id) Object.assign(personDraft, { id, data: structuredClone(old || { groups: [], birthday: null }), raw: '', ai: { busy: false, note: '' } });
+  const x = personDraft.data;
+  x.groups ||= [];
+  const ai = personDraft.ai;
+  const input = (k, attrs) => { const el = h(attrs.rows ? 'textarea' : 'input', { ...attrs, oninput: (e) => { x[k] = e.target.value; } }); el.value = x[k] || ''; return el; };
+  const raw = h('textarea', { rows: 3, placeholder: '写一段话，比如：王一，本科同学，河南人，不吃辣，农历八月十二生日', 'aria-label': '写一段话', oninput: (e) => { personDraft.raw = e.target.value; } });
+  raw.value = personDraft.raw;
+  const aiFill = async () => {
+    const text = personDraft.raw.trim();
+    if (!text) { toast('先写一段话', 'error'); return; }
+    ai.busy = true; ai.note = ''; render();
+    try {
+      const out = await personFromText(text, x);
+      Object.assign(x, out);
+      ai.note = '填好了，看一眼对不对。';
+    } catch (e) { toast(e.message, 'error'); }
+    ai.busy = false; render();
+  };
+  const toggleGroup = (g) => {
+    if (x.groups[0] === g) x.groups = x.groups.slice(1);
+    else if (x.groups.includes(g)) x.groups = x.groups.filter((y) => y !== g);
+    else x.groups = [...x.groups, g];
+    render();
+  };
+  const setMain = (g) => { x.groups = [g, ...x.groups.filter((y) => y !== g)]; render(); };
+  const rel = input('rel', { placeholder: '或者自己写', 'aria-label': '关系' });
+  const relChips = relChoices(mainGroup(x));
+  const b = x.birthday || {};
+  const setB = (k, v) => { x.birthday = { cal: 'solar', ...(x.birthday || {}), [k]: v }; if (!x.birthday.m && !x.birthday.d && !x.birthday.y) x.birthday = null; };
+  const month = h('select', { 'aria-label': '生日月', onchange: (e) => { setB('m', Number(e.target.value) || null); } },
+    h('option', { value: '' }, '月'), Array.from({ length: 12 }, (_, i) => h('option', { value: String(i + 1), selected: b.m === i + 1 }, b.cal === 'lunar' ? `${'正二三四五六七八九十冬腊'[i]}月` : `${i + 1} 月`)));
+  const dayOf = h('select', { 'aria-label': '生日日', onchange: (e) => { setB('d', Number(e.target.value) || null); } },
+    h('option', { value: '' }, '日'), Array.from({ length: b.cal === 'lunar' ? 30 : 31 }, (_, i) => h('option', { value: String(i + 1), selected: b.d === i + 1 }, b.cal === 'lunar' ? lunarName(1, i + 1).slice(2) : `${i + 1} 日`)));
+  const year = h('input', { inputmode: 'numeric', placeholder: '哪年（可以不填）', 'aria-label': '生日年', value: b.y ? String(b.y) : '', oninput: (e) => { setB('y', Number(e.target.value) > 1900 ? Number(e.target.value) : null); } });
+  const submit = () => {
+    if (!x.name?.trim()) { toast('写个名字', 'error'); return; }
+    const name = x.name.trim();
+    if (d.people.some((p) => p.name === name && p.id !== old?.id) && !confirm(`已经有一个「${name}」了，还要再加一个吗？`)) return;
+    const pid = old?.id || newId('p');
+    if (x.birthday && !(x.birthday.m && x.birthday.d)) { toast('生日的月和日都选一下', 'error'); return; }
+    saveRender(old ? `改资料：${name}` : `身边的人：${name}`, (data) => {
+      const p = { ...x, id: pid, name, log: old?.log || [], at: old?.at || dayKey() };
+      for (const k of ['rel', 'how', 'likes', 'note']) { if (typeof p[k] === 'string') p[k] = p[k].trim(); if (!p[k]) delete p[k]; }
+      if (!p.birthday) delete p.birthday;
+      const i = data.people.findIndex((y) => y.id === pid);
+      if (i >= 0) data.people[i] = p; else data.people.push(p);
+    }).then((ok) => { if (ok) { personDraft.id = null; syncPeople(true); toast(old ? '改好了' : '记下了。'); go(`#/person/${pid}`, true); } });
+  };
+  return h('div', { class: 'form' },
+    headerSub(old ? '改资料' : '加一个人', old ? old.name : '名字之外都可以不填'),
+    old ? null : h('div', { class: 'card' }, raw, h('div', { class: 'ai-fill' },
+      h('button', { class: 'small secondary', disabled: ai.busy, onclick: aiFill }, ai.busy ? '正在填……' : '一键补全'),
+      h('span', { class: 'muted small' }, '名字、分组、关系、生日……')), ai.note ? h('p', { class: 'small muted' }, ai.note) : null),
+    h('div', { class: 'card' },
+      input('name', { placeholder: '名字', 'aria-label': '名字' }),
+      h('div', { class: 'label-sm' }, '在哪一档（可以多选，第一个是主要的）'),
+      h('div', { class: 'chips', role: 'group', 'aria-label': '分组' }, Object.entries(PEOPLE_GROUPS).map(([g, t]) => {
+        const on = x.groups.includes(g);
+        return h('button', { type: 'button', class: `chip${on ? ' on' : ''}${x.groups[0] === g ? ' main' : ''}`, 'aria-pressed': String(on), onclick: () => toggleGroup(g) }, x.groups[0] === g && x.groups.length > 1 ? `${t} · 主要` : t);
+      })),
+      x.groups.length > 1 ? h('div', { class: 'chips small-chips', role: 'group', 'aria-label': '主要的档' }, h('span', { class: 'muted small' }, '主要的：'),
+        x.groups.map((g) => h('button', { type: 'button', class: `chip${x.groups[0] === g ? ' on' : ''}`, 'aria-pressed': String(x.groups[0] === g), onclick: () => setMain(g) }, PEOPLE_GROUPS[g]))) : null,
+      relChips.length ? [h('div', { class: 'label-sm' }, mainGroup(x) === 'family' || mainGroup(x) === 'relative' ? '是你的' : '他是'),
+        h('div', { class: 'chips', role: 'group', 'aria-label': '关系' }, relChips.map((r) => h('button', { type: 'button', class: `chip${x.rel === r ? ' on' : ''}`, 'aria-pressed': String(x.rel === r), onclick: () => { x.rel = x.rel === r ? '' : r; render(); } }, r))), rel]
+        : [h('div', { class: 'label-sm' }, '关系'), rel]),
+    h('div', { class: 'card' }, h('h3', {}, '生日'),
+      h('div', { class: 'chips', role: 'group', 'aria-label': '公历还是农历' }, [['solar', '公历'], ['lunar', '农历']].map(([k, t]) => h('button', {
+        type: 'button', class: `chip${(b.cal || 'solar') === k ? ' on' : ''}`, 'aria-pressed': String((b.cal || 'solar') === k), onclick: () => { x.birthday = { ...(x.birthday || {}), cal: k }; render(); } }, t))),
+      h('div', { class: 'row-2' }, month, dayOf), year,
+      x.birthday?.m && x.birthday?.d ? h('p', { class: 'muted small' }, `下一次：${(() => { const n = nextBirthday(x.birthday, dayKey()); return n ? `${Number(n.slice(0, 4))}年${Number(n.slice(5, 7))}月${Number(n.slice(8))}日` : '算不出来'; })()}`) : null),
+    h('div', { class: 'card detail-card' }, h('h3', {}, '关于他'),
+      h('div', { class: 'detail-row' }, h('div', { class: 'detail-label' }, icon('people', 'i'), '怎么认识的'), input('how', { class: 'bare', rows: 2, placeholder: '比如：大一军训同一个连', 'aria-label': '怎么认识的' })),
+      h('div', { class: 'detail-row' }, h('div', { class: 'detail-label' }, icon('sparkle', 'i'), '喜欢什么、不吃什么'), input('likes', { class: 'bare', rows: 2, placeholder: '比如：爱喝茶，不吃辣', 'aria-label': '喜欢什么' })),
+      h('div', { class: 'detail-row' }, h('div', { class: 'detail-label' }, icon('pen', 'i'), '近况、要记得的'), input('note', { class: 'bare', rows: 2, placeholder: '比如：在准备考研', 'aria-label': '近况' }))),
+    h('div', { class: 'actions sticky' }, h('button', { class: 'grow', onclick: submit }, '存好'),
+      h('a', { class: 'button secondary', href: old ? `#/person/${old.id}` : '#/people', onclick: () => { personDraft.id = null; } }, '取消')));
+}
+
+async function personFromText(text, cur) {
+  const groups = Object.entries(PEOPLE_GROUPS).map(([k, v]) => `${k} ${v}`).join('、');
+  const system = '你帮一个研究生整理他身边的人的资料。他会写一段话，把里面说到的信息填进 JSON，没说到的留空，绝对不要编。'
+    + `groups 是他从哪一段认识的这个人，只能从这些里选（写英文键）：${groups}。第一个是主要的；同一个人可能在两段都认识（比如本科同学后来成了研究生同门）。家人（父母兄弟姐妹、祖父母）用 family，其他亲戚用 relative。`
+    + 'rel 是关系，简短：家人亲戚写具体称呼（妈妈、二姨、表哥）；研究生阶段写导师、老师、师兄、师姐、同门、师弟、师妹、同学、同事之一；其他写同学、老师、朋友。'
+    + 'birthday：说了农历就 cal 写 lunar，否则 solar；m 月 d 日 y 年（数字，没说就 null）。'
+    + 'how 怎么认识的；likes 喜欢什么、不吃什么、口味爱好；note 近况和其他要记得的事。name 只写名字。'
+    + '只输出 JSON：{"name":"","groups":[],"rel":"","birthday":{"cal":"solar","m":null,"d":null,"y":null},"how":"","likes":"","note":""}';
+  const out = await askJson(await aiConfig(), system, text, { maxTokens: 2000, timeout: 60000 });
+  const res = {};
+  const s = (v) => (typeof v === 'string' ? v.trim() : '');
+  if (s(out.name) && !cur.name?.trim()) res.name = s(out.name);
+  const gs = (out.groups || []).filter((g) => PEOPLE_GROUPS[g]);
+  if (gs.length) res.groups = [...new Set(gs)];
+  for (const k of ['rel', 'how', 'likes', 'note']) if (s(out[k])) res[k] = s(out[k]);
+  const bd = out.birthday;
+  if (bd && Number(bd.m) >= 1 && Number(bd.m) <= 12 && Number(bd.d) >= 1 && Number(bd.d) <= 31) {
+    res.birthday = { cal: bd.cal === 'lunar' ? 'lunar' : 'solar', m: Number(bd.m), d: Number(bd.d), ...(Number(bd.y) > 1900 ? { y: Number(bd.y) } : {}) };
+  }
+  return res;
+}
+
+const giftState = {}; // { 人 id: { busy, ideas } }，页面重画不丢
+function personView(id) {
+  const d = store.data;
+  const p = d.people.find((x) => x.id === id);
+  if (!p) return notFound();
+  syncPeople();
+  const today = dayKey();
+  const ledger = ledgerSnap();
+  const tl = timeline(d, ledger, id);
+  const owe = moneyWith(ledger, id);
+  const openFavors = (ledger?.favors || []).filter((f) => f.person === id && f.status !== 'done');
+  const next = p.birthday?.m ? nextBirthday(p.birthday, today) : null;
+  const left = next ? daysBetween(today, next) : null;
+  const gs = giftState[id] ||= { busy: false, ideas: null };
+  const upd = (message, fn) => saveRender(message, (data) => { const x = data.people.find((y) => y.id === id); if (x) fn(x); });
+  const logSheet = (l = null) => {
+    const day = h('input', { type: 'date', value: l?.day || today, 'aria-label': '哪天' });
+    const text = h('textarea', { rows: 3, placeholder: '比如：一起吃了饭，他帮我改了简历', 'aria-label': '发生了什么' });
+    text.value = l?.text || '';
+    const close = openSheet({
+      title: l ? '改这一笔' : '记一笔来往',
+      body: h('div', { class: 'form' }, h('label', {}, '哪天', day), text,
+        l ? h('button', { class: 'danger small', onclick: () => { close(); upd('删掉一笔来往', (x) => { x.log = x.log.filter((y) => y.id !== l.id); }); } }, '删掉这一笔') : null),
+      confirmText: '存好',
+      onConfirm: () => {
+        if (!text.value.trim()) { toast('写一句', 'error'); return false; }
+        return upd(`来往：${p.name}`, (x) => {
+          x.log ||= [];
+          const rec = { id: l?.id || newId('l'), day: day.value || today, text: text.value.trim(), ...(l?.favor ? { favor: l.favor } : {}) };
+          const i = x.log.findIndex((y) => y.id === rec.id);
+          if (i >= 0) x.log[i] = rec; else x.log.push(rec);
+        });
+      },
+    });
+  };
+  const favorSheet = (l = null) => {
+    let dir = 'owe';
+    const text = h('input', { placeholder: '什么事，比如 帮我改论文', 'aria-label': '什么事', value: l?.text?.slice(0, 40) || '' });
+    const day = h('input', { type: 'date', value: l?.day || today, 'aria-label': '哪天' });
+    const dirRow = h('div', {});
+    const drawDir = () => dirRow.replaceChildren(choiceRow('谁欠谁', [['owe', '我欠他'], ['owed', '他欠我']], dir, (v) => { dir = v || dir; drawDir(); }));
+    drawDir();
+    openSheet({
+      title: '记一个人情', body: h('div', { class: 'form' }, dirRow, text, h('label', {}, '哪天', day),
+        h('p', { class: 'muted small' }, '记进账本的人情账。节假日会问一句这次还不还。')),
+      confirmText: '记好了',
+      onConfirm: async () => {
+        if (!text.value.trim()) { toast('写一下是什么事', 'error'); return false; }
+        const fid = newId('f');
+        try {
+          await saving('正在记进账本…', async () => {
+            await syncPeople(true);
+            await updateLedger(`人情：${p.name}（从「生活」）`, (f) => {
+              (f.favors ||= []).push({ id: fid, person: id, dir, text: text.value.trim(), date: day.value || today, createdAt: new Date().toISOString(), status: 'open' });
+              f.people ||= [];
+              if (!f.people.some((x) => x.id === id)) f.people.push({ id, name: p.name });
+            });
+          });
+        } catch { return false; }
+        if (l) await upd('来往：记成了人情', (x) => { const y = x.log.find((z) => z.id === l.id); if (y) y.favor = fid; });
+        else render();
+        toast('记进人情账了');
+        return true;
+      },
+    });
+  };
+  const archive = () => {
+    const why = h('input', { placeholder: '一句话（可以不写）', 'aria-label': '为什么' });
+    openSheet({
+      title: `不再和${p.name}来往`, body: h('div', { class: 'form' }, why, h('p', { class: 'muted small' }, '资料和来往都留着，平时不显示。随时可以恢复。')),
+      confirmText: '归档',
+      onConfirm: () => upd(`归档：${p.name}`, (x) => { x.archived = today; if (why.value.trim()) x.archiveNote = why.value.trim(); }).then((ok) => { if (ok) syncPeople(true); return ok; }),
+    });
+  };
+  const unarchive = () => upd(`恢复：${p.name}`, (x) => { delete x.archived; delete x.archiveNote; }).then(() => syncPeople(true));
+  const gift = async () => {
+    gs.busy = true; render();
+    try { gs.ideas = await giftIdeas(p, ledger, next); } catch (e) { toast(e.message, 'error'); }
+    gs.busy = false; render();
+  };
+  const groupsText = (p.groups || []).map((g, i) => (i === 0 ? PEOPLE_GROUPS[g] : `也在${PEOPLE_GROUPS[g]}`)).join(' · ');
+  return h('div', {},
+    headerSub(p.name, [groupsText || '还没分组', p.rel].filter(Boolean).join(' · '), h('a', { class: 'icon-btn', href: `#/person/${id}/edit`, 'aria-label': '改资料' }, icon('pen'))),
+    p.archived ? h('div', { class: 'card muted-card' }, h('p', { class: 'small' }, `${p.archived} 起不再来往${p.archiveNote ? `：${p.archiveNote}` : ''}`), h('button', { class: 'link small', onclick: unarchive }, '恢复来往')) : null,
+    h('div', { class: 'card person-card' },
+      p.birthday?.m ? h('p', {}, icon('calendar', 'i'), ` ${birthdayText(p.birthday)}`, left != null ? h('span', { class: 'muted small' }, left === 0 ? ' · 就是今天' : ` · 还有 ${left} 天`) : null) : null,
+      p.how ? h('p', { class: 'small' }, h('span', { class: 'muted' }, '怎么认识的：'), p.how) : null,
+      p.likes ? h('p', { class: 'small' }, h('span', { class: 'muted' }, '喜欢：'), p.likes) : null,
+      p.note ? h('p', { class: 'small' }, h('span', { class: 'muted' }, '要记得：'), p.note) : null,
+      !p.birthday?.m && !p.how && !p.likes && !p.note ? h('p', { class: 'muted small' }, '还没写什么。点右上角的笔补上。') : null),
+    h('div', { class: 'actions' },
+      h('button', { onclick: () => logSheet() }, '记一笔来往'),
+      h('button', { class: 'secondary', onclick: () => favorSheet() }, '记一个人情'),
+      p.archived ? null : h('button', { class: 'secondary', disabled: gs.busy, onclick: gift }, gs.busy ? '正在想……' : '想想送什么')),
+    gs.ideas ? giftCard(p, gs, next) : null,
+    openFavors.length || owe ? h('div', { class: 'card favor-sum' },
+      openFavors.map((f) => h('p', { class: 'small' }, h('span', { class: `favor-dir ${f.dir}` }, f.dir === 'owe' ? '欠他' : '欠我'), ` ${f.text}`, h('span', { class: 'muted' }, ` · ${f.date.slice(5).replace('-', '/')}`))),
+      owe ? h('p', { class: 'small muted' }, owe > 0 ? `钱：他欠你 ¥${owe}` : `钱：你欠他 ¥${-owe}`) : null,
+      h('a', { class: 'small', href: `../ledger/#/person/${id}`, target: '_blank', rel: 'noopener' }, '在账本里看')) : null,
+    h('div', { class: 'section-title' }, tl.length ? '来往' : ''),
+    tl.length ? h('div', { class: 'card timeline' }, tl.map((e) => h('div', { class: `tl-row ${e.kind}` },
+      h('span', { class: 'tl-day muted small' }, e.day.slice(0, 4) === today.slice(0, 4) ? e.day.slice(5).replace('-', '/') : e.day),
+      e.kind === 'log' ? h('button', { type: 'button', class: 'grow tl-text', onclick: () => logSheet(e.log) }, e.text)
+        : e.href ? h('a', { class: 'grow tl-text', href: e.href }, e.text) : h('span', { class: 'grow tl-text' }, e.text),
+      e.kind === 'log' && !e.log.favor ? h('button', { class: 'link small', onclick: () => favorSheet(e.log) }, '记成人情') : null)))
+      : h('p', { class: 'muted small center' }, '还没有来往的记录。'),
+    p.archived ? null : h('p', { class: 'center' }, h('button', { class: 'link small muted', onclick: archive }, '不再来往了')),
+    h('a', { class: 'small', href: '#/people' }, '‹ 身边的人'));
+}
+
+// 想想送什么：DeepSeek 按记下的喜好出主意，可以放进账本心愿单（送人）
+async function giftIdeas(p, ledger, next) {
+  const given = (ledger?.favors || []).filter((f) => f.person === p.id).map((f) => `${f.dir === 'owe' ? '他帮过我' : '我帮过他'}：${f.text}${f.status === 'done' ? `（还了${f.doneNote ? `：${f.doneNote}` : ''}）` : ''}`);
+  const wishes = (ledger?.wishes || []).filter((w) => w.status === 'open' && w.kind === 'gift').map((w) => `${w.name}（¥${w.price}）`);
+  const system = '你帮一个研究生想送身边的人什么礼物。按下面记的这个人的情况，出 3–5 个具体的主意：学生买得起、实用或有心意，和他的喜好、近况对得上；不要泛泛的「鲜花」「贺卡」。'
+    + '每个主意：name 东西（具体一点），price 大概多少钱（人民币整数），why 一句话为什么适合他，query 淘宝 / 小红书的搜索词（4–10 个字）。说话温和简短。'
+    + '只输出 JSON：{"ideas":[{"name":"","price":0,"why":"","query":""}]}';
+  const user = [
+    `${p.name}，${[PEOPLE_GROUPS[mainGroup(p)], p.rel].filter(Boolean).join('，')}。`,
+    next ? `生日是 ${next}（今天 ${dayKey()}）。` : `今天 ${dayKey()}。`,
+    p.how ? `怎么认识的：${p.how}` : '', p.likes ? `喜欢什么、不吃什么：${p.likes}` : '', p.note ? `近况：${p.note}` : '',
+    (p.log || []).length ? `最近的来往：${p.log.slice(-8).map((l) => `${l.day} ${l.text}`).join('；')}` : '',
+    given.length ? `人情：${given.join('；')}` : '',
+    wishes.length ? `心愿单里已经有要送人的：${wishes.join('、')}` : '',
+  ].filter(Boolean).join('\n');
+  const out = await askJson(await aiConfig(), system, user, { maxTokens: 3000, timeout: 90000 });
+  return (out.ideas || []).filter((x) => x?.name).slice(0, 6);
+}
+function giftCard(p, gs, next) {
+  const toWish = (it) => {
+    const name = h('input', { value: it.name, 'aria-label': '想要什么' });
+    const price = h('input', { inputmode: 'decimal', value: it.price ? String(it.price) : '', placeholder: '大概多少钱', 'aria-label': '价格' });
+    openSheet({
+      title: '放进心愿单（送人）',
+      body: h('div', { class: 'form' }, name, price, h('p', { class: 'muted small' }, `写着「送${p.name}」${next ? `，${Number(next.slice(5, 7))}月${Number(next.slice(8))}日前送出去` : ''}。`)),
+      confirmText: '放进去',
+      onConfirm: async () => {
+        const n = Number(price.value.replace(/[，,\s¥]/g, ''));
+        if (!name.value.trim()) { toast('写一下名字', 'error'); return false; }
+        if (!(n > 0)) { toast('填一个大概的价格', 'error'); return false; }
+        try {
+          await saving('正在放进心愿单…', () => updateLedger(`新心愿：${name.value.trim()}（从「生活」）`, (f) => {
+            (f.wishes ||= []).push({ id: newId('w'), name: name.value.trim(), price: Math.round(n * 100) / 100, want: 'want', kind: 'gift', reason: `送${p.name}${it.why ? `：${it.why}` : ''}`,
+              link: '', targetDate: next || '', createdAt: dayKey(), status: 'open' });
+          }));
+        } catch { return false; }
+        it.added = true; render();
+        toast('放进心愿单了');
+        return true;
+      },
+    });
+  };
+  return h('div', { class: 'card gift-card' }, h('h3', {}, '可以送的'),
+    gs.ideas.map((it) => h('div', { class: 'gift-row' },
+      h('div', {}, h('b', {}, it.name), it.price ? h('span', { class: 'muted small' }, ` · 约 ¥${it.price}`) : null),
+      it.why ? h('p', { class: 'small muted' }, it.why) : null,
+      h('div', { class: 'chips' },
+        it.query ? h('a', { class: 'chip', href: `https://www.xiaohongshu.com/search_result?keyword=${encodeURIComponent(it.query)}`, target: '_blank', rel: 'noopener' }, '小红书') : null,
+        it.query ? h('a', { class: 'chip', href: `https://s.taobao.com/search?q=${encodeURIComponent(it.query)}`, target: '_blank', rel: 'noopener' }, '淘宝') : null,
+        it.added ? h('span', { class: 'chip on' }, '在心愿单里了') : h('button', { type: 'button', class: 'chip', onclick: () => toWish(it) }, '放进心愿单')))),
+    h('button', { class: 'link small', onclick: () => { gs.ideas = null; render(); } }, '收起'));
+}
+
+// 「今天」里的：生日（前一天、当天）、节假日问人情这次还不还
+function peopleAlerts(today) {
+  const d = store.data;
+  const out = [];
+  for (const x of upcomingBirthdays(d.people, today, 1)) {
+    out.push(alertLine(`${x.left === 0 ? '今天' : '明天'}是${x.p.name}的生日${x.age ? `（${x.age} 岁）` : ''}`, { href: `#/person/${x.p.id}`, tone: 'soft' }));
+  }
+  const ledger = ledgerSnap();
+  const hol = holidayAround(today);
+  if (!ledger || !hol) return out;
+  const pname = (id) => d.people.find((p) => p.id === id)?.name || (ledger.people || []).find((p) => p.id === id)?.name || '某人';
+  const list = (ledger.favors || []).filter((f) => f.dir === 'owe' && f.status !== 'done' && f.skip !== hol.key && f.date <= today);
+  const mark = (f, k) => saving('正在记进账本…', () => updateLedger(k === 'plan' ? `人情：这个假期还 ${pname(f.person)}（从「生活」）` : `人情：这次先不还 ${pname(f.person)}（从「生活」）`, (fin) => {
+    const x = (fin.favors || []).find((y) => y.id === f.id);
+    if (!x) return false;
+    x[k] = hol.key;
+  })).then(render).catch(() => {});
+  for (const f of list.filter((y) => y.plan !== hol.key)) {
+    out.push(alertLine(`${holidayLine(hol, today)}。还欠${pname(f.person)}一个人情：${f.text}，这次还吗？`, { action: h('span', { class: 'alert-actions' },
+      h('button', { class: 'small secondary', onclick: () => mark(f, 'plan') }, '这次还'),
+      h('button', { class: 'link small', onclick: () => mark(f, 'skip') }, '这次不还')) }));
+  }
+  const plan = list.filter((y) => y.plan === hol.key);
+  if (plan.length) out.push(alertLine(`这个假期要还：${plan.map((f) => `${pname(f.person)}（${f.text}）`).join('、')}。花了钱的在账本记的时候选上它`, { href: `#/person/${plan[0].person}`, tone: 'soft' }));
+  return out;
 }
 
 // ---------- 更多 ----------
@@ -3724,6 +4140,7 @@ function moreView() {
     h('div', { class: 'group' },
       cell({ href: '#/goals', ic: 'sparkle', color: 'var(--accent)', title: '想做到的事', sub: '心愿 → 一步一步能做到的事' }),
       cell({ href: '#/places', ic: 'globe', color: 'var(--good)', title: '想去的地方', sub: '地图、周末去哪、足迹' }),
+      cell({ href: '#/people', ic: 'people', color: 'var(--amber)', title: '身边的人', sub: '家人、亲戚、一路上认识的人' }),
       cell({ href: '#/english', ic: 'globe', color: 'var(--blue)', title: '英语陪练', sub: '和 ChatGPT 语音聊' }),
       cell({ href: '#/sick/book', ic: 'shield', color: 'var(--danger)', title: '生病手册', sub: '我的经验、预案' })),
     h('div', { class: 'group' },
