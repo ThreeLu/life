@@ -258,7 +258,7 @@ def _(c):
     expect(c.period("晚上").get_by_text("这周", exact=True)).to_have_count(0)
 
 
-@step("祷告：和 ChatGPT 一起（复制提示词、祷告完了），一天可以很多次；晚上那次念主祷文；不用写字；只显示最近一天")
+@step("祷告：白天和 ChatGPT 简短说（不读经文）或写一句；晚上 ChatGPT 当牧师聊、念主祷文；只显示最近一天")
 def _(c):
     p = c.page
     c.write(lambda d: d["days"].setdefault(YESTERDAY, {}).update(prayer={"times": [{"at": YESTERDAY + "T21:00:00.000Z", "kind": "quick"}]}))
@@ -269,23 +269,32 @@ def _(c):
     expect(hero.get_by_role("link", name="开始祷告")).to_be_visible()
     expect(p.locator(".pray-recent")).to_contain_text("祷告了 1 次")  # 今天还没有，显示昨天
     expect(p.locator("textarea")).to_have_count(0)
-    # 随时的：几分钟
+    # 白天的：和 ChatGPT 几分钟，不读经文
     c.go("#/pray/go?m=quick")
+    expect(p.locator(".pray-verse")).to_have_count(0)
     p.get_by_role("button", name="复制").click()
     prompt = p.evaluate("navigator.clipboard.readText()")
-    assert "简短的祷告" in prompt and "和合本" in prompt and "不用写小结" in prompt, prompt
+    assert "简短的祷告" in prompt and "不用读经文" in prompt and "和合本" not in prompt and "不用写小结" in prompt, prompt
     expect(p.get_by_role("link", name="打开 ChatGPT")).to_have_attribute("href", "https://chatgpt.com/")
     p.get_by_role("button", name="祷告完了").click()
     p.wait_for_function("location.hash === '#/pray'")
-    c.wait(lambda d: [x["kind"] for x in d["days"][TODAY]["prayer"]["times"]] == ["quick"], "随时的祷告")
+    c.wait(lambda d: [x["kind"] for x in d["days"][TODAY]["prayer"]["times"]] == ["quick"], "白天的祷告")
     assert "night" not in c.data()["days"][TODAY]["prayer"]
+    # 白天的：写一句
+    c.go("#/pray/go?m=quick")
+    p.get_by_role("group", name="怎么祷告").get_by_role("button", name="写一句").click()
+    p.get_by_label("祷告的话").fill("主，编的一句祷告")
+    p.get_by_role("button", name="阿们").click()
+    p.wait_for_function("location.hash === '#/pray'")
+    c.wait(lambda d: d["days"][TODAY]["prayer"]["times"][-1].get("text") == "主，编的一句祷告", "写一句的祷告")
+    expect(p.locator(".pray-recent")).to_contain_text("主，编的一句祷告")
     # 晚上那次：祷告完了 → 主祷文 → 阿们
     c.go("#/pray/go?m=night")
     p.wait_for_timeout(400)
     p.screenshot(path=ART / "pray-go.png", full_page=True)
     p.get_by_role("button", name="复制").click()
     prompt = p.evaluate("navigator.clipboard.readText()")
-    assert "主祷文我最后自己念" in prompt and "今晚" in prompt, prompt
+    assert "主祷文我最后自己念" in prompt and "今晚" in prompt and "牧师" in prompt and "和合本" in prompt, prompt
     p.get_by_role("button", name="祷告完了").click()
     lines = p.locator(".lords-lines .pray-line")
     expect(lines).to_have_count(8)
@@ -296,10 +305,10 @@ def _(c):
     p.get_by_role("button", name="阿们").click()
     p.wait_for_function("location.hash === '#/pray'")
     c.wait(lambda d: d["days"][TODAY]["prayer"].get("night", {}).get("mode") == "chatgpt", "晚上的祷告")
-    assert [x["kind"] for x in c.data()["days"][TODAY]["prayer"]["times"]] == ["quick", "night"]
+    assert [x["kind"] for x in c.data()["days"][TODAY]["prayer"]["times"]] == ["quick", "quick", "night"]
     recent = p.locator(".pray-recent")
     expect(recent).to_contain_text("今天")
-    expect(recent).to_contain_text("祷告了 2 次")
+    expect(recent).to_contain_text("祷告了 3 次")
     expect(recent).to_contain_text("晚上 · 主祷文")
     expect(p.get_by_text("第 1 阶段")).to_have_count(0)
     p.wait_for_timeout(400)

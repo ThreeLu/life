@@ -1081,11 +1081,14 @@ function periodicRow(p, today, edit) {
 // ---------- 祷告 ----------
 
 const PRAY_HELP = [
-  ['怎么祷告', [
-    '点「开始祷告」：复制提示词，打开 ChatGPT 新对话粘贴，切到语音，和它一起祷告、一起聊。聊完回来点「祷告完了」。',
-    '一天可以祷告很多次，想到就来，几分钟就好。',
-    '晚上那一次（晚上 8 点以后第一次）更完整一点，祷告完一起念主祷文。',
-    '不用写字，网站只记下你哪个时候祷告了。',
+  ['白天的祷告', [
+    '早上、下午、傍晚，想到就来，几分钟就好。',
+    '两种都行：和 ChatGPT 说（复制提示词，新对话粘贴，切到语音），或者不方便的时候写一句话，点「阿们」。',
+    '不读经文，只是把现在的事交给神。',
+  ]],
+  ['晚上的祷告', [
+    '晚上 8 点以后第一次是晚上的祷告：ChatGPT 像一位牧师，和你真正聊一聊今天，再一起祷告。',
+    '聊完回来点「祷告完了」，一起念主祷文。',
   ]],
   ['提醒', ['每晚 22:30 左右，如果还没有晚上的祷告会提醒你（在「设置」里开启推送）。锁屏上看不出是什么。']],
   ['读经（不强求）', ['诗篇一天一篇，点「打开」跳到 Bible App 的这一篇，读完点「读了」。读一篇，再用里面的一句话开始祷告。']],
@@ -1117,12 +1120,13 @@ function prayView() {
       h('blockquote', { class: 'pray-verse' }, h('span', { class: 'v' }, verse.text), h('cite', {}, verse.ref)),
       h('div', { class: 'pray-divider', 'aria-hidden': 'true' }, h('span', {}, '✝')),
       h('a', { class: 'button wide pray-start', href: `#/pray/go?m=${night ? 'night' : 'quick'}` }, icon('candle'), '开始祷告'),
-      h('p', { class: 'pray-mode small' }, night ? '晚上这一次，最后一起念主祷文' : '和 ChatGPT 一起，几分钟就好',
+      h('p', { class: 'pray-mode small' }, night ? '和牧师聊一聊，最后一起念主祷文' : `${dayPrayName()}，几分钟或者一句话`,
         h('a', { class: 'pray-switch', href: `#/pray/go?m=${night ? 'quick' : 'night'}` }, night ? '只简短祷告' : '这是晚上那次'))),
     last ? h('div', { class: 'card pray-recent' },
       h('h3', {}, last === today ? '今天' : relDay(last, today), h('span', { class: 'muted small' }, ` · 祷告了 ${list.length} 次`)),
       h('div', { class: 'pray-times' }, list.map((x) => h('span', { class: `pray-time ${x.kind}` },
-        x.kind === 'night' ? '✝ ' : '', String(x.at).includes('T') ? hm(x.at) : '', x.kind === 'night' ? ' 晚上 · 主祷文' : '')))) : null,
+        x.kind === 'night' ? '✝ ' : '', String(x.at).includes('T') ? hm(x.at) : '', x.kind === 'night' ? ' 晚上 · 主祷文' : ''))),
+      list.filter((x) => x.text).map((x) => h('p', { class: 'small pray-said' }, h('span', { class: 'muted' }, `${hm(x.at)}　`), x.text))) : null,
     readingCard(today),
     h('a', { class: 'quiet-link', href: '#/low', onclick: () => resetLow() }, '难受的时候 ›'));
 }
@@ -1164,8 +1168,15 @@ function bookSheet() {
   });
 }
 
-// 祷告：复制提示词 → 和 ChatGPT 语音祷告 → 回来点「祷告完了」；晚上那次再念主祷文。不用写字
-const prayState = { key: '', step: 0 };
+// 白天的祷告叫什么：早上 / 下午 / 傍晚
+function dayPrayName() {
+  const hr = new Date().getHours();
+  return hr >= 4 && hr < 11 ? '早上的祷告' : hr >= 11 && hr < 17 ? '下午的祷告' : hr >= 17 && hr < 20 ? '傍晚的祷告' : '祷告';
+}
+
+// 晚上的祷告：复制提示词 → 和 ChatGPT（牧师）语音聊、一起祷告 → 「祷告完了」→ 主祷文。
+// 白天的祷告：和 ChatGPT 简短说（不读经文），或者写一句话
+const prayState = { key: '', step: 0, way: 'chatgpt' };
 function prayGoView(mode) {
   const d = store.data;
   const today = dayKey();
@@ -1173,13 +1184,10 @@ function prayGoView(mode) {
   const key = `${today}-${m}`;
   if (prayState.key !== key) Object.assign(prayState, { key, step: 0 });
   const verse = verseFor(today, VERSES);
-  const text = m === 'night'
-    ? prayerPrompt({ about: d.prayer.about || undefined, verse, items: d.prayer.items.filter((x) => !x.answered).map((x) => x.text), plan: d.days[today]?.plan || '' })
-    : quickPrayerPrompt({ about: d.prayer.about || undefined, verse });
-  const record = () => saveRender(m === 'night' ? '晚上的祷告' : '祷告', (data) => {
+  const record = (said = '') => saveRender(m === 'night' ? '晚上的祷告' : '祷告', (data) => {
     const p = (dayOf(data, today).prayer ||= {});
     const at = nowIso();
-    (p.times ||= []).push({ at, kind: m });
+    (p.times ||= []).push(said ? { at, kind: m, text: said } : { at, kind: m });
     if (m === 'night') p.night = { at, mode: 'chatgpt' };
   }).then((ok) => { if (!ok) return; prayState.key = ''; toast(CHEER_ON.prayer); go('#/pray'); });
   if (prayState.step === 1) {
@@ -1188,23 +1196,44 @@ function prayGoView(mode) {
       h('h2', { class: 'pray-title' }, '主祷文'),
       h('div', { class: 'lords-lines' }, LORDS_PRAYER.lines.map((line) => h('p', { class: 'pray-line' }, line))),
       h('p', { class: 'muted small center' }, LORDS_PRAYER.ref),
-      h('button', { class: 'wide pray-amen', onclick: record }, '阿们'));
+      h('button', { class: 'wide pray-amen', onclick: () => record() }, '阿们'));
   }
-  return h('div', { class: 'pray-screen' },
-    h('div', { class: 'pray-cross', 'aria-hidden': 'true' }, '✝'),
-    h('h2', { class: 'pray-title' }, m === 'night' ? '晚上的祷告' : '祷告'),
-    h('blockquote', { class: 'pray-verse' }, h('span', { class: 'v' }, verse.text), h('cite', {}, verse.ref)),
-    h('ol', { class: 'pray-steps' },
-      h('li', {}, '复制下面的话'),
-      h('li', {}, '打开 ChatGPT，新对话里粘贴发送，切到语音'),
-      h('li', {}, m === 'night' ? '和它一起祷告、聊一聊，回来点「祷告完了」，一起念主祷文' : '和它一起祷告、聊一聊，回来点「祷告完了」')),
+  const back = h('a', { class: 'button secondary', href: '#/pray', onclick: () => { prayState.key = ''; } }, '先不了');
+  const chatgpt = (text, steps) => [
+    h('ol', { class: 'pray-steps' }, steps.map((x) => h('li', {}, x))),
     h('div', { class: 'actions' },
       h('button', { class: 'grow', onclick: () => copyText(text) }, icon('copy'), '复制'),
       h('a', { class: 'button secondary', href: 'https://chatgpt.com/', target: '_blank', rel: 'noopener' }, '打开 ChatGPT')),
-    h('details', { class: 'prompt-peek' }, h('summary', { class: 'small muted' }, '看看要复制的话'), h('p', { class: 'small prompt-text' }, text)),
-    h('div', { class: 'pray-nav' },
-      h('a', { class: 'button secondary', href: '#/pray', onclick: () => { prayState.key = ''; } }, '先不了'),
-      h('button', { class: 'grow', onclick: () => { if (m === 'night') { prayState.step = 1; render(); window.scrollTo(0, 0); } else record(); } }, '祷告完了')));
+    h('details', { class: 'prompt-peek' }, h('summary', { class: 'small muted' }, '看看要复制的话'), h('p', { class: 'small prompt-text' }, text))];
+  if (m === 'night') {
+    const text = prayerPrompt({ about: d.prayer.about || undefined, verse, items: d.prayer.items.filter((x) => !x.answered).map((x) => x.text), plan: d.days[today]?.plan || '' });
+    return h('div', { class: 'pray-screen' },
+      h('div', { class: 'pray-cross', 'aria-hidden': 'true' }, '✝'),
+      h('h2', { class: 'pray-title' }, '晚上的祷告'),
+      h('blockquote', { class: 'pray-verse' }, h('span', { class: 'v' }, verse.text), h('cite', {}, verse.ref)),
+      chatgpt(text, ['复制下面的话', '打开 ChatGPT，新对话里粘贴发送，切到语音', '像和牧师谈心一样聊聊今天，再一起祷告；回来点「祷告完了」，一起念主祷文']),
+      h('div', { class: 'pray-nav' }, back,
+        h('button', { class: 'grow', onclick: () => { prayState.step = 1; render(); window.scrollTo(0, 0); } }, '祷告完了')));
+  }
+  // 白天：两种方式
+  const way = prayState.way;
+  const tabs = h('div', { class: 'segmented pray-ways', role: 'group', 'aria-label': '怎么祷告' }, [['chatgpt', '和 ChatGPT 说'], ['text', '写一句']].map(([v, t]) =>
+    h('button', { type: 'button', class: `seg${way === v ? ' on' : ''}`, 'aria-pressed': String(way === v), onclick: () => { prayState.way = v; render(); } }, t)));
+  let body;
+  let done;
+  if (way === 'text') {
+    const said = h('textarea', { rows: 3, placeholder: '主，……', 'aria-label': '祷告的话' });
+    body = [said, h('p', { class: 'muted small center' }, '一句就好。所有的事，都有神在帮助我。')];
+    done = h('button', { class: 'grow', onclick: () => { const v = said.value.trim(); if (!v) { said.focus(); return; } record(v); } }, '阿们');
+  } else {
+    body = chatgpt(quickPrayerPrompt({ about: d.prayer.about || undefined }), ['复制下面的话', '打开 ChatGPT，新对话里粘贴发送，切到语音', '说说现在心里的事，回来点「祷告完了」']);
+    done = h('button', { class: 'grow', onclick: () => record() }, '祷告完了');
+  }
+  return h('div', { class: 'pray-screen' },
+    h('div', { class: 'pray-cross', 'aria-hidden': 'true' }, '✝'),
+    h('h2', { class: 'pray-title' }, dayPrayName()),
+    tabs, body,
+    h('div', { class: 'pray-nav' }, back, done));
 }
 
 // ---------- 英语陪练 ----------
