@@ -1173,6 +1173,9 @@ def _(c):
     expect(p.locator(".toast", has_text="选一下男还是女")).to_be_visible()
     p.get_by_role("group", name="男女").get_by_role("button", name="女").click()
     expect(p.get_by_text("关于她")).to_be_visible()
+    expect(p.get_by_label("生日月")).to_have_count(0)  # 先问知不知道生日
+    expect(p.get_by_role("group", name="辈分").get_by_role("button", name="师长 · 长辈")).to_have_attribute("aria-pressed", "true")  # 妈妈 → 长辈
+    p.get_by_role("group", name="知道生日吗").get_by_role("button", name="知道", exact=True).click()
     p.get_by_label("生日月").select_option(str(tomorrow.month))
     p.get_by_label("生日日").select_option(str(tomorrow.day))
     p.get_by_role("button", name="存好").click()
@@ -1187,6 +1190,7 @@ def _(c):
     c.go("#/people")
     expect(p.locator(".birthday-card")).to_contain_text("编的丙")
     expect(p.locator(".av-block", has=p.locator(".av-head", has_text="家人"))).to_contain_text("编的丙")
+    expect(p.locator(".av.senior", has_text="编的丙")).to_be_visible()
     expect(p.locator(".av-block", has=p.locator(".av-head", has_text="研究生")).locator(".av-c")).to_have_text("乙")
     p.get_by_role("group", name="分组").get_by_role("button", name="本科").click()
     expect(p.locator(".av")).to_have_count(1)
@@ -1200,7 +1204,9 @@ def _(c):
     p.reload()
     p.locator("a", has_text="编的公园").first.click()
     p.get_by_role("button", name="去过了").click()
-    sh.get_by_role("group", name="和谁一起去的").get_by_role("button", name="编的乙").click()
+    sh.get_by_label("和谁一起去的").fill("乙")
+    sh.get_by_role("option", name=re.compile("编的乙")).click()
+    expect(sh.locator(".picker-token")).to_have_text("编的乙×")
     sh.get_by_role("button", name="存好").click()
     c.wait(lambda d: next(x for x in d["places"] if x["id"] == "pl-friend")["visits"][0]["with"] == [pid], "和谁去的")
     expect(p.locator(".visit")).to_contain_text("和 编的乙 一起")
@@ -1227,7 +1233,8 @@ def _(c):
         p.wait_for_timeout(200)
     assert any(x["id"] == "p-led" and x.get("archived") for x in json.loads(LEDGER.read("finance.json"))["people"]), "归档同步到账本"
     c.go("#/people")
-    expect(p.locator(".av-block.faded")).to_contain_text("编的丙")
+    expect(p.locator(".av-gone-row")).to_contain_text("不再来往 1 人")
+    expect(p.locator(".av", has_text="编的丙")).to_have_count(0)
     expect(p.locator(".av-head", has_text="家人")).to_have_count(0)
     p.get_by_role("group", name="分组").get_by_role("button", name="不再来往").click()
     expect(p.locator(".av")).to_have_count(1)

@@ -881,3 +881,28 @@ button.tl-text { background: none; padding: 0; min-height: 0; font-weight: 400; 
 .av-high { --av: var(--blue, #5b7fa8); }
 .av-middle, .av-primary { --av: #8a8478; }
 .av-none { --av: var(--muted); }
+
+/* 选人：输入一个字出补全（js/picker.js，两个网站同一份） */
+.picker { position: relative; margin-top: 6px; }
+.picker-tokens { display: flex; flex-wrap: wrap; gap: 6px; }
+.picker-tokens:not(:empty) { margin-bottom: 8px; }
+.picker-token { display: inline-flex; align-items: center; gap: 2px; padding: 4px 4px 4px 12px; border-radius: 999px; font-size: 14px;
+  background: color-mix(in srgb, var(--accent) 14%, var(--card)); color: var(--accent); }
+.picker-x { background: none; color: inherit; min-height: 0; padding: 0 6px; font-size: 16px; line-height: 1; font-weight: 400; }
+.picker-list { margin-top: 6px; border-radius: 12px; background: var(--card); box-shadow: 0 4px 16px rgb(0 0 0 / 10%); overflow: hidden; }
+.picker-list[hidden] { display: none; }
+.picker-cap { font-size: 12px; color: var(--muted); padding: 8px 14px 2px; }
+.picker-opt { display: flex; width: 100%; align-items: baseline; gap: 8px; justify-content: flex-start; text-align: left; background: none; color: var(--text);
+  font-weight: 400; min-height: 42px; padding: 0 14px; border-radius: 0; border-bottom: 0.5px solid var(--line); }
+.picker-opt:last-child { border-bottom: 0; }
+.picker-opt b { font-weight: 500; }
+.picker-opt.new { color: var(--accent); }
+.picker-opt.gone { opacity: 0.55; }
+/* 师长：圆外面多一圈细环 */
+.av.senior .av-c { box-shadow: 0 0 0 2px var(--bg), 0 0 0 3.5px color-mix(in srgb, var(--av, var(--accent)) 70%, var(--card)); }
+/* 不再来往：收成一行，一叠小灰圆 */
+.av-gone-row { display: flex; width: 100%; align-items: center; gap: 10px; background: none; color: var(--text); font-weight: 400; min-height: 44px; padding: 4px; margin-top: 4px; justify-content: flex-start; }
+.av-stack { display: flex; }
+.av-mini { width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; font-family: var(--serif); font-size: 12px; color: var(--muted);
+  background: color-mix(in srgb, var(--muted) 14%, var(--card)); border: 2px solid var(--bg); margin-left: -8px; }
+.av-mini:first-child { margin-left: 0; }

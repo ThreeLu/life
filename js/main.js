@@ -27,7 +27,8 @@ import {
 } from './stats.js';
 import { lineChart, barChart, monthGrid, sleepBars } from './charts.js';
 import { icon } from './icons.js';
-import { PEOPLE_GROUPS, SEX, ta, relChoices, mainGroup, upcomingBirthdays, upcomingDates, giftsWith, giftSummary, ledgerSync, moneyWith, timeline } from './people.js';
+import { personPicker, recentIds } from './picker.js';
+import { PEOPLE_GROUPS, SEX, RANKS, rankOf, personHint, ta, relChoices, mainGroup, upcomingBirthdays, upcomingDates, giftsWith, giftSummary, ledgerSync, moneyWith, timeline } from './people.js';
 import { nextBirthday, birthdayText, lunarName, holidayAround, holidayLine, GREET_DAYS, festivalDay, festivalsAround } from './cal.js';
 
 const SETTINGS_KEY = 'life-settings';
@@ -1846,16 +1847,10 @@ function visitSheet(p, v = null) {
   note.value = v?.note || '';
   const file = h('input', { type: 'file', accept: 'image/*', 'aria-label': '照片' });
   let score = v?.score || null;
-  const withSet = new Set(v?.with || []);
-  const wRow = h('div', {});
-  const drawWith = () => {
-    const people = store.data.people.filter((x) => !x.archived || withSet.has(x.id)).sort((a, b) => a.name.localeCompare(b.name, 'zh'));
-    wRow.replaceChildren(people.length ? h('div', { class: 'chips', role: 'group', 'aria-label': '和谁一起去的' }, people.map((x) => h('button', {
-      type: 'button', class: `chip${withSet.has(x.id) ? ' on' : ''}`, 'aria-pressed': String(withSet.has(x.id)),
-      onclick: () => { if (withSet.has(x.id)) withSet.delete(x.id); else withSet.add(x.id); drawWith(); },
-    }, x.name))) : h('p', { class: 'muted small' }, '在「生活 → 身边的人」里加了人，就能在这里选。'));
-  };
-  drawWith();
+  let withIds = [...(v?.with || [])];
+  const ppl = store.data.people.map((x) => ({ id: x.id, name: x.name, hint: personHint(x), archived: x.archived }));
+  const wRow = ppl.length ? personPicker({ people: ppl, value: withIds, multi: true, label: '和谁一起去的', recent: recentPeopleLife(), onChange: (ids) => { withIds = ids; } })
+    : h('p', { class: 'muted small' }, '在「生活 → 身边的人」里加了人，就能在这里选。');
   const sRow = h('div', {});
   const draw = () => sRow.replaceChildren(scoreRow('打分', 5, score, (x) => { score = x; draw(); }, ['1', '2', '3', '4', '5'].map((n) => `${n} ★`)));
   draw();
@@ -1882,7 +1877,7 @@ function visitSheet(p, v = null) {
           const q = data.places.find((x) => x.id === p.id);
           if (!q) return false;
           q.visits ||= [];
-          const x = { id: vid, day: day.value || dayKey(), ...(score ? { score } : {}), ...(withSet.size ? { with: [...withSet] } : {}), ...(note.value.trim() ? { note: note.value.trim() } : {}), ...(photo ? { photo } : {}) };
+          const x = { id: vid, day: day.value || dayKey(), ...(score ? { score } : {}), ...(withIds.length ? { with: [...withIds] } : {}), ...(note.value.trim() ? { note: note.value.trim() } : {}), ...(photo ? { photo } : {}) };
           const i = q.visits.findIndex((y) => y.id === vid);
           if (i >= 0) q.visits[i] = x; else q.visits.push(x);
         }, uploads.length || removes.length ? { uploads, removes } : undefined);
@@ -3740,6 +3735,13 @@ const PEOPLE_HELP = [
   ['和账本', ['账本人情账里的人就是这份名单。在账本里新加的人，打开这一页时会出现在「还没分组」。名字在这里改，账本跟着改。']],
 ];
 
+// 选人时「最近」：最近记过来往、一起去过地方的人
+function recentPeopleLife() {
+  const d = store.data;
+  return recentIds([...d.people.flatMap((p) => (p.log || []).map((l) => ({ id: p.id, day: l.day }))),
+    ...d.places.flatMap((pl) => (pl.visits || []).flatMap((v) => (v.with || []).map((id) => ({ id, day: v.day }))))]);
+}
+
 // 账本的数据（人情、和他有关的钱）：读一次存 5 分钟；读到了只重画看得到它的页面
 const ledgerCache = { at: 0, data: null, busy: false };
 function ledgerSnap(force = false) {
@@ -3798,8 +3800,9 @@ async function syncPeople(force = false) {
       await updateLedger(`人情账名单：${after.map((x) => x.name).join('、')}（从「生活」）`, (fin) => {
         fin.people ||= [];
         for (const x of after) {
-          const t = fin.people.find((p) => p.id === x.id);
-          if (t) { t.name = x.name; if (x.archived) t.archived = true; else delete t.archived; } else fin.people.push({ id: x.id, name: x.name, ...(x.archived ? { archived: true } : {}) });
+          let t = fin.people.find((p) => p.id === x.id);
+          if (t) { t.name = x.name; if (x.archived) t.archived = true; else delete t.archived; } else fin.people.push(t = { id: x.id, name: x.name, ...(x.archived ? { archived: true } : {}) });
+          if (x.hint) t.hint = x.hint; else delete t.hint;
         }
       });
     }
@@ -3812,7 +3815,7 @@ async function syncPeople(force = false) {
 const peopleState = { tab: 'all', q: '' };
 const WALL_ORDER = ['family', 'relative', 'grad', 'college', 'high', 'middle', 'primary'];
 function avatar(p, soon) {
-  return h('a', { class: `av${p.archived ? ' gone' : ''}`, href: `#/person/${p.id}`, 'data-name': p.name, 'data-key': [p.name, p.rel, p.note, p.how].filter(Boolean).join(' ') },
+  return h('a', { class: `av${p.archived ? ' gone' : ''}${rankOf(p) === 'senior' ? ' senior' : ''}`, href: `#/person/${p.id}`, 'data-name': p.name, 'data-key': [p.name, p.rel, p.note, p.how].filter(Boolean).join(' ') },
     h('span', { class: `av-c av-${mainGroup(p) || 'none'}` }, [...p.name].pop(), soon ? h('i', { class: 'av-dot', title: soon }) : null),
     h('span', { class: 'av-n' }, p.name));
 }
@@ -3825,7 +3828,8 @@ function peopleView() {
   const bd = upcomingBirthdays(d.people, today, 30);
   const dates = upcomingDates(d.people, today, 30);
   const soonOf = (p) => { const b = bd.find((x) => x.p.id === p.id && x.left <= 7); const x = dates.find((y) => y.p.id === p.id && y.left <= 7); return b ? '快过生日了' : x ? x.x.title : ''; };
-  const byName = (a, b) => a.name.localeCompare(b.name, 'zh');
+  const RANK_ORDER = { senior: 0, peer: 1, junior: 2 };
+  const byName = (a, b) => RANK_ORDER[rankOf(a)] - RANK_ORDER[rankOf(b)] || a.name.localeCompare(b.name, 'zh'); // 师长在前
   const loose = live.filter((p) => !(p.groups || []).length);
   const tabs = [['all', '全部'], ...WALL_ORDER.filter((g) => live.some((p) => (p.groups || []).includes(g))).map((g) => [g, PEOPLE_GROUPS[g]]),
     ...(loose.length ? [['none', '还没分组']] : []), ...(gone.length ? [['gone', '不再来往']] : [])];
@@ -3837,7 +3841,9 @@ function peopleView() {
   if (t === 'all') {
     body = [loose.length ? block('还没分组', loose.sort(byName)) : null,
       ...WALL_ORDER.map((g) => block(PEOPLE_GROUPS[g], live.filter((p) => mainGroup(p) === g).sort(byName))),
-      block('不再来往', gone.sort(byName), 'faded')];
+      gone.length ? h('button', { type: 'button', class: 'av-gone-row', onclick: () => { peopleState.tab = 'gone'; render(); } },
+        h('span', { class: 'av-stack' }, gone.slice(0, 6).map((p) => h('span', { class: 'av-mini' }, [...p.name].pop()))),
+        h('span', { class: 'grow muted small' }, `不再来往 ${gone.length} 人`), icon('chev', 'i chev')) : null];
   } else if (t === 'none') body = [wall(loose.sort(byName))];
   else if (t === 'gone') body = [wall(gone.sort(byName))];
   else {
@@ -3903,6 +3909,7 @@ function personEditView(id) {
   const rel = input('rel', { placeholder: '或者自己写', 'aria-label': '关系' });
   const relChips = relChoices(mainGroup(x));
   const b = x.birthday || {};
+  const bdState = x.birthday ? 'yes' : x.noBirthday ? 'no' : x._bd || ''; // 先问知不知道生日，知道才展开
   const setB = (k, v) => { x.birthday = { cal: 'solar', ...(x.birthday || {}), [k]: v }; if (!x.birthday.m && !x.birthday.d && !x.birthday.y) x.birthday = null; };
   const month = h('select', { 'aria-label': '生日月', onchange: (e) => { setB('m', Number(e.target.value) || null); } },
     h('option', { value: '' }, '月'), Array.from({ length: 12 }, (_, i) => h('option', { value: String(i + 1), selected: b.m === i + 1 }, b.cal === 'lunar' ? `${'正二三四五六七八九十冬腊'[i]}月` : `${i + 1} 月`)));
@@ -3920,7 +3927,8 @@ function personEditView(id) {
       const p = { ...x, id: pid, name, log: old?.log || [], ...(old?.stages ? { stages: old.stages } : {}), ...(old?.dates ? { dates: old.dates } : {}), at: old?.at || dayKey() };
       for (const k of ['rel', 'how', 'likes', 'note', 'tone']) { if (typeof p[k] === 'string') p[k] = p[k].trim(); if (!p[k]) delete p[k]; }
       if (!p.greet?.length) delete p.greet;
-      if (!p.birthday) delete p.birthday;
+      delete p._bd;
+      if (!p.birthday) delete p.birthday; else delete p.noBirthday;
       const i = data.people.findIndex((y) => y.id === pid);
       if (i >= 0) data.people[i] = p; else data.people.push(p);
     }).then((ok) => { if (ok) { personDraft.id = null; syncPeople(true); toast(old ? '改好了' : '记下了。'); go(`#/person/${pid}`, true); } });
@@ -3943,12 +3951,18 @@ function personEditView(id) {
         x.groups.map((g) => h('button', { type: 'button', class: `chip${x.groups[0] === g ? ' on' : ''}`, 'aria-pressed': String(x.groups[0] === g), onclick: () => setMain(g) }, PEOPLE_GROUPS[g]))) : null,
       relChips.length ? [h('div', { class: 'label-sm' }, mainGroup(x) === 'family' || mainGroup(x) === 'relative' ? '是你的' : `${ta(x)}是`),
         h('div', { class: 'chips', role: 'group', 'aria-label': '关系' }, relChips.map((r) => h('button', { type: 'button', class: `chip${x.rel === r ? ' on' : ''}`, 'aria-pressed': String(x.rel === r), onclick: () => { x.rel = x.rel === r ? '' : r; render(); } }, r))), rel]
-        : [h('div', { class: 'label-sm' }, '关系'), rel]),
-    h('div', { class: 'card' }, h('h3', {}, '生日'),
-      h('div', { class: 'chips', role: 'group', 'aria-label': '公历还是农历' }, [['solar', '公历'], ['lunar', '农历']].map(([k, t]) => h('button', {
+        : [h('div', { class: 'label-sm' }, '关系'), rel],
+      h('div', { class: 'label-sm' }, '辈分'),
+      h('div', { class: 'chips', role: 'group', 'aria-label': '辈分' }, Object.entries(RANKS).map(([k, t]) => h('button', {
+        type: 'button', class: `chip${rankOf(x) === k ? ' on' : ''}`, 'aria-pressed': String(rankOf(x) === k), onclick: () => { x.rank = k; render(); } }, t)))),
+    h('div', { class: 'card' }, h('div', { class: 'rec-top' }, h('h3', {}, '生日'),
+      h('div', { class: 'chips', role: 'group', 'aria-label': '知道生日吗' }, [['yes', '知道'], ['no', '不知道']].map(([k, t]) => h('button', {
+        type: 'button', class: `chip${bdState === k ? ' on' : ''}`, 'aria-pressed': String(bdState === k),
+        onclick: () => { x._bd = k; if (k === 'no') { x.birthday = null; x.noBirthday = true; } else delete x.noBirthday; render(); } }, t)))),
+      bdState !== 'yes' ? null : [h('div', { class: 'chips', role: 'group', 'aria-label': '公历还是农历' }, [['solar', '公历'], ['lunar', '农历']].map(([k, t]) => h('button', {
         type: 'button', class: `chip${(b.cal || 'solar') === k ? ' on' : ''}`, 'aria-pressed': String((b.cal || 'solar') === k), onclick: () => { x.birthday = { ...(x.birthday || {}), cal: k }; render(); } }, t))),
       h('div', { class: 'row-2' }, month, dayOf), year,
-      x.birthday?.m && x.birthday?.d ? h('p', { class: 'muted small' }, `下一次：${(() => { const n = nextBirthday(x.birthday, dayKey()); return n ? `${Number(n.slice(0, 4))}年${Number(n.slice(5, 7))}月${Number(n.slice(8))}日` : '算不出来'; })()}`) : null),
+      x.birthday?.m && x.birthday?.d ? h('p', { class: 'muted small' }, `下一次：${(() => { const n = nextBirthday(x.birthday, dayKey()); return n ? `${Number(n.slice(0, 4))}年${Number(n.slice(5, 7))}月${Number(n.slice(8))}日` : '算不出来'; })()}`) : null]),
     h('div', { class: 'card detail-card' }, h('h3', {}, `关于${ta(x)}`),
       h('div', { class: 'detail-row' }, h('div', { class: 'detail-label' }, icon('people', 'i'), '怎么认识的'), input('how', { class: 'bare', rows: 2, placeholder: '比如：大一军训同一个连', 'aria-label': '怎么认识的' })),
       h('div', { class: 'detail-row' }, h('div', { class: 'detail-label' }, icon('sparkle', 'i'), '喜欢什么、不吃什么'), input('likes', { class: 'bare', rows: 2, placeholder: '比如：爱喝茶，不吃辣', 'aria-label': '喜欢什么' })),
@@ -4163,7 +4177,7 @@ function personContext(p, ledger) {
   const stages = (p.stages || []).slice().sort((a, b) => String(a.from).localeCompare(String(b.from)))
     .map((s) => `${s.from || ''}${s.to ? `–${s.to}` : s.from ? ' 起' : ''} ${s.title}${s.text ? `：${s.text}` : ''}`);
   return [
-    `${p.name}，${[SEX[p.sex], (p.groups || []).map((g) => PEOPLE_GROUPS[g]).join('、') && `${(p.groups || []).map((g) => PEOPLE_GROUPS[g]).join('、')}认识的`, p.rel].filter(Boolean).join('，')}。`,
+    `${p.name}，${[SEX[p.sex], RANKS[rankOf(p)], (p.groups || []).map((g) => PEOPLE_GROUPS[g]).join('、') && `${(p.groups || []).map((g) => PEOPLE_GROUPS[g]).join('、')}认识的`, p.rel].filter(Boolean).join('，')}。`,
     p.birthday?.m ? `生日：${birthdayText(p.birthday)}` : '',
     p.tone ? `我平时怎么称呼${pr}、怎么和${pr}说话：${p.tone}` : '',
     p.how ? `怎么认识的：${p.how}` : '', p.likes ? `${pr}喜欢什么、不吃什么：${p.likes}` : '', p.note ? `近况、要记得的：${p.note}` : '',

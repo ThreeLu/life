@@ -3,7 +3,7 @@
 // people: [{ id（和账本 people 同一个 id）, name, sex: 'm'|'f', groups: [主要的档, 也在的档…], rel（妈妈 / 导师 / 同学…）, how（怎么认识的）,
 //            birthday: { cal: 'solar'|'lunar', m, d, y? } | null, likes（喜欢什么、不吃什么）, note（近况、要记得的）,
 //            log: [{ id, day, text, favor?, gift?: 'out'|'in' }], at, archived?（归档的日期）, archiveNote?,
-//            tone（平时怎么称呼、怎么说话，DeepSeek 写问候时照着）, greet: [过节要问候的节 key], dates: [{ id, day, title, gift?, yearly? }]（重要的日子）,
+//            rank?: senior|peer|junior（没有就按 rel 猜）, noBirthday?（不知道生日）, tone（平时怎么称呼、怎么说话，DeepSeek 写问候时照着）, greet: [过节要问候的节 key], dates: [{ id, day, title, gift?, yearly? }]（重要的日子）,
 //            stages: [{ id, title, from, to?, text }]（我们的经历，from / to 写「2019」或「2019-09」） }]
 // 人情（不是钱的）存在账本 finance.json 的 favors 里，这里只读和写进去。
 
@@ -21,6 +21,14 @@ export const relChoices = (group) => REL_CHOICES[group] || (group ? REL_CHOICES.
 
 export const mainGroup = (p) => p.groups?.[0] || '';
 export const SEX = { m: '男', f: '女' };
+// 辈分：导师、老师、长辈、领导是「师长」；同学、师兄师姐是「同辈」；师弟师妹、弟弟妹妹是「晚辈」。没选过就按关系猜
+export const RANKS = { senior: '师长 · 长辈', peer: '同辈', junior: '晚辈' };
+export function guessRank(rel = '') {
+  if (/导师|老师|小导|领导|老板|爸|妈|爷|奶|外公|外婆|叔|伯|姑|舅|姨|婶/.test(rel)) return 'senior';
+  if (/师弟|师妹|弟|妹|学生|侄|外甥/.test(rel)) return 'junior';
+  return 'peer';
+}
+export const rankOf = (p) => p.rank || guessRank(p.rel);
 export const ta = (p) => (p?.sex === 'f' ? '她' : '他');
 const dayDiff = (a, b) => Math.round((new Date(`${b}T12:00:00`) - new Date(`${a}T12:00:00`)) / 86400000);
 
@@ -78,6 +86,9 @@ export function giftSummary(gifts, pronoun = '他') {
   return parts.join('；');
 }
 
+// 选人时名字后面的小字：本科 · 舍友
+export const personHint = (p) => [PEOPLE_GROUPS[mainGroup(p)], p.rel].filter(Boolean).join(' · ');
+
 // 和账本名单对上：账本里新加的人搬过来（还没分组）；这边的名字、归档同步到账本
 export function ledgerSync(people, ledgerPeople = []) {
   const mine = new Map(people.map((p) => [p.id, p]));
@@ -88,8 +99,8 @@ export function ledgerSync(people, ledgerPeople = []) {
   const merged = new Set(merges.map((x) => x.from));
   const pushes = people.filter((p) => !merged.has(p.id)).filter((p) => {
     const t = theirs.get(p.id);
-    return !t || t.name !== p.name || Boolean(t.archived) !== Boolean(p.archived);
-  }).map((p) => ({ id: p.id, name: p.name, archived: Boolean(p.archived) }));
+    return !t || t.name !== p.name || Boolean(t.archived) !== Boolean(p.archived) || (t.hint || '') !== personHint(p);
+  }).map((p) => ({ id: p.id, name: p.name, archived: Boolean(p.archived), hint: personHint(p) }));
   return { imports, merges, pushes };
 }
 
