@@ -687,7 +687,7 @@ button.cell .grow { display: block; }
 
 /* 首页开头：日期 → 问候（宋体）→ 节气、天气 */
 .today-head .sub { margin: 0 0 2px; font-size: 13px; }
-.today-head .greet { font-size: 30px; }
+.today-head .greet { font-size: clamp(24px, 7.4vw, 30px); white-space: nowrap; }  /* 一句问候不折行（右上角最多三个图标） */
 .head-tags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
 .head-tags .tag { font-size: 12px; padding: 3px 10px; border-radius: 99px; background: var(--accent-soft); color: var(--accent); }
 /* 换季：天气下面一句小字，不是按钮 */
@@ -729,8 +729,9 @@ button.cell .grow { display: block; }
 }
 
 /* ---------- 首页：按时段的清单 ---------- */
-.alerts { display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px; }
-.alert-line { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 42px; padding: 8px 12px; background: var(--card); color: var(--text); border-radius: 12px; box-shadow: var(--shadow); font-family: inherit; font-weight: 400; font-size: 14.5px; line-height: 1.4; text-align: left; text-decoration: none; }
+.alerts { background: var(--card); border-radius: 14px; overflow: hidden; box-shadow: var(--shadow); margin-bottom: 14px; }
+.alert-line { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 46px; padding: 10px 14px; background: transparent; color: var(--text); border-radius: 0; font-family: inherit; font-weight: 400; font-size: 14.5px; line-height: 1.4; text-align: left; text-decoration: none; }
+.alert-line + .alert-line { border-top: 0.5px solid var(--line); }
 .alert-line .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); flex: none; }
 .alert-line.red .dot { background: var(--danger); }
 .alert-line.amber .dot { background: var(--amber); }
@@ -963,3 +964,10 @@ button.tl-text { background: none; padding: 0; min-height: 0; font-weight: 400; 
 
 /* 身边的人：在我的故事里 */
 .story-row { display: block; padding: 5px 0; color: var(--text); font-size: 15px; }
+
+/* 按下去的手感（苹果的做法）：按钮、卡片轻轻缩一点，列表行底色深一点，底部导航变淡 */
+button, .button, .icon-btn, .chip, .tile .ph, a.card, nav#nav a { transition: transform .15s ease, opacity .15s ease, background-color .15s ease; }
+button:not(:disabled):active, .button:active, .icon-btn:active, a.chip:active, .tile:active .ph, a.card:active { transform: scale(.97); }
+a.alert-line:active, button.alert-line:not(:disabled):active, a.cell:active, button.cell:not(:disabled):active, .cell.pick:not(:disabled):active, .cell.indicator:not(:disabled):active { background: var(--chip); transform: none; }
+button.link:not(:disabled):active, a.link:active, nav#nav a:active { transform: none; opacity: .55; }
+@media (prefers-reduced-motion: reduce) { button:active, .button:active, .icon-btn:active, a.chip:active, .tile:active .ph, a.card:active { transform: none !important; } }

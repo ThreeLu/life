@@ -3849,7 +3849,10 @@ function peopleView() {
       [...bd.map((x) => ({ ...x, what: `生日${x.age ? ` · ${x.age} 岁` : ''}` })), ...dates.map((x) => ({ ...x, what: x.x.title }))].sort((a, b) => a.left - b.left).slice(0, 6).map((x) => h('a', { class: 'birthday-row', href: `#/person/${x.p.id}` },
         h('span', { class: 'grow' }, h('b', {}, x.p.name), ` · ${x.what}`),
         h('span', { class: 'muted small' }, `${x.left === 0 ? '今天' : x.left === 1 ? '明天' : `${x.left} 天后`} · ${Number(x.day.slice(5, 7))}月${Number(x.day.slice(8))}日`)))) : null,
-    festivalsAround(today).filter((f) => d.people.some((p) => !p.archived && (p.greet || []).includes(f.key))).map((f) => alertLine(`${f.name}问候`, { href: `#/greet/${f.fkey}`, tone: 'soft' })),
+    (() => {
+      const greets = festivalsAround(today).filter((f) => d.people.some((p) => !p.archived && (p.greet || []).includes(f.key)));
+      return greets.length ? h('div', { class: 'alerts' }, greets.map((f) => alertLine(`${f.name}问候`, { href: `#/greet/${f.fkey}`, tone: 'soft' }))) : null;
+    })(),
     d.people.length ? [
       h('div', { class: 'chips av-tabs', role: 'group', 'aria-label': '分组' }, tabs.map(([k, name]) => h('button', {
         type: 'button', class: `chip${t === k ? ' on' : ''}`, 'aria-pressed': String(t === k), onclick: () => { peopleState.tab = k; render(); } }, name))),
