@@ -344,6 +344,13 @@ function choiceRow(label, options, value, onPick) {
     }, text)));
 }
 
+// 打开 ChatGPT App 并带上要说的话：chatgpt.com/?prompt= 是 App 认的通用链接（根路径不带参数只开网页）。
+// 同时悄悄复制一份，万一没带上就粘贴
+function chatgptButton(text, cls = 'button secondary') {
+  return h('a', { class: cls, href: `https://chatgpt.com/?prompt=${encodeURIComponent(text)}`, target: '_blank', rel: 'noopener',
+    onclick: () => { navigator.clipboard?.writeText(text).catch(() => {}); } }, '打开 ChatGPT');
+}
+
 async function copyText(text) {
   try {
     await navigator.clipboard.writeText(text);
@@ -1083,7 +1090,7 @@ function periodicRow(p, today, edit) {
 const PRAY_HELP = [
   ['白天的祷告', [
     '早上、下午、傍晚，想到就来，几分钟就好。',
-    '两种都行：和 ChatGPT 说（复制提示词，新对话粘贴，切到语音），或者不方便的时候写一句话，点「阿们」。',
+    '两种都行：和 ChatGPT 说（点「打开 ChatGPT」，会打开 App 并带上要说的话，发送后切到语音），或者不方便的时候写一句话，点「阿们」。',
     '不读经文，只是把现在的事交给神。',
   ]],
   ['晚上的祷告', [
@@ -1202,8 +1209,8 @@ function prayGoView(mode) {
   const chatgpt = (text, steps) => [
     h('ol', { class: 'pray-steps' }, steps.map((x) => h('li', {}, x))),
     h('div', { class: 'actions' },
-      h('button', { class: 'grow', onclick: () => copyText(text) }, icon('copy'), '复制'),
-      h('a', { class: 'button secondary', href: 'https://chatgpt.com/', target: '_blank', rel: 'noopener' }, '打开 ChatGPT')),
+      chatgptButton(text, 'button grow'),
+      h('button', { class: 'secondary', onclick: () => copyText(text) }, icon('copy'), '复制')),
     h('details', { class: 'prompt-peek' }, h('summary', { class: 'small muted' }, '看看要复制的话'), h('p', { class: 'small prompt-text' }, text))];
   if (m === 'night') {
     const text = prayerPrompt({ about: d.prayer.about || undefined, verse, items: d.prayer.items.filter((x) => !x.answered).map((x) => x.text), plan: d.days[today]?.plan || '' });
@@ -1211,7 +1218,7 @@ function prayGoView(mode) {
       h('div', { class: 'pray-cross', 'aria-hidden': 'true' }, '✝'),
       h('h2', { class: 'pray-title' }, '晚上的祷告'),
       h('blockquote', { class: 'pray-verse' }, h('span', { class: 'v' }, verse.text), h('cite', {}, verse.ref)),
-      chatgpt(text, ['复制下面的话', '打开 ChatGPT，新对话里粘贴发送，切到语音', '像和牧师谈心一样聊聊今天，再一起祷告；回来点「祷告完了」，一起念主祷文']),
+      chatgpt(text, ['点「打开 ChatGPT」，要说的话会带过去，发送后切到语音', '像和牧师谈心一样聊聊今天，再一起祷告', '回来点「祷告完了」，一起念主祷文']),
       h('div', { class: 'pray-nav' }, back,
         h('button', { class: 'grow', onclick: () => { prayState.step = 1; render(); window.scrollTo(0, 0); } }, '祷告完了')));
   }
@@ -1226,7 +1233,7 @@ function prayGoView(mode) {
     body = [said, h('p', { class: 'muted small center' }, '一句就好。所有的事，都有神在帮助我。')];
     done = h('button', { class: 'grow', onclick: () => { const v = said.value.trim(); if (!v) { said.focus(); return; } record(v); } }, '阿们');
   } else {
-    body = chatgpt(quickPrayerPrompt({ about: d.prayer.about || undefined }), ['复制下面的话', '打开 ChatGPT，新对话里粘贴发送，切到语音', '说说现在心里的事，回来点「祷告完了」']);
+    body = chatgpt(quickPrayerPrompt({ about: d.prayer.about || undefined }), ['点「打开 ChatGPT」，要说的话会带过去，发送后切到语音', '说说现在心里的事，回来点「祷告完了」']);
     done = h('button', { class: 'grow', onclick: () => record() }, '祷告完了');
   }
   return h('div', { class: 'pray-screen' },
@@ -1242,7 +1249,7 @@ function prayGoView(mode) {
 const EN_HELP = [
   ['怎么练', [
     '网页按「聊天 2 次、美国生活 2 次、会议 1 次」轮着给你今天的模式和话题，也可以自己换。',
-    '点「复制」→ 打开 ChatGPT 新对话粘贴发送 → 点语音按钮聊 15 分钟。',
+    '点「打开 ChatGPT」：会打开 App，提示词已经带过去，发送后点语音按钮聊 15 分钟。没带上的话粘贴（已经复制好了）。',
     '聊完回到文字框打 wrap up，它会按固定格式列出你说错的句子和值得学的表达。',
     '把那段总结整个复制，贴到这一页的「贴回来」里，点「存进本子」：说错的进错句本，表达进表达本，同时记一次练习。不想贴的话点「练完了」只记一次。',
   ]],
@@ -1303,7 +1310,8 @@ function englishView() {
       h('p', { class: 'topic' }, topic),
       h('button', { class: 'link small', onclick: () => { enState.mode = mode; enState.topic = pool[(pool.indexOf(topic) + 1) % pool.length]; render(); } }, '换一个话题')),
     h('div', { class: 'card' }, box, h('div', { class: 'actions' },
-      h('button', { onclick: () => copyText(text) }, icon('copy'), '复制'))),
+      chatgptButton(text, 'button'),
+      h('button', { class: 'secondary', onclick: () => copyText(text) }, icon('copy'), '复制'))),
     h('div', { class: 'card' },
       h('h3', {}, '练完了：贴回来'),
       paste,
@@ -3400,7 +3408,7 @@ function historyView() {
 const GOALS_HELP = [
   ['怎么用', [
     '点「＋ 写一个心愿」，用一句话写下想做到的事，比如「生活和工作分开，先从衣服开始」。',
-    '复制提示词，打开 ChatGPT 新对话粘贴，切到语音，和它聊清楚。聊完说「整理一下」，它会写一份小结。',
+    '点「打开 ChatGPT」（提示词会带过去），发送后切到语音，和它聊清楚。聊完说「整理一下」，它会写一份小结。',
     '把小结整段贴回来，点「让 DeepSeek 整理」：它会拆成几个阶段、每阶段几件能勾掉的小事，还有要养成的习惯。',
     '做完一件勾一件。首页会有一行进度。做到了点「做到了」，会进里程碑。',
   ]],
@@ -3561,11 +3569,11 @@ function goalTalkCard(g, again) {
   };
   return h('div', { class: again ? 'form' : 'card form' },
     h('ol', { class: 'small steps' },
-      h('li', {}, '点「复制」，打开 ChatGPT 新对话粘贴发送。'),
+      h('li', {}, '点「打开 ChatGPT」，提示词会带过去，发送。'),
       h('li', {}, '点语音按钮，和它聊清楚。'),
       h('li', {}, '聊完说「整理一下」，把它写的小结整段复制，贴到下面。')),
     h('details', { class: 'inner' }, h('summary', {}, '看看提示词'), h('p', { class: 'goal-prompt' }, text)),
-    h('button', { class: 'secondary small', onclick: () => copyText(text) }, icon('copy'), '复制提示词'),
+    h('div', { class: 'actions' }, chatgptButton(text, 'button small'), h('button', { class: 'secondary small', onclick: () => copyText(text) }, icon('copy'), '复制提示词')),
     paste,
     h('button', { class: 'wide', disabled: goalAi.busy, onclick: organize }, icon('sparkle'), goalAi.busy ? 'DeepSeek 正在整理……' : again ? '让 DeepSeek 重新整理' : '让 DeepSeek 整理'));
 }

@@ -8,6 +8,7 @@
 """
 
 import json
+from urllib.parse import unquote
 import re
 import sys
 import threading
@@ -275,7 +276,8 @@ def _(c):
     p.get_by_role("button", name="复制").click()
     prompt = p.evaluate("navigator.clipboard.readText()")
     assert "简短的祷告" in prompt and "不用读经文" in prompt and "和合本" not in prompt and "不用写小结" in prompt, prompt
-    expect(p.get_by_role("link", name="打开 ChatGPT")).to_have_attribute("href", "https://chatgpt.com/")
+    href = p.get_by_role("link", name="打开 ChatGPT").get_attribute("href")
+    assert href.startswith("https://chatgpt.com/?prompt=") and unquote(href.split("=", 1)[1]) == prompt, href
     p.get_by_role("button", name="祷告完了").click()
     p.wait_for_function("location.hash === '#/pray'")
     c.wait(lambda d: [x["kind"] for x in d["days"][TODAY]["prayer"]["times"]] == ["quick"], "白天的祷告")
