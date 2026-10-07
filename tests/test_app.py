@@ -728,14 +728,15 @@ def _(c):
     expect(p.get_by_text("午餐：编的盖饭")).to_be_visible()
 
 
-@step("换季：要降温了首页提醒")
+@step("换季：要降温了写在首页天气下面")
 def _(c):
     p = c.page
     c.write(lambda d: d["settings"].update(city={"name": "编的城", "lat": 1, "lon": 2}))
     p.evaluate("localStorage.removeItem('life-weather')")
     c.go("#/")
     p.reload()
-    expect(p.locator(".alert-line", has_text="要降温了")).to_contain_text("比今天低 10°C")
+    expect(p.locator(".today-head .wx-note")).to_contain_text("比今天低 10°C")
+    expect(p.locator(".alert-line", has_text="降温")).to_have_count(0)
 
 
 @step("英语：贴回总结存进错句本表达本、下次注意写进提示词、复习")

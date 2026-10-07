@@ -433,8 +433,6 @@ function alertRows(today) {
   const ep = d.sick.current;
   if (ep) out.push(alertLine(`${SICK_KINDS[ep.kind].name} · 第 ${daysBetween(ep.start, today) + 1} 天`, { href: '#/sick', tone: 'red' }));
   else if (recoveryLeft(d, today)) out.push(alertLine(`恢复期还有 ${recoveryLeft(d, today)} 天，早点睡`, { tone: 'soft' }));
-  const w = seasonAlert();
-  if (w) out.push(alertLine(w, { tone: 'amber' }));
   const ms = milestoneList();
   if (ms.length) out.push(alertLine(ms.map((m) => m.text).join('；'), { action: h('button', { class: 'link small', onclick: () => ms[0].okAll() }, '好') }));
   const due = periodicDue(d, today);
@@ -583,12 +581,14 @@ function todayHeader(today, lockBtn) {
   const term = st.today ? `今天${st.name}` : st.left <= 7 ? `${st.name} · ${st.next}还有 ${st.left} 天` : `${st.name}时节`;
   const w = readJson(WEATHER_KEY);
   const city = d.settings.city;
+  const note = seasonAlert();
   const wx = w.day === today && w.daily?.[0] ? `${city?.name || ''} ${Math.round(w.daily[0].min)}–${Math.round(w.daily[0].max)}°C` : null;
   return h('header', { class: 'page-head today-head' },
     h('div', {},
       h('div', { class: 'sub' }, dayLabel(today)),
       h('h1', { class: 'greet' }, hi),
-      h('div', { class: 'head-tags' }, h('span', { class: 'tag' }, term), wx ? h('span', { class: 'tag' }, wx.trim()) : null)),
+      h('div', { class: 'head-tags' }, h('span', { class: 'tag' }, term), wx ? h('span', { class: 'tag' }, wx.trim()) : null),
+      note ? h('p', { class: 'wx-note' }, note) : null),
     h('div', { class: 'head-actions' }, dayComplete(today) ? h('span', { class: 'seal', title: '今天护肤、复盘、祷告都做了' }, '圆', h('br'), '满') : null,
       lockBtn, helpButton('今天这一页怎么用', TODAY_HELP)));
 }
@@ -2100,7 +2100,7 @@ function startSick(kind) {
 
 // 换季预防：每天查一次天气（Open-Meteo，不用密钥），存在 localStorage
 const WEATHER_KEY = 'life-weather';
-// 换季：要降温了 / 温差大，返回一行字（没有就 null）
+// 换季：要降温了 / 温差大，返回一句话（没有就 null），放在首页天气下面
 function seasonAlert() {
   const city = store.data.settings.city;
   if (!city?.lat) return null;
@@ -2115,7 +2115,13 @@ function seasonAlert() {
     return null;
   }
   const w = seasonWarning(cached.daily);
-  return w ? `${w.kind === 'drop' ? '要降温了' : '早晚温差大'}：${w.text}，多穿一件` : null;
+  if (!w) return null;
+  const n = daysBetween(dayKey(), w.date);
+  const when = ['今天', '明天', '后天'][n] ?? w.date.slice(5).replace('-', '/');
+  const x = cached.daily.find((y) => y.date === w.date);
+  return w.kind === 'drop'
+    ? `${when}降温，最低 ${Math.round(x.min)}°C，比今天低 ${w.drop}°C，多穿一件`
+    : `${when}早晚温差 ${Math.round(x.max - x.min)}°C，出门带件外套`;
 }
 
 // 物品档案里的药（药品急救类，缓存 5 分钟）
