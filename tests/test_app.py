@@ -1109,8 +1109,7 @@ def _(c):
     LEDGER.external_write("finance.json", json.dumps(f, ensure_ascii=False).encode())
     c.go("#/more")
     p.get_by_role("link", name="身边的人").click()
-    expect(p.locator(".section-title", has_text="还没分组")).to_be_visible()
-    expect(p.locator(".cell", has_text="编的甲")).to_be_visible()
+    expect(p.locator(".av-block", has_text="还没分组")).to_contain_text("编的甲")
     c.wait(lambda d: any(x["id"] == "p-led" and x["groups"] == [] for x in d["people"]), "账本里的人搬过来")
     # 一段话一键补全
     p.get_by_role("link", name="加一个人").click()
@@ -1187,8 +1186,12 @@ def _(c):
     expect(p.locator(".alert-line", has_text="明天是编的丙的生日")).to_be_visible()
     c.go("#/people")
     expect(p.locator(".birthday-card")).to_contain_text("编的丙")
-    expect(p.locator(".section-title", has_text="家人（1）")).to_be_visible()
-    expect(p.locator(".section-title", has_text="本科（1）")).to_be_visible()
+    expect(p.locator(".av-block", has=p.locator(".av-head", has_text="家人"))).to_contain_text("编的丙")
+    expect(p.locator(".av-block", has=p.locator(".av-head", has_text="研究生")).locator(".av-c")).to_have_text("乙")
+    p.get_by_role("group", name="分组").get_by_role("button", name="本科").click()
+    expect(p.locator(".av")).to_have_count(1)
+    expect(p.locator(".av")).to_contain_text("编的乙")
+    p.get_by_role("group", name="分组").get_by_role("button", name="全部").click()
     p.wait_for_timeout(500)
     p.screenshot(path=ART / "people.png", full_page=True)
     # 和谁一起去的
@@ -1224,8 +1227,10 @@ def _(c):
         p.wait_for_timeout(200)
     assert any(x["id"] == "p-led" and x.get("archived") for x in json.loads(LEDGER.read("finance.json"))["people"]), "归档同步到账本"
     c.go("#/people")
-    expect(p.locator("details summary", has_text="不再来往的（1）")).to_be_visible()
-    expect(p.locator(".section-title", has_text="家人")).to_have_count(0)
+    expect(p.locator(".av-block.faded")).to_contain_text("编的丙")
+    expect(p.locator(".av-head", has_text="家人")).to_have_count(0)
+    p.get_by_role("group", name="分组").get_by_role("button", name="不再来往").click()
+    expect(p.locator(".av")).to_have_count(1)
 
 
 @step("人情和关系：我们的经历（DeepSeek 分段）、重要的日子（随礼提醒以前来回多少）、礼尚往来（账本给谁的 + 自己记的礼）、怎么还人情（挑想去的地方）、过节问候（起个头、发了）")

@@ -3808,7 +3808,14 @@ async function syncPeople(force = false) {
   } catch { /* 下次再同步 */ } finally { peopleSync.busy = false; }
 }
 
-const peopleState = { archived: false };
+// 头像墙：每个人一个圆（名字最后一个字，按主要的档上色）+ 全名；上面一排切换分组，可以搜
+const peopleState = { tab: 'all', q: '' };
+const WALL_ORDER = ['family', 'relative', 'grad', 'college', 'high', 'middle', 'primary'];
+function avatar(p, soon) {
+  return h('a', { class: `av${p.archived ? ' gone' : ''}`, href: `#/person/${p.id}`, 'data-name': p.name, 'data-key': [p.name, p.rel, p.note, p.how].filter(Boolean).join(' ') },
+    h('span', { class: `av-c av-${mainGroup(p) || 'none'}` }, [...p.name].pop(), soon ? h('i', { class: 'av-dot', title: soon }) : null),
+    h('span', { class: 'av-n' }, p.name));
+}
 function peopleView() {
   const d = store.data;
   const today = dayKey();
@@ -3817,18 +3824,35 @@ function peopleView() {
   const gone = d.people.filter((p) => p.archived);
   const bd = upcomingBirthdays(d.people, today, 30);
   const dates = upcomingDates(d.people, today, 30);
-  const row = (p, g) => {
-    const b = bd.find((x) => x.p.id === p.id);
-    const others = (p.groups || []).filter((x) => x !== g).map((x) => PEOPLE_GROUPS[x]);
-    return cell({ href: `#/person/${p.id}`, title: p.name,
-      sub: [p.rel, mainGroup(p) !== g && mainGroup(p) ? `主要在${PEOPLE_GROUPS[mainGroup(p)]}` : others.length ? `也在${others.join('、')}` : null,
-        b ? (b.left === 0 ? '今天生日' : b.left === 1 ? '明天生日' : `${b.left} 天后生日`) : null].filter(Boolean).join(' · ') });
-  };
-  const sections = Object.entries(PEOPLE_GROUPS).map(([g, name]) => {
-    const list = live.filter((p) => (p.groups || []).includes(g)).sort((a, b) => (mainGroup(a) !== g) - (mainGroup(b) !== g) || a.name.localeCompare(b.name, 'zh'));
-    return list.length ? [h('div', { class: 'section-title' }, `${name}（${list.length}）`), h('div', { class: 'group' }, list.map((p) => row(p, g)))] : null;
-  });
+  const soonOf = (p) => { const b = bd.find((x) => x.p.id === p.id && x.left <= 7); const x = dates.find((y) => y.p.id === p.id && y.left <= 7); return b ? '快过生日了' : x ? x.x.title : ''; };
+  const byName = (a, b) => a.name.localeCompare(b.name, 'zh');
   const loose = live.filter((p) => !(p.groups || []).length);
+  const tabs = [['all', '全部'], ...WALL_ORDER.filter((g) => live.some((p) => (p.groups || []).includes(g))).map((g) => [g, PEOPLE_GROUPS[g]]),
+    ...(loose.length ? [['none', '还没分组']] : []), ...(gone.length ? [['gone', '不再来往']] : [])];
+  if (!tabs.some(([k]) => k === peopleState.tab)) peopleState.tab = 'all';
+  const wall = (list) => h('div', { class: 'av-wall' }, list.map((p) => avatar(p, p.archived ? '' : soonOf(p))));
+  const block = (title, list, cls = '') => (list.length ? h('div', { class: `av-block ${cls}` }, h('div', { class: 'av-head' }, h('span', {}, title), h('span', { class: 'muted small' }, String(list.length))), wall(list)) : null);
+  let body;
+  const t = peopleState.tab;
+  if (t === 'all') {
+    body = [loose.length ? block('还没分组', loose.sort(byName)) : null,
+      ...WALL_ORDER.map((g) => block(PEOPLE_GROUPS[g], live.filter((p) => mainGroup(p) === g).sort(byName))),
+      block('不再来往', gone.sort(byName), 'faded')];
+  } else if (t === 'none') body = [wall(loose.sort(byName))];
+  else if (t === 'gone') body = [wall(gone.sort(byName))];
+  else {
+    const list = live.filter((p) => (p.groups || []).includes(t));
+    body = [wall([...list.filter((p) => mainGroup(p) === t).sort(byName), ...list.filter((p) => mainGroup(p) !== t).sort(byName)])];
+  }
+  const area = h('div', { class: 'av-area' }, body);
+  // 搜索只在这一页上藏起不匹配的，不重画（输入框不丢焦点）
+  const filter = () => {
+    const q = peopleState.q.trim();
+    for (const el of area.querySelectorAll('.av')) el.hidden = Boolean(q) && !el.dataset.key.includes(q);
+    for (const el of area.querySelectorAll('.av-block')) el.hidden = Boolean(q) && !el.querySelector('.av:not([hidden])');
+  };
+  const search = h('input', { type: 'search', class: 'av-search', placeholder: '找人', 'aria-label': '找人', value: peopleState.q, oninput: (e) => { peopleState.q = e.target.value; filter(); } });
+  setTimeout(filter);
   return h('div', {},
     headerSub('身边的人', live.length ? `${live.length} 个人` : '家人、亲戚，一路上认识的人',
       h('a', { class: 'icon-btn', href: '#/person/new', 'aria-label': '加一个人' }, icon('plus')), helpButton('身边的人怎么用', PEOPLE_HELP)),
@@ -3837,12 +3861,12 @@ function peopleView() {
         h('span', { class: 'grow' }, h('b', {}, x.p.name), ` · ${x.what}`),
         h('span', { class: 'muted small' }, `${x.left === 0 ? '今天' : x.left === 1 ? '明天' : `${x.left} 天后`} · ${Number(x.day.slice(5, 7))}月${Number(x.day.slice(8))}日`)))) : null,
     festivalsAround(today).filter((f) => d.people.some((p) => !p.archived && (p.greet || []).includes(f.key))).map((f) => alertLine(`${f.name}问候`, { href: `#/greet/${f.fkey}`, tone: 'soft' })),
-    loose.length ? [h('div', { class: 'section-title' }, `还没分组（${loose.length}）`), h('div', { class: 'group' }, loose.map((p) => row(p, '')))] : null,
-    sections,
-    !d.people.length ? h('div', { class: 'card' }, h('p', { class: 'muted' }, '还没有人。点右上角 ＋ 加第一个。')) : null,
-    gone.length ? h('details', { class: 'card', open: peopleState.archived, ontoggle: (e) => { peopleState.archived = e.target.open; } },
-      h('summary', {}, `不再来往的（${gone.length}）`),
-      h('div', { class: 'group' }, gone.map((p) => cell({ href: `#/person/${p.id}`, title: p.name, sub: [PEOPLE_GROUPS[mainGroup(p)], p.rel, p.archiveNote].filter(Boolean).join(' · ') })))) : null);
+    d.people.length ? [
+      h('div', { class: 'chips av-tabs', role: 'group', 'aria-label': '分组' }, tabs.map(([k, name]) => h('button', {
+        type: 'button', class: `chip${t === k ? ' on' : ''}`, 'aria-pressed': String(t === k), onclick: () => { peopleState.tab = k; render(); } }, name))),
+      d.people.length > 12 ? search : null,
+      area,
+    ] : h('div', { class: 'card' }, h('p', { class: 'muted' }, '还没有人。点右上角 ＋ 加第一个。')));
 }
 
 // 加一个人 / 改资料。第一个框写一段话，「一键补全」让 DeepSeek 填
