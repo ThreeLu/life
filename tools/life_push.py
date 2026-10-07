@@ -1,4 +1,4 @@
-"""每晚 22:30 左右（北京时间）：今天的一句话还没写、还没祷告就提醒；周日加一句写这周的感恩；生病时加一句早点睡；
+"""每晚 22:30 左右（北京时间）：今天的一句话还没写、还没有晚上的祷告就提醒；生病时加一句早点睡；
 要降温了加一句。合成一条推送，都做了就不发。
 白天（10–20 点每 2 小时一次）：只在生病时提醒喝水、发烧时提醒量体温。
 打水：开水房中午 11–13、晚上 17–19 开，这一回还没打就在刚开的时候和快关的时候各提醒一次。
@@ -36,12 +36,7 @@ def message(data, now):
         url = f"{APP}#/night"
     if not prayed:
         lines.append("然后是今晚的 2 分钟" if lines else "今晚的 2 分钟")
-        url = url or f"{APP}#/pray/go"
-    if today.weekday() == 6:
-        monday = (today - timedelta(days=6)).isoformat()
-        if not ((data.get("weeks") or {}).get(monday) or {}).get("thanks"):
-            lines.append("周日了，写一下这周的感恩")
-            url = url or f"{APP}#/pray"
+        url = url or f"{APP}#/pray/go?m=night"
     if (data.get("sick") or {}).get("current"):
         lines.append("身体在恢复，今晚早点睡")
         url = url or f"{APP}#/sick"

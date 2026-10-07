@@ -3,7 +3,7 @@ import { Store, newId, diff, apply as applyPatch } from './store.js';
 import {
   defaultData, dayKey, addDays, daysBetween, weekOf, weekLabel, hm, parseDay, WHEN, routineOf, careDone, weekCount,
   periodicDue, periodicTomorrow, eventsOn, privateStats,
-  prayedOn, prayerStats, stageReady, readingToday, markRead, bibleLink, programWeek, weekTasks, privateNote, fillText, pickOne, sessionPoints,
+  prayedOn, readingToday, markRead, bibleLink, programWeek, weekTasks, privateNote, fillText, pickOne, sessionPoints,
   dailyCheer, weekHighlights, newMilestones, careFullDay, showeredOn, careSkipped,
   sickActive, recoveryLeft, tempStats, medInfo, doseStatus, medConflicts, seasonWarning,
   sickDid, sickSymptoms, sickLessons, similarSick, planMissing, sickKinds,
@@ -12,8 +12,7 @@ import {
   goalProgress, goalLine, habitWeek, goalWeekDone, applyGoalPlan, lookMonth, careItemRates, paoMonths, openedStatus,
 } from './life.js';
 import {
-  VERSES, MORNING_VERSES, CONFESS_VERSE, verseFor, LORDS_PRAYER,
-  STAGES, PRAISE_HINTS, THANKS_HINTS, CONFESS_HINT, ASK_HINT, ENTRUST_HINT, prayerPrompt,
+  VERSES, verseFor, LORDS_PRAYER, prayerPrompt, quickPrayerPrompt,
   EN_MODES, EN_CYCLE, EN_TOPICS, englishPrompt, goalPrompt,
   CHEER_ON, cheerNight, MILESTONE_TEXT, SICK_KINDS, SYMPTOMS, LOW_KINDS, LOW_VERSES, HOTLINES, SELF_LINES, RED_FLAGS, FEVER_FROM, BIBLE_BOOKS,
 } from './content.js';
@@ -470,7 +469,6 @@ function periodList(day, p) {
         saveRender('今天的计划', (data) => { if (v) dayOf(data, day).planDone = v; else delete dayOf(data, day).planDone; })
           .then((ok) => { if (ok && v) toast(CHEER_ON[{ yes: 'planYes', part: 'planPart', no: 'planNo' }[v]]); })) });
     }
-    if (d.prayer.stage >= 2) item('morning', Boolean(r.prayer?.morning), '晨祷', '一分钟，把今天交给神', { href: '#/pray/go?m=morning' });
     if (day !== dayKey() || new Date().getHours() < 8 || r.fetch?.mid) waterItem(list, day, 'mid');
   }
   if (p === 'noon') {
@@ -490,7 +488,7 @@ function periodList(day, p) {
     careItem(list, day, 'pm', '晚上护肤');
     careItem(list, day, 'week', '这周', null, false);
     item('night', Boolean(r.mood || r.note), '睡前复盘', r.mood ? `心情 ${r.mood}${r.note ? ` · ${r.note}` : ''}` : '心情、一句话、科研、明天', { href: day === dayKey() ? '#/night' : `#/night?d=${day}` });
-    if (day === dayKey()) item('prayer', Boolean(r.prayer?.night), '祷告', r.prayer?.night ? '祷告了' : '22:30', { href: '#/pray/go' });
+    if (day === dayKey()) item('prayer', Boolean(r.prayer?.night), '祷告', r.prayer?.night ? '祷告了' : '22:30', { href: '#/pray/go?m=night' });
   }
   return list;
 }
@@ -818,7 +816,7 @@ function nightView(day) {
     rec.mood || rec.note ? h('div', { class: 'card next-card' },
       h('h3', {}, '接下来'),
       pmItems.length ? [h('div', { class: 'small' }, '晚上的护肤：'), careCardInline(day, 'pm')] : null,
-      isToday ? h('a', { class: 'button wide', href: '#/pray/go' }, icon('candle'), '去祷告') : null) : null);
+      isToday ? h('a', { class: 'button wide', href: '#/pray/go?m=night' }, icon('candle'), '去祷告') : null) : null);
 }
 
 function careCardInline(day, when) {
@@ -1083,102 +1081,50 @@ function periodicRow(p, today, edit) {
 // ---------- 祷告 ----------
 
 const PRAY_HELP = [
-  ['祷告怎么用', [
-    '「开始祷告」：网站带着你一步一步走，一步一页，点「下一步」。第 1 阶段是简短版（安静、感谢一句、主祷文），2 分钟。',
-    '「和 ChatGPT 一起祷告」：复制提示词，打开 ChatGPT 粘贴，切到语音，让它带着你。结束后把它写的小结贴回来，就记成今晚的祷告。',
-    '每晚 22:30 左右会提醒你（在「设置」里开启推送）。锁屏上看不出是什么。',
+  ['怎么祷告', [
+    '点「开始祷告」：复制提示词，打开 ChatGPT 新对话粘贴，切到语音，和它一起祷告、一起聊。聊完回来点「祷告完了」。',
+    '一天可以祷告很多次，想到就来，几分钟就好。',
+    '晚上那一次（晚上 8 点以后第一次）更完整一点，祷告完一起念主祷文。',
+    '不用写字，网站只记下你哪个时候祷告了。',
   ]],
-  ['阶段', ['第 1 阶段 扎根（4 周）：睡前 2 分钟。', '第 2 阶段 早晚（4 周）：加一个早上一句话，首页早上会出现。', '第 3 阶段 回顾一天：睡前 5–10 分钟的完整版。', '满 4 周网页会问你要不要进下一步，你决定；随时也可以用完整版。']],
-  ['断了怎么办', ['这里不显示「连续多少天」，只显示这个月祷告了几天、上次是哪天。', '只有一条规矩：别连着漏两天。漏了一天，第二天会说「今晚 2 分钟就好」。']],
-  ['祷告事项和每周', ['祷告事项：挂在心上的事写下来，祷告时照着说。有了结果点「看到回应」，写一句。', '每周日安静时间：写这周的感恩，过一遍祷告事项，回看这周写过的话。']],
+  ['提醒', ['每晚 22:30 左右，如果还没有晚上的祷告会提醒你（在「设置」里开启推送）。锁屏上看不出是什么。']],
   ['读经（不强求）', ['诗篇一天一篇，点「打开」跳到 Bible App 的这一篇，读完点「读了」。读一篇，再用里面的一句话开始祷告。']],
 ];
+
+// 某一天的祷告：几点、是晚上那次还是随时的（老数据只有 night / morning）
+function prayersOn(d, day) {
+  const p = d.days[day]?.prayer || {};
+  const list = [...(p.times || [])];
+  if (p.night && !list.some((x) => x.kind === 'night')) list.push({ at: p.night.at, kind: 'night' });
+  if (p.morning) list.push({ at: p.morning.at, kind: 'quick' });
+  return list.sort((a, b) => String(a.at).localeCompare(String(b.at)));
+}
+const isNightNow = (d, today) => { const hr = new Date().getHours(); return (hr >= 20 || hr < 4) && !d.days[today]?.prayer?.night; };
 
 function prayView() {
   const d = store.data;
   const today = dayKey();
-  const ps = prayerStats(d, today);
-  const stage = STAGES[d.prayer.stage];
-  const tonight = d.days[today]?.prayer?.night;
-  return h('div', {},
-    headerSub('祷告', `第 ${d.prayer.stage} 阶段 · ${stage.name}`, helpButton('祷告怎么用', PRAY_HELP)),
-    h('div', { class: 'card pray-card' },
-      h('p', { class: 'small' }, stage.text),
-      tonight ? h('p', { class: 'good-text' }, `今晚祷告了${tonight.note ? `：${tonight.note}` : ''}`) : null,
-      h('a', { class: 'button wide', href: '#/pray/go' }, icon('candle'), tonight ? '再祷告一次' : '开始祷告'),
-      d.prayer.stage < 3 ? h('a', { class: 'link small center block', href: '#/pray/go?m=full' }, '用完整版') : null,
-      h('button', { class: 'secondary wide', onclick: chatgptPraySheet }, '和 ChatGPT 一起祷告')),
-    h('p', { class: 'muted small center' }, `这个月祷告了 ${ps.month} 天${ps.last ? ` · 上次是${relDay(ps.last, today)}` : ''}`),
-    ps.missedYesterday ? h('div', { class: 'card soft' }, h('p', { class: 'small' }, '昨天没祷告也没关系。今晚 2 分钟就好。')) : null,
-    stageReady(d, today) ? stageCard() : null,
-    weekCard(today),
-    itemsCard(),
+  const verse = verseFor(today, VERSES);
+  const night = isNightNow(d, today);
+  // 只显示最近有祷告的那一天
+  let last = null;
+  for (let i = 0; i < 60 && !last; i++) { const day = addDays(today, -i); if (prayersOn(d, day).length) last = day; }
+  const list = last ? prayersOn(d, last) : [];
+  return h('div', { class: 'pray-page' },
+    headerSub('祷告', '', helpButton('祷告怎么用', PRAY_HELP)),
+    h('div', { class: 'card pray-hero' },
+      h('div', { class: 'pray-glow', 'aria-hidden': 'true' }),
+      h('blockquote', { class: 'pray-verse' }, h('span', { class: 'v' }, verse.text), h('cite', {}, verse.ref)),
+      h('div', { class: 'pray-divider', 'aria-hidden': 'true' }, h('span', {}, '✝')),
+      h('a', { class: 'button wide pray-start', href: `#/pray/go?m=${night ? 'night' : 'quick'}` }, icon('candle'), '开始祷告'),
+      h('p', { class: 'pray-mode small' }, night ? '晚上这一次，最后一起念主祷文' : '和 ChatGPT 一起，几分钟就好',
+        h('a', { class: 'pray-switch', href: `#/pray/go?m=${night ? 'quick' : 'night'}` }, night ? '只简短祷告' : '这是晚上那次'))),
+    last ? h('div', { class: 'card pray-recent' },
+      h('h3', {}, last === today ? '今天' : relDay(last, today), h('span', { class: 'muted small' }, ` · 祷告了 ${list.length} 次`)),
+      h('div', { class: 'pray-times' }, list.map((x) => h('span', { class: `pray-time ${x.kind}` },
+        x.kind === 'night' ? '✝ ' : '', String(x.at).includes('T') ? hm(x.at) : '', x.kind === 'night' ? ' 晚上 · 主祷文' : '')))) : null,
     readingCard(today),
     h('a', { class: 'quiet-link', href: '#/low', onclick: () => resetLow() }, '难受的时候 ›'));
-}
-
-function stageCard() {
-  const d = store.data;
-  const next = d.prayer.stage + 1;
-  return h('div', { class: 'card good-card' },
-    h('p', {}, `第 ${d.prayer.stage} 阶段已经 4 周了。要进第 ${next} 阶段「${STAGES[next].name}」吗？`),
-    h('p', { class: 'small muted' }, STAGES[next].text),
-    h('div', { class: 'actions' },
-      h('button', { onclick: () => saveRender(`祷告进第 ${next} 阶段`, (data) => { data.prayer.stage = next; data.prayer.since = dayKey(); }) }, '进下一阶段'),
-      h('button', { class: 'secondary', onclick: () => saveRender('祷告阶段再待一段', (data) => { data.prayer.since = addDays(dayKey(), -14); }) }, '再待两周')));
-}
-
-function weekCard(today) {
-  const d = store.data;
-  const mon = weekOf(today);
-  const isSunday = parseDay(today).getDay() === 0;
-  const nights = Array.from({ length: 7 }, (_, i) => addDays(mon, i)).filter((x) => x <= today)
-    .map((x) => ({ day: x, p: d.days[x]?.prayer?.night })).filter((x) => x.p);
-  const reads = Array.from({ length: 7 }, (_, i) => addDays(mon, i)).filter((x) => d.days[x]?.read !== undefined).length;
-  const thanks = h('textarea', { rows: 3, placeholder: '这周感谢的事', 'aria-label': '这周的感恩' });
-  thanks.value = d.weeks[mon]?.thanks || '';
-  const saveThanks = () => saveRender('这周的感恩', (data) => {
-    const v = thanks.value.trim();
-    const w = (data.weeks[mon] ||= {});
-    if (v) w.thanks = v; else delete w.thanks;
-  }).then(() => toast('记好了'));
-  return h('div', { class: `card${isSunday ? ' sunday' : ''}` },
-    h('h3', {}, isSunday ? '今天是周日：安静时间' : `这周（${weekLabel(mon)}）`),
-    isSunday ? h('p', { class: 'small muted' }, '花 15–30 分钟：写这周的感恩，过一遍祷告事项，读一读这周晚上写的话。') : null,
-    thanks,
-    h('button', { class: 'small secondary', onclick: saveThanks, style: 'margin-top:8px' }, '存好感恩'),
-    h('p', { class: 'small muted' }, `这周祷告了 ${nights.length} 晚，读经 ${reads} 篇。`),
-    nights.filter((x) => x.p.note || x.p.summary).map((x) => h('div', { class: 'small night-note' },
-      h('span', { class: 'muted' }, `${dayLabel(x.day)}　`), x.p.note || x.p.summary)));
-}
-
-function itemsCard() {
-  const d = store.data;
-  const open = d.prayer.items.filter((x) => !x.answered);
-  const done = d.prayer.items.filter((x) => x.answered);
-  const input = h('input', { placeholder: '挂在心上的事，比如「论文顺利」', 'aria-label': '新的祷告事项' });
-  const add = () => {
-    const v = input.value.trim();
-    if (!v) return;
-    saveRender('祷告事项', (data) => { data.prayer.items.push({ id: newId('pi'), text: v, at: dayKey() }); });
-  };
-  const answer = (x) => {
-    const note = h('input', { placeholder: '怎么看到回应的（一句话，可以不填）', 'aria-label': '回应' });
-    openSheet({ title: x.text, body: note, confirmText: '记下', onConfirm: () => saveRender('看到回应', (data) => {
-      const y = data.prayer.items.find((z) => z.id === x.id);
-      if (y) Object.assign(y, { answered: dayKey(), ...(note.value.trim() ? { answerNote: note.value.trim() } : {}) });
-    }) });
-  };
-  const remove = (x) => saveUndoable('删掉祷告事项', (data) => { data.prayer.items = data.prayer.items.filter((y) => y.id !== x.id); }, '删掉了一项').then(render).catch(() => {});
-  return h('div', { class: 'card' },
-    h('h3', {}, '祷告事项'),
-    open.map((x) => h('div', { class: 'event-row' },
-      h('span', { class: 'grow' }, x.text, h('span', { class: 'muted small' }, ` · ${x.at}`)),
-      h('button', { class: 'link small', onclick: () => answer(x) }, '看到回应'),
-      h('button', { class: 'link small muted', 'aria-label': `删掉 ${x.text}`, onclick: () => remove(x) }, '删'))),
-    h('div', { class: 'inline-add' }, input, h('button', { class: 'small', onclick: add }, '加')),
-    done.length ? h('details', { class: 'inner' }, h('summary', {}, `看到回应的（${done.length}）`),
-      done.map((x) => h('div', { class: 'small night-note' }, h('b', {}, x.text), h('span', { class: 'muted' }, ` · ${x.answered}`), x.answerNote ? h('span', { class: 'block' }, x.answerNote) : null))) : null);
 }
 
 function readingCard(today) {
@@ -1218,88 +1164,47 @@ function bookSheet() {
   });
 }
 
-function chatgptPraySheet() {
-  const d = store.data;
-  const today = dayKey();
-  const text = prayerPrompt({ about: d.prayer.about || undefined, verse: verseFor(today), items: d.prayer.items.filter((x) => !x.answered).map((x) => x.text), plan: d.days[today]?.plan || '' });
-  const box = h('textarea', { rows: 8, readonly: true, class: 'prompt-box', 'aria-label': '祷告提示词' });
-  box.value = text;
-  const back = h('textarea', { rows: 4, placeholder: '祷告完，把 ChatGPT 最后写的小结（感谢 / 祈求 / 经文）贴在这里', 'aria-label': 'ChatGPT 的小结' });
-  openSheet({
-    title: '和 ChatGPT 一起祷告',
-    body: h('div', { class: 'form' },
-      h('ol', { class: 'small steps' }, h('li', {}, '点「复制」，打开 ChatGPT，新开一个对话粘贴发送。'), h('li', {}, '点右下角的语音按钮，跟着它祷告。'), h('li', {}, '结束后回到文字，把它写的小结复制，贴到下面。')),
-      box, h('button', { class: 'secondary small', onclick: () => copyText(text) }, icon('copy'), '复制'),
-      h('div', { class: 'label-sm' }, '祷告完：'), back),
-    confirmText: '记成今晚的祷告',
-    onConfirm: () => saveRender('祷告（和 ChatGPT）', (data) => {
-      const p = (dayOf(data, today).prayer ||= {});
-      p.night = { at: nowIso(), mode: 'chatgpt', ...(back.value.trim() ? { summary: back.value.trim() } : {}) };
-    }).then((ok) => ok && toast(CHEER_ON.prayer)),
-  });
-}
-
-// 带着祷告：一步一页
-const prayState = { i: 0, key: '' };
+// 祷告：复制提示词 → 和 ChatGPT 语音祷告 → 回来点「祷告完了」；晚上那次再念主祷文。不用写字
+const prayState = { key: '', step: 0 };
 function prayGoView(mode) {
   const d = store.data;
   const today = dayKey();
-  const m = mode === 'morning' ? 'morning' : mode === 'full' || d.prayer.stage >= 3 ? 'full' : 'short';
+  const m = mode === 'night' ? 'night' : 'quick';
   const key = `${today}-${m}`;
-  if (prayState.key !== key) { prayState.key = key; prayState.i = 0; }
-  const verse = m === 'morning' ? verseFor(today, MORNING_VERSES) : verseFor(today, VERSES);
-  const items = d.prayer.items.filter((x) => !x.answered);
-  const plan = m === 'morning' ? d.days[addDays(today, -1)]?.plan : d.days[today]?.plan;
-  const page = (title, ...body) => ({ title, body });
-  const quiet = page('安静', h('p', { class: 'pray-lead' }, '深呼吸三次。神就在这里。'), h('blockquote', {}, verse.text, h('cite', {}, verse.ref)));
-  const lord = LORDS_PRAYER.lines.map((line, i) => page(i === 0 ? '主祷文' : '', h('p', { class: 'pray-line' }, line), i === 0 ? h('p', { class: 'muted small' }, `${LORDS_PRAYER.ref} · 一句一页，跟着念`) : null));
-  const hints = (list) => h('ul', { class: 'pray-hints' }, list.map((x) => h('li', {}, x)));
-  let pages;
-  if (m === 'morning') {
-    pages = [quiet,
-      page('交托今天', plan ? h('p', { class: 'pray-lead' }, `今天要做：${plan}`) : h('p', { class: 'pray-lead' }, '今天要做的事'), h('p', { class: 'pray-hint' }, '主，今天交给你。求你给我智慧和平安，带领我做好每一件事。'))];
-  } else if (m === 'short') {
-    pages = [quiet, page('感谢', h('p', { class: 'pray-lead' }, '今天有什么值得感谢？说一句就好。'), hints(THANKS_HINTS)), ...lord];
-  } else {
-    pages = [quiet,
-      page('赞美', h('p', { class: 'pray-lead' }, '神是怎样的？'), hints(PRAISE_HINTS)),
-      page('感谢', h('p', { class: 'pray-lead' }, '今天有什么值得感谢？'), hints(THANKS_HINTS)),
-      page('回看', h('p', { class: 'pray-lead' }, '今天什么时候离神近，什么时候离神远？'), h('p', { class: 'pray-hint' }, `有要认罪的：${CONFESS_HINT}`), h('blockquote', {}, CONFESS_VERSE.text, h('cite', {}, CONFESS_VERSE.ref))),
-      page('祈求', h('p', { class: 'pray-lead' }, '心里挂着的事'), items.length ? h('ul', { class: 'pray-hints' }, items.map((x) => h('li', {}, x.text))) : h('p', { class: 'muted' }, '（还没写祷告事项，可以在祷告页加）'), h('p', { class: 'pray-hint' }, ASK_HINT)),
-      page('交托明天', plan ? h('p', { class: 'pray-lead' }, `明天要做：${plan}`) : h('p', { class: 'pray-lead' }, '明天的事'), h('p', { class: 'pray-hint' }, ENTRUST_HINT)),
-      ...lord];
-  }
-  const total = pages.length + 1;
-  const i = Math.min(prayState.i, pages.length);
-  const step = (n) => { prayState.i = Math.max(0, Math.min(pages.length, i + n)); render(); window.scrollTo(0, 0); };
-  let content;
-  if (i < pages.length) {
-    const pg = pages[i];
-    content = [
-      pg.title ? h('h2', { class: 'pray-title' }, pg.title) : null,
-      h('div', { class: 'pray-body' }, pg.body),
-      h('div', { class: 'pray-nav' },
-        i > 0 ? h('button', { class: 'secondary', onclick: () => step(-1) }, '上一步') : h('a', { class: 'button secondary', href: '#/pray' }, '先不了'),
-        h('button', { class: 'grow', onclick: () => step(1) }, i === pages.length - 1 ? '阿们' : '下一步'))];
-  } else {
-    content = m === 'morning' ? finishMorning(today) : finishNight(today, m);
+  if (prayState.key !== key) Object.assign(prayState, { key, step: 0 });
+  const verse = verseFor(today, VERSES);
+  const text = m === 'night'
+    ? prayerPrompt({ about: d.prayer.about || undefined, verse, items: d.prayer.items.filter((x) => !x.answered).map((x) => x.text), plan: d.days[today]?.plan || '' })
+    : quickPrayerPrompt({ about: d.prayer.about || undefined, verse });
+  const record = () => saveRender(m === 'night' ? '晚上的祷告' : '祷告', (data) => {
+    const p = (dayOf(data, today).prayer ||= {});
+    const at = nowIso();
+    (p.times ||= []).push({ at, kind: m });
+    if (m === 'night') p.night = { at, mode: 'chatgpt' };
+  }).then((ok) => { if (!ok) return; prayState.key = ''; toast(CHEER_ON.prayer); go('#/pray'); });
+  if (prayState.step === 1) {
+    return h('div', { class: 'pray-screen lords' },
+      h('div', { class: 'pray-cross', 'aria-hidden': 'true' }, '✝'),
+      h('h2', { class: 'pray-title' }, '主祷文'),
+      h('div', { class: 'lords-lines' }, LORDS_PRAYER.lines.map((line) => h('p', { class: 'pray-line' }, line))),
+      h('p', { class: 'muted small center' }, LORDS_PRAYER.ref),
+      h('button', { class: 'wide pray-amen', onclick: record }, '阿们'));
   }
   return h('div', { class: 'pray-screen' },
-    h('div', { class: 'pray-progress', 'aria-label': `第 ${i + 1} 步，共 ${total} 步` }, Array.from({ length: total }, (_, k) => h('span', { class: k <= i ? 'on' : '' }))),
-    content);
-}
-function finishMorning(today) {
-  const done = () => saveRender('早上的祷告', (data) => { (dayOf(data, today).prayer ||= {}).morning = { at: nowIso() }; })
-    .then((ok) => { if (!ok) return; prayState.key = ''; toast(CHEER_ON.morning); go('#/'); });
-  return [h('h2', { class: 'pray-title' }, '去过今天吧'), h('button', { class: 'wide', onclick: done }, '好')];
-}
-function finishNight(today, m) {
-  const note = h('textarea', { rows: 3, placeholder: '想写的话写一两句（可以不写）', 'aria-label': '祷告后的一句话' });
-  const done = () => saveRender('祷告', (data) => {
-    const p = (dayOf(data, today).prayer ||= {});
-    p.night = { at: nowIso(), mode: m, ...(note.value.trim() ? { note: note.value.trim() } : {}) };
-  }).then((ok) => { if (!ok) return; prayState.key = ''; toast(CHEER_ON.prayer); go('#/pray'); });
-  return [h('h2', { class: 'pray-title' }, '想写点什么吗'), note, h('button', { class: 'wide', onclick: done }, '完成')];
+    h('div', { class: 'pray-cross', 'aria-hidden': 'true' }, '✝'),
+    h('h2', { class: 'pray-title' }, m === 'night' ? '晚上的祷告' : '祷告'),
+    h('blockquote', { class: 'pray-verse' }, h('span', { class: 'v' }, verse.text), h('cite', {}, verse.ref)),
+    h('ol', { class: 'pray-steps' },
+      h('li', {}, '复制下面的话'),
+      h('li', {}, '打开 ChatGPT，新对话里粘贴发送，切到语音'),
+      h('li', {}, m === 'night' ? '和它一起祷告、聊一聊，回来点「祷告完了」，一起念主祷文' : '和它一起祷告、聊一聊，回来点「祷告完了」')),
+    h('div', { class: 'actions' },
+      h('button', { class: 'grow', onclick: () => copyText(text) }, icon('copy'), '复制'),
+      h('a', { class: 'button secondary', href: 'https://chatgpt.com/', target: '_blank', rel: 'noopener' }, '打开 ChatGPT')),
+    h('details', { class: 'prompt-peek' }, h('summary', { class: 'small muted' }, '看看要复制的话'), h('p', { class: 'small prompt-text' }, text)),
+    h('div', { class: 'pray-nav' },
+      h('a', { class: 'button secondary', href: '#/pray', onclick: () => { prayState.key = ''; } }, '先不了'),
+      h('button', { class: 'grow', onclick: () => { if (m === 'night') { prayState.step = 1; render(); window.scrollTo(0, 0); } else record(); } }, '祷告完了')));
 }
 
 // ---------- 英语陪练 ----------
@@ -4484,7 +4389,7 @@ function pushCard() {
   }
   return h('div', { class: 'card' },
     h('h3', {}, '手机提醒'),
-    h('p', { class: 'small' }, '每晚 22:30 左右一条：今天的一句话还没写、还没祷告就提醒你；周日加一句写这周的感恩。都做了就不发。锁屏上只显示「睡前」，看不出内容。'),
+    h('p', { class: 'small' }, '每晚 22:30 左右一条：今天的一句话还没写、还没有晚上的祷告就提醒你。都做了就不发。锁屏上只显示「睡前」，看不出内容。'),
     h('p', { class: 'small muted' }, 'iPhone 上要先「分享 → 添加到主屏幕」，从主屏幕的「生活」打开再点开启。和账本、物品档案的提醒是分开的。'),
     status,
     sup.ok ? h('button', { class: 'secondary', onclick: enable }, '在这台设备上开启') : null);

@@ -910,3 +910,47 @@ button.tl-text { background: none; padding: 0; min-height: 0; font-weight: 400; 
 .av-mini { width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; font-family: var(--serif); font-size: 12px; color: var(--muted);
   background: color-mix(in srgb, var(--muted) 14%, var(--card)); border: 2px solid var(--bg); margin-left: -8px; }
 .av-mini:first-child { margin-left: 0; }
+
+/* 祷告页（2026-10-06 重做）：像一扇彩窗透进来的光 —— 淡紫到暖金的光晕、角落一个很淡的十字、经文用宋体、金色的小十字分隔 */
+.pray-page { --gold: #b8913f; }
+.pray-hero { position: relative; overflow: hidden; text-align: center; padding: 30px 22px 22px;
+  background: linear-gradient(170deg, color-mix(in srgb, var(--accent) 10%, var(--card)) 0%, var(--card) 55%, color-mix(in srgb, #e8c77a 14%, var(--card)) 100%); }
+.pray-hero::after { content: ''; position: absolute; right: 18px; top: 16px; width: 44px; height: 62px; opacity: 0.12; pointer-events: none;
+  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 60 84'%3E%3Cpath d='M25 0h10v22h25v10H35v52H25V32H0V22h25z' fill='%23654a9a'/%3E%3C/svg%3E") no-repeat center / contain; }
+.pray-glow { position: absolute; left: 50%; top: -70px; width: 260px; height: 200px; transform: translateX(-50%); pointer-events: none;
+  background: radial-gradient(ellipse at center, rgb(255 236 190 / 55%), transparent 70%); }
+.pray-verse { position: relative; font-family: var(--serif); font-size: 18px; line-height: 1.9; margin: 0 0 6px; padding: 0 6px; border: 0; color: var(--text); background: none; border-radius: 0; }
+.pray-verse .v::before, .pray-verse .v::after { font-family: var(--serif); color: var(--gold, #b8913f); }
+.pray-verse .v::before { content: '「'; }
+.pray-verse .v::after { content: '」'; }
+.pray-verse cite { display: block; font-style: normal; font-size: 13px; color: var(--muted); margin-top: 8px; font-family: inherit; letter-spacing: 0.06em; }
+.pray-divider { display: flex; align-items: center; gap: 12px; margin: 18px 30px; color: var(--gold, #b8913f); font-size: 14px; }
+.pray-divider::before, .pray-divider::after { content: ''; flex: 1; height: 1px; background: linear-gradient(90deg, transparent, color-mix(in srgb, #b8913f 60%, transparent), transparent); }
+.pray-start { position: relative; min-height: 54px; font-size: 17px; letter-spacing: 0.1em; box-shadow: 0 6px 20px color-mix(in srgb, var(--accent) 30%, transparent), 0 0 0 1px color-mix(in srgb, #b8913f 35%, transparent); }
+.pray-mode { color: var(--muted); margin: 12px 0 0; }
+.pray-switch { margin-left: 8px; font-size: 13px; }
+.pray-recent h3 { margin-bottom: 10px; }
+.pray-times { display: flex; flex-wrap: wrap; gap: 8px; }
+.pray-time { padding: 5px 12px; border-radius: 999px; font-size: 13px; background: color-mix(in srgb, var(--accent) 10%, var(--card)); color: var(--accent); font-variant-numeric: tabular-nums; }
+.pray-time.night { background: color-mix(in srgb, #b8913f 14%, var(--card)); color: #8a6a28; }
+/* 祷告的那一页、主祷文 */
+.pray-screen { text-align: center; }
+.pray-cross { font-size: 26px; color: #b8913f; margin: 6px 0 2px; text-shadow: 0 0 18px rgb(232 199 122 / 70%); }
+.pray-screen .pray-title { font-family: var(--serif); font-size: 22px; color: var(--text); letter-spacing: 0.2em; margin: 0 0 18px; }
+.pray-screen .pray-verse { margin-bottom: 22px; }
+.pray-steps { text-align: left; margin: 0 auto 18px; padding-left: 22px; max-width: 320px; color: var(--muted); line-height: 1.8; font-size: 15px; }
+.pray-screen .actions { justify-content: center; }
+.prompt-peek { text-align: left; margin-top: 14px; }
+.prompt-text { white-space: pre-wrap; color: var(--muted); line-height: 1.6; }
+.pray-screen.lords { background: radial-gradient(ellipse at 50% 0%, rgb(255 236 190 / 35%), transparent 60%); border-radius: 18px; padding: 18px 12px; }
+.lords-lines .pray-line { font-family: var(--serif); font-size: 20px; line-height: 1.8; margin: 0 0 10px; font-weight: 400; }
+.pray-amen { margin-top: 22px; letter-spacing: 0.3em; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .pray-glow { background: radial-gradient(ellipse at center, rgb(232 199 122 / 16%), transparent 70%); }
+  :root:not([data-theme="light"]) .pray-hero::after { filter: invert(1); opacity: 0.06; }
+  :root:not([data-theme="light"]) .pray-time.night { color: #e0c27e; }
+  :root:not([data-theme="light"]) .pray-screen.lords { background: radial-gradient(ellipse at 50% 0%, rgb(232 199 122 / 10%), transparent 60%); }
+}
+:root[data-theme="dark"] .pray-glow { background: radial-gradient(ellipse at center, rgb(232 199 122 / 16%), transparent 70%); }
+:root[data-theme="dark"] .pray-hero::after { filter: invert(1); opacity: 0.06; }
+:root[data-theme="dark"] .pray-time.night { color: #e0c27e; }
