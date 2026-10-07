@@ -895,7 +895,7 @@ function routineSheet() {
   });
 }
 function routineItemSheet(r = null) {
-  const name = h('input', { value: r?.name || '', placeholder: '比如「防晒」「洗脸（米粹）」', 'aria-label': '打卡项名字' });
+  const name = h('input', { value: r?.name || '', placeholder: '比如「防晒」「洗脸」', 'aria-label': '打卡项名字' });
   let when = r?.when || 'am';
   const times = h('input', { inputmode: 'numeric', value: String(r?.times || 1), 'aria-label': '每周几次' });
   const whenRow = h('div', {});
