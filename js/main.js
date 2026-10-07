@@ -28,7 +28,7 @@ import {
 import { lineChart, barChart, monthGrid, sleepBars } from './charts.js';
 import { icon } from './icons.js';
 import { personPicker, recentIds } from './picker.js';
-import { PEOPLE_GROUPS, SEX, RANKS, rankOf, personHint, ta, relChoices, mainGroup, upcomingBirthdays, upcomingDates, giftsWith, giftSummary, ledgerSync, moneyWith, timeline } from './people.js';
+import { PEOPLE_GROUPS, SEX, RANKS, RANK_ORDER, rankOf, personHint, ta, relChoices, mainGroup, upcomingBirthdays, upcomingDates, giftsWith, giftSummary, ledgerSync, moneyWith, timeline } from './people.js';
 import { nextBirthday, birthdayText, lunarName, holidayAround, holidayLine, GREET_DAYS, festivalDay, festivalsAround } from './cal.js';
 
 const SETTINGS_KEY = 'life-settings';
@@ -3815,7 +3815,7 @@ async function syncPeople(force = false) {
 const peopleState = { tab: 'all', q: '' };
 const WALL_ORDER = ['family', 'relative', 'grad', 'college', 'high', 'middle', 'primary'];
 function avatar(p, soon) {
-  return h('a', { class: `av${p.archived ? ' gone' : ''}${rankOf(p) === 'senior' ? ' senior' : ''}`, href: `#/person/${p.id}`, 'data-name': p.name, 'data-key': [p.name, p.rel, p.note, p.how].filter(Boolean).join(' ') },
+  return h('a', { class: `av${p.archived ? ' gone' : ''}${p.close ? ' close' : ''}`, href: `#/person/${p.id}`, 'data-name': p.name, 'data-key': [p.name, p.rel, p.note, p.how].filter(Boolean).join(' ') },
     h('span', { class: `av-c av-${mainGroup(p) || 'none'}` }, [...p.name].pop(), soon ? h('i', { class: 'av-dot', title: soon }) : null),
     h('span', { class: 'av-n' }, p.name));
 }
@@ -3828,27 +3828,33 @@ function peopleView() {
   const bd = upcomingBirthdays(d.people, today, 30);
   const dates = upcomingDates(d.people, today, 30);
   const soonOf = (p) => { const b = bd.find((x) => x.p.id === p.id && x.left <= 7); const x = dates.find((y) => y.p.id === p.id && y.left <= 7); return b ? '快过生日了' : x ? x.x.title : ''; };
-  const RANK_ORDER = { senior: 0, peer: 1, junior: 2 };
-  const byName = (a, b) => RANK_ORDER[rankOf(a)] - RANK_ORDER[rankOf(b)] || a.name.localeCompare(b.name, 'zh'); // 师长在前
+  const byName = (a, b) => Boolean(b.close) - Boolean(a.close) || a.name.localeCompare(b.name, 'zh'); // 亲近的在前
+  // 一块里按辈分分几行（只有一种辈分就不写小标题）
+  const rankRows = (list) => {
+    const rows = RANK_ORDER.map((r) => [r, list.filter((p) => rankOf(p) === r).sort(byName)]).filter(([, l]) => l.length);
+    if (rows.length <= 1) return wall(list.sort(byName));
+    return rows.map(([r, l]) => h('div', { class: 'av-rank' }, h('div', { class: 'av-rank-name' }, RANKS[r]), wall(l)));
+  };
   const loose = live.filter((p) => !(p.groups || []).length);
   const tabs = [['all', '全部'], ...WALL_ORDER.filter((g) => live.some((p) => (p.groups || []).includes(g))).map((g) => [g, PEOPLE_GROUPS[g]]),
     ...(loose.length ? [['none', '还没分组']] : []), ...(gone.length ? [['gone', '不再来往']] : [])];
   if (!tabs.some(([k]) => k === peopleState.tab)) peopleState.tab = 'all';
   const wall = (list) => h('div', { class: 'av-wall' }, list.map((p) => avatar(p, p.archived ? '' : soonOf(p))));
-  const block = (title, list, cls = '') => (list.length ? h('div', { class: `av-block ${cls}` }, h('div', { class: 'av-head' }, h('span', {}, title), h('span', { class: 'muted small' }, String(list.length))), wall(list)) : null);
+  const block = (title, list, cls = '') => (list.length ? h('div', { class: `av-block ${cls}` }, h('div', { class: 'av-head' }, h('span', {}, title), h('span', { class: 'muted small' }, String(list.length))), rankRows(list)) : null);
   let body;
   const t = peopleState.tab;
   if (t === 'all') {
-    body = [loose.length ? block('还没分组', loose.sort(byName)) : null,
-      ...WALL_ORDER.map((g) => block(PEOPLE_GROUPS[g], live.filter((p) => mainGroup(p) === g).sort(byName))),
+    const mentors = live.filter((p) => rankOf(p) === 'mentor');
+    body = [block('导师', mentors, 'mentors'), loose.length ? block('还没分组', loose.filter((p) => !mentors.includes(p))) : null,
+      ...WALL_ORDER.map((g) => block(PEOPLE_GROUPS[g], live.filter((p) => mainGroup(p) === g && !mentors.includes(p)))),
       gone.length ? h('button', { type: 'button', class: 'av-gone-row', onclick: () => { peopleState.tab = 'gone'; render(); } },
         h('span', { class: 'av-stack' }, gone.slice(0, 6).map((p) => h('span', { class: 'av-mini' }, [...p.name].pop()))),
         h('span', { class: 'grow muted small' }, `不再来往 ${gone.length} 人`), icon('chev', 'i chev')) : null];
-  } else if (t === 'none') body = [wall(loose.sort(byName))];
+  } else if (t === 'none') body = [rankRows(loose)];
   else if (t === 'gone') body = [wall(gone.sort(byName))];
   else {
     const list = live.filter((p) => (p.groups || []).includes(t));
-    body = [wall([...list.filter((p) => mainGroup(p) === t).sort(byName), ...list.filter((p) => mainGroup(p) !== t).sort(byName)])];
+    body = [rankRows(list)];
   }
   const area = h('div', { class: 'av-area' }, body);
   // 搜索只在这一页上藏起不匹配的，不重画（输入框不丢焦点）
@@ -3927,6 +3933,7 @@ function personEditView(id) {
       const p = { ...x, id: pid, name, log: old?.log || [], ...(old?.stages ? { stages: old.stages } : {}), ...(old?.dates ? { dates: old.dates } : {}), at: old?.at || dayKey() };
       for (const k of ['rel', 'how', 'likes', 'note', 'tone']) { if (typeof p[k] === 'string') p[k] = p[k].trim(); if (!p[k]) delete p[k]; }
       if (!p.greet?.length) delete p.greet;
+      if (!p.close) delete p.close;
       delete p._bd;
       if (!p.birthday) delete p.birthday; else delete p.noBirthday;
       const i = data.people.findIndex((y) => y.id === pid);
@@ -3954,7 +3961,8 @@ function personEditView(id) {
         : [h('div', { class: 'label-sm' }, '关系'), rel],
       h('div', { class: 'label-sm' }, '辈分'),
       h('div', { class: 'chips', role: 'group', 'aria-label': '辈分' }, Object.entries(RANKS).map(([k, t]) => h('button', {
-        type: 'button', class: `chip${rankOf(x) === k ? ' on' : ''}`, 'aria-pressed': String(rankOf(x) === k), onclick: () => { x.rank = k; render(); } }, t)))),
+        type: 'button', class: `chip${rankOf(x) === k ? ' on' : ''}`, 'aria-pressed': String(rankOf(x) === k), onclick: () => { x.rank = k; render(); } }, t))),
+      h('label', { class: 'switch-row' }, h('input', { type: 'checkbox', checked: Boolean(x.close), 'aria-label': '更亲近', onchange: (e) => { x.close = e.target.checked || undefined; } }), '更亲近（头像多一圈金边）')),
     h('div', { class: 'card' }, h('div', { class: 'rec-top' }, h('h3', {}, '生日'),
       h('div', { class: 'chips', role: 'group', 'aria-label': '知道生日吗' }, [['yes', '知道'], ['no', '不知道']].map(([k, t]) => h('button', {
         type: 'button', class: `chip${bdState === k ? ' on' : ''}`, 'aria-pressed': String(bdState === k),
@@ -4088,7 +4096,7 @@ function personView(id) {
   };
   const groupsText = (p.groups || []).map((g, i) => (i === 0 ? PEOPLE_GROUPS[g] : `也在${PEOPLE_GROUPS[g]}`)).join(' · ');
   return h('div', {},
-    headerSub(p.name, [SEX[p.sex], groupsText || '还没分组', p.rel].filter(Boolean).join(' · '), h('a', { class: 'icon-btn', href: `#/person/${id}/edit`, 'aria-label': '改资料' }, icon('pen'))),
+    headerSub(p.name, [SEX[p.sex], groupsText || '还没分组', p.rel, rankOf(p) !== 'peer' ? RANKS[rankOf(p)] : null, p.close ? '亲近' : null].filter(Boolean).join(' · '), h('a', { class: 'icon-btn', href: `#/person/${id}/edit`, 'aria-label': '改资料' }, icon('pen'))),
     p.archived ? h('div', { class: 'card muted-card' }, h('p', { class: 'small' }, `${p.archived} 起不再来往${p.archiveNote ? `：${p.archiveNote}` : ''}`), h('button', { class: 'link small', onclick: unarchive }, '恢复来往')) : null,
     h('div', { class: 'card person-card' },
       p.birthday?.m ? h('p', {}, icon('calendar', 'i'), ` ${birthdayText(p.birthday)}`, left != null ? h('span', { class: 'muted small' }, left === 0 ? ' · 就是今天' : ` · 还有 ${left} 天`) : null) : null,

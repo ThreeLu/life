@@ -1174,7 +1174,7 @@ def _(c):
     p.get_by_role("group", name="男女").get_by_role("button", name="女").click()
     expect(p.get_by_text("关于她")).to_be_visible()
     expect(p.get_by_label("生日月")).to_have_count(0)  # 先问知不知道生日
-    expect(p.get_by_role("group", name="辈分").get_by_role("button", name="师长 · 长辈")).to_have_attribute("aria-pressed", "true")  # 妈妈 → 长辈
+    expect(p.get_by_role("group", name="辈分").get_by_role("button", name="长辈")).to_have_attribute("aria-pressed", "true")  # 妈妈 → 长辈
     p.get_by_role("group", name="知道生日吗").get_by_role("button", name="知道", exact=True).click()
     p.get_by_label("生日月").select_option(str(tomorrow.month))
     p.get_by_label("生日日").select_option(str(tomorrow.day))
@@ -1190,7 +1190,7 @@ def _(c):
     c.go("#/people")
     expect(p.locator(".birthday-card")).to_contain_text("编的丙")
     expect(p.locator(".av-block", has=p.locator(".av-head", has_text="家人"))).to_contain_text("编的丙")
-    expect(p.locator(".av.senior", has_text="编的丙")).to_be_visible()
+    expect(p.locator(".av.close")).to_have_count(0)
     expect(p.locator(".av-block", has=p.locator(".av-head", has_text="研究生")).locator(".av-c")).to_have_text("乙")
     p.get_by_role("group", name="分组").get_by_role("button", name="本科").click()
     expect(p.locator(".av")).to_have_count(1)
@@ -1205,6 +1205,7 @@ def _(c):
     p.locator("a", has_text="编的公园").first.click()
     p.get_by_role("button", name="去过了").click()
     sh.get_by_label("和谁一起去的").fill("乙")
+    expect(sh.locator(".picker-list")).not_to_contain_text("null")
     sh.get_by_role("option", name=re.compile("编的乙")).click()
     expect(sh.locator(".picker-token")).to_have_text("编的乙×")
     sh.get_by_role("button", name="存好").click()
@@ -1297,8 +1298,15 @@ def _(c):
     c.go(f"#/person/{pid}/edit")
     p.get_by_role("group", name="过节要问候").get_by_role("button", name="中秋").click()
     p.get_by_label("怎么称呼").fill("编的：叫师兄，随便聊")
+    p.get_by_label("更亲近").check()
     p.get_by_role("button", name="存好").click()
     c.wait(lambda d: next(x for x in d["people"] if x["id"] == pid).get("greet") == ["mid"], "过节要问候")
+    assert next(x for x in c.data()["people"] if x["id"] == pid)["close"] is True
+    c.write(lambda d: d["people"].append({"id": "p-boss", "name": "编的导师", "sex": "m", "groups": ["grad"], "rel": "导师", "log": [], "at": TODAY}))
+    c.go("#/people")
+    p.reload()
+    expect(p.locator(".av-block.mentors")).to_contain_text("编的导师")
+    expect(p.locator(".av.close", has_text="编的乙")).to_be_visible()
     p.clock.set_fixed_time("2026-09-24T12:00:00")
     c.go("#/")
     line = p.locator(".alert-line", has_text="明天中秋")

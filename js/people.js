@@ -3,7 +3,7 @@
 // people: [{ id（和账本 people 同一个 id）, name, sex: 'm'|'f', groups: [主要的档, 也在的档…], rel（妈妈 / 导师 / 同学…）, how（怎么认识的）,
 //            birthday: { cal: 'solar'|'lunar', m, d, y? } | null, likes（喜欢什么、不吃什么）, note（近况、要记得的）,
 //            log: [{ id, day, text, favor?, gift?: 'out'|'in' }], at, archived?（归档的日期）, archiveNote?,
-//            rank?: senior|peer|junior（没有就按 rel 猜）, noBirthday?（不知道生日）, tone（平时怎么称呼、怎么说话，DeepSeek 写问候时照着）, greet: [过节要问候的节 key], dates: [{ id, day, title, gift?, yearly? }]（重要的日子）,
+//            rank?: mentor|leader|elder|peer|junior（没有就按 rel 猜）, close?（更亲近，头像金边）, noBirthday?（不知道生日）, tone（平时怎么称呼、怎么说话，DeepSeek 写问候时照着）, greet: [过节要问候的节 key], dates: [{ id, day, title, gift?, yearly? }]（重要的日子）,
 //            stages: [{ id, title, from, to?, text }]（我们的经历，from / to 写「2019」或「2019-09」） }]
 // 人情（不是钱的）存在账本 finance.json 的 favors 里，这里只读和写进去。
 
@@ -14,21 +14,25 @@ export const PEOPLE_GROUPS = { family: '家人', relative: '亲戚', primary: '�
 export const REL_CHOICES = {
   family: ['爸爸', '妈妈', '哥哥', '姐姐', '弟弟', '妹妹', '爷爷', '奶奶', '外公', '外婆'],
   relative: ['叔叔', '伯伯', '姑姑', '舅舅', '姨', '表哥', '表姐', '表弟', '表妹', '堂哥', '堂姐', '堂弟', '堂妹'],
-  grad: ['导师', '老师', '师兄', '师姐', '同门', '师弟', '师妹', '同学', '舍友', '同事'],
+  grad: ['导师', '小导', '老师', '师兄', '师姐', '同门', '师弟', '师妹', '同学', '舍友', '同事'],
   school: ['同学', '舍友', '老师', '朋友'],
 };
 export const relChoices = (group) => REL_CHOICES[group] || (group ? REL_CHOICES.school : []);
 
 export const mainGroup = (p) => p.groups?.[0] || '';
 export const SEX = { m: '男', f: '女' };
-// 辈分：导师、老师、长辈、领导是「师长」；同学、师兄师姐是「同辈」；师弟师妹、弟弟妹妹是「晚辈」。没选过就按关系猜
-export const RANKS = { senior: '师长 · 长辈', peer: '同辈', junior: '晚辈' };
+// 辈分：导师（单独一块）、领导 · 师长（老师、领导）、长辈（家里的）、同辈、晚辈。没选过就按关系猜
+export const RANKS = { mentor: '导师', leader: '领导 · 师长', elder: '长辈', peer: '同辈', junior: '晚辈' };
+export const RANK_ORDER = Object.keys(RANKS);
 export function guessRank(rel = '') {
-  if (/导师|老师|小导|领导|老板|爸|妈|爷|奶|外公|外婆|叔|伯|姑|舅|姨|婶/.test(rel)) return 'senior';
+  if (/导师|小导/.test(rel)) return 'mentor';
+  if (/老师|领导|老板|主任|院长|校长/.test(rel)) return 'leader';
+  if (/爸|妈|爷|奶|外公|外婆|叔|伯|姑|舅|姨|婶/.test(rel)) return 'elder';
   if (/师弟|师妹|弟|妹|学生|侄|外甥/.test(rel)) return 'junior';
   return 'peer';
 }
-export const rankOf = (p) => p.rank || guessRank(p.rel);
+// 老数据的 senior（领导和长辈没分开的时候）：按关系猜是长辈还是领导
+export const rankOf = (p) => (p.rank === 'senior' ? (guessRank(p.rel) === 'elder' ? 'elder' : guessRank(p.rel) === 'mentor' ? 'mentor' : 'leader') : p.rank || guessRank(p.rel));
 export const ta = (p) => (p?.sex === 'f' ? '她' : '他');
 const dayDiff = (a, b) => Math.round((new Date(`${b}T12:00:00`) - new Date(`${a}T12:00:00`)) / 86400000);
 

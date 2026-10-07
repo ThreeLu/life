@@ -898,10 +898,14 @@ button.tl-text { background: none; padding: 0; min-height: 0; font-weight: 400; 
 .picker-opt b { font-weight: 500; }
 .picker-opt.new { color: var(--accent); }
 .picker-opt.gone { opacity: 0.55; }
-/* 师长：圆外面多一圈细环 */
-.av.senior .av-c { box-shadow: 0 0 0 2px var(--bg), 0 0 0 3.5px color-mix(in srgb, var(--av, var(--accent)) 70%, var(--card)); }
+/* 更亲近：圆外面多一圈金边 */
+.av.close .av-c { box-shadow: 0 0 0 2px var(--bg), 0 0 0 4px #c9a24a, 0 2px 6px rgb(201 162 74 / 30%); }
+/* 一块里按辈分分行 */
+.av-rank + .av-rank { margin-top: 12px; }
+.av-rank-name { font-size: 12px; color: var(--muted); margin: 0 4px 8px; letter-spacing: 0.04em; }
+.av-block.mentors .av-head { color: var(--accent); }
 /* 不再来往：收成一行，一叠小灰圆 */
-.av-gone-row { display: flex; width: 100%; align-items: center; gap: 10px; background: none; color: var(--text); font-weight: 400; min-height: 44px; padding: 4px; margin-top: 4px; justify-content: flex-start; }
+.av-gone-row { display: flex; width: 100%; align-items: center; gap: 10px; text-align: left; background: none; color: var(--text); font-weight: 400; min-height: 44px; padding: 4px; margin-top: 4px; justify-content: flex-start; }
 .av-stack { display: flex; }
 .av-mini { width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; font-family: var(--serif); font-size: 12px; color: var(--muted);
   background: color-mix(in srgb, var(--muted) 14%, var(--card)); border: 2px solid var(--bg); margin-left: -8px; }
