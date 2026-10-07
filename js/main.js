@@ -27,6 +27,7 @@ import {
 import { lineChart, barChart, monthGrid, sleepBars } from './charts.js';
 import { icon } from './icons.js';
 import { personPicker, recentIds } from './picker.js';
+import { FAVOR_BIG, estimatePrompt, cleanEstimate } from './renqing.js';
 import { PEOPLE_GROUPS, SEX, RANKS, RANK_ORDER, rankOf, personHint, ta, relChoices, mainGroup, upcomingBirthdays, upcomingDates, giftsWith, giftSummary, ledgerSync, moneyWith, timeline } from './people.js';
 import { nextBirthday, birthdayText, lunarName, holidayAround, holidayLine, GREET_DAYS, festivalDay, festivalsAround } from './cal.js';
 
@@ -3959,10 +3960,11 @@ function personView(id) {
     const text = h('input', { placeholder: '什么事，比如 帮我改论文', 'aria-label': '什么事', value: l?.text?.slice(0, 40) || '' });
     const day = h('input', { type: 'date', value: l?.day || today, 'aria-label': '哪天' });
     const dirRow = h('div', {});
-    const drawDir = () => dirRow.replaceChildren(choiceRow('谁欠谁', [['owe', `我欠${ta(p)}`], ['owed', `${ta(p)}欠我`]], dir, (v) => { dir = v || dir; drawDir(); }));
+    const ef = estimateFields(p, {}, () => text.value.trim());
+    const drawDir = () => { dirRow.replaceChildren(choiceRow('谁欠谁', [['owe', `我欠${ta(p)}`], ['owed', `${ta(p)}欠我`]], dir, (v) => { dir = v || dir; drawDir(); })); ef.node.hidden = dir !== 'owe'; };
     drawDir();
     openSheet({
-      title: '记一个人情', body: h('div', { class: 'form' }, dirRow, text, h('label', {}, '哪天', day),
+      title: '记一个人情', body: h('div', { class: 'form' }, dirRow, text, h('label', {}, '哪天', day), ef.node,
         h('p', { class: 'muted small' }, '记进账本的人情账。节假日会问一句这次还不还。')),
       confirmText: '记好了',
       onConfirm: async () => {
@@ -3972,7 +3974,9 @@ function personView(id) {
           await saving('正在记进账本…', async () => {
             await syncPeople(true);
             await updateLedger(`人情：${p.name}（从「生活」）`, (f) => {
-              (f.favors ||= []).push({ id: fid, person: id, dir, text: text.value.trim(), date: day.value || today, createdAt: new Date().toISOString(), status: 'open' });
+              const v = dir === 'owe' ? ef.values() : {};
+              (f.favors ||= []).push({ id: fid, person: id, dir, text: text.value.trim(), date: day.value || today, createdAt: new Date().toISOString(), status: 'open',
+                ...(v.cost ? { cost: v.cost } : {}), ...(v.estimate ? { estimate: v.estimate } : {}) });
               f.people ||= [];
               if (!f.people.some((x) => x.id === id)) f.people.push({ id, name: p.name });
             });
@@ -4165,6 +4169,37 @@ function stagesCard(p) {
       : h('p', { class: 'muted small' }, `一段一段记下你们之间的经历：怎么认识、哪几年走得近、后来怎么样了。`));
 }
 
+// 「他为我花了多少」「大概要准备多少」+「估一个」（DeepSeek 按以前来回的钱给参考）
+function estimateFields(p, { cost: c0, estimate: e0 } = {}, getText, { withCost = true } = {}) {
+  const cost = h('input', { inputmode: 'decimal', placeholder: '不知道就空着', 'aria-label': `${ta(p)}为我花了多少`, value: c0 ? String(c0) : '' });
+  const est = h('input', { inputmode: 'decimal', placeholder: '大概要准备多少', 'aria-label': '预计要准备多少', value: e0 ? String(e0) : '' });
+  const why = h('p', { class: 'muted small' });
+  const guess = async (btn) => {
+    if (!getText()) { toast('先写是什么事', 'error'); return; }
+    btn.disabled = true; btn.textContent = '正在估……';
+    try {
+      const ledger = ledgerSnap();
+      const history = [
+        ...giftsWith(store.data, ledger, p.id).map((g) => `${g.day} ${g.dir === 'out' ? `我给${ta(p)}` : `${ta(p)}给我`} ${g.text}${g.amount ? ` ¥${Math.round(g.amount)}` : ''}`),
+        ...(ledger?.favors || []).filter((x) => x.person === p.id && x.status === 'done').map((x) => `${x.doneAt} 还过人情「${x.text}」${x.doneNote ? `（${x.doneNote}）` : ''}${x.cost ? `，当时${ta(p)}花了 ¥${x.cost}` : ''}`),
+      ];
+      const { system, user } = estimatePrompt({ who: { name: p.name, hint: [personHint(p), RANKS[rankOf(p)], p.close ? '比较亲近' : ''].filter(Boolean).join(' · ') }, f: { text: getText(), dir: 'owe', cost: Number(cost.value) || 0 }, history, budget: ledger?.budget?.daily || 0 });
+      const r = cleanEstimate(await askJson(await aiConfig(), system, user, { maxTokens: 1000, timeout: 60000 }));
+      if (r.estimate) est.value = String(r.estimate);
+      why.textContent = r.why ? `DeepSeek：${r.why}` : '';
+    } catch (e) { toast(e.message, 'error'); }
+    btn.disabled = false; btn.textContent = '估一个';
+  };
+  const num = (el) => Number(el.value.replace(/[，,\s¥]/g, '')) || 0;
+  return {
+    node: h('div', { class: 'form' },
+      withCost ? h('label', {}, `${ta(p)}为我花了多少（选填）`, cost) : null,
+      h('label', {}, '大概要准备多少（选填）', h('div', { class: 'inline-add' }, est, h('button', { type: 'button', class: 'small secondary', onclick: (e) => guess(e.currentTarget) }, '估一个'))), why,
+      h('p', { class: 'muted small' }, `${FAVOR_BIG} 以上的会在账本里自动算成存款目标，以下的从日常里出。`)),
+    values: () => ({ cost: withCost ? num(cost) : 0, estimate: num(est) }),
+  };
+}
+
 // 重要的日子：婚礼、乔迁、满月、答辩……；要随礼的，到时候提醒以前来回送过多少
 const DATE_KINDS = ['婚礼', '乔迁', '孩子满月', '升学毕业', '答辩', '纪念日'];
 function dateSheet(p, x = null) {
@@ -4172,35 +4207,59 @@ function dateSheet(p, x = null) {
   const day = h('input', { type: 'date', 'aria-label': '哪天', value: x?.day || '' });
   let gift = x?.gift ?? false;
   let yearly = x?.yearly ?? false;
+  const fid = `fd-${x?.id || newId('d')}`; // 账本里对应的人情（随礼）
+  const old = (ledgerSnap()?.favors || []).find((f) => f.id === (x ? `fd-${x.id}` : fid));
+  const ef = estimateFields(p, { estimate: old?.estimate || x?.estimate }, () => title.value.trim(), { withCost: false });
   const opts = h('div', {});
   const drawOpts = () => opts.replaceChildren(
     h('div', { class: 'chips' }, DATE_KINDS.map((k) => h('button', { type: 'button', class: 'chip', onclick: () => { title.value = k; if (/婚礼|乔迁|满月|升学/.test(k)) gift = true; if (k === '纪念日') yearly = true; drawOpts(); } }, k))),
-    h('label', { class: 'switch-row' }, h('input', { type: 'checkbox', checked: gift, onchange: (e) => { gift = e.target.checked; } }), '要随礼 / 送东西'),
-    h('label', { class: 'switch-row' }, h('input', { type: 'checkbox', checked: yearly, onchange: (e) => { yearly = e.target.checked; } }), '每年都有'));
+    h('label', { class: 'switch-row' }, h('input', { type: 'checkbox', checked: gift, onchange: (e) => { gift = e.target.checked; drawOpts(); } }), '要随礼 / 送东西'),
+    h('label', { class: 'switch-row' }, h('input', { type: 'checkbox', checked: yearly, onchange: (e) => { yearly = e.target.checked; drawOpts(); } }), '每年都有'),
+    gift && !yearly ? ef.node : '');
   drawOpts();
   const close = openSheet({
     title: x ? '改这个日子' : `${p.name}的重要日子`,
     body: h('div', { class: 'form' }, title, h('label', {}, '哪天', day), opts,
-      x ? h('button', { class: 'danger small', onclick: () => { close(); saveRender('删掉一个日子', (data) => { const q = data.people.find((y) => y.id === p.id); q.dates = q.dates.filter((y) => y.id !== x.id); }); } }, '删掉') : null),
+      x ? h('button', { class: 'danger small', onclick: () => { close(); saveRender('删掉一个日子', (data) => { const q = data.people.find((y) => y.id === p.id); q.dates = q.dates.filter((y) => y.id !== x.id); }).then(() => syncDateFavor(p, x.id, null)); } }, '删掉') : null),
     confirmText: '存好',
-    onConfirm: () => {
+    onConfirm: async () => {
       if (!title.value.trim() || !day.value) { toast('写上什么日子、哪天', 'error'); return false; }
-      return saveRender(`重要的日子：${p.name} ${title.value.trim()}`, (data) => {
+      const did = x?.id || fid.slice(3);
+      const ok = await saveRender(`重要的日子：${p.name} ${title.value.trim()}`, (data) => {
         const q = data.people.find((y) => y.id === p.id);
         q.dates ||= [];
-        const rec = { id: x?.id || newId('d'), day: day.value, title: title.value.trim(), ...(gift ? { gift: true } : {}), ...(yearly ? { yearly: true } : {}) };
+        const rec = { id: did, day: day.value, title: title.value.trim(), ...(gift ? { gift: true } : {}), ...(yearly ? { yearly: true } : {}) };
         const i = q.dates.findIndex((y) => y.id === rec.id);
         if (i >= 0) q.dates[i] = rec; else q.dates.push(rec);
       });
+      if (ok) syncDateFavor(p, did, gift && !yearly ? { title: title.value.trim(), day: day.value, estimate: ef.values().estimate } : null);
+      return ok;
     },
   });
+}
+// 要随礼的日子 → 账本里一个有日子的人情（id fd-日子id）：预计的钱进「要准备的钱」，300 以上进存款目标；不随礼了 / 删了就拿掉（还没还的）
+function syncDateFavor(p, dateId, rec) {
+  const fid = `fd-${dateId}`;
+  const cur = (ledgerSnap()?.favors || []).find((f) => f.id === fid);
+  if (!rec && !cur) return;
+  updateLedger(rec ? `人情：${p.name} ${rec.title}（从「生活」）` : `人情：拿掉 ${p.name} 的日子（从「生活」）`, (f) => {
+    f.favors ||= [];
+    const i = f.favors.findIndex((x) => x.id === fid);
+    if (!rec) { if (i < 0 || f.favors[i].status === 'done') return false; f.favors.splice(i, 1); return; }
+    const base = i >= 0 ? f.favors[i] : { id: fid, person: p.id, dir: 'owe', kind: 'date', dateId, date: dayKey(), createdAt: new Date().toISOString(), status: 'open' };
+    Object.assign(base, { text: rec.title, due: rec.day });
+    if (rec.estimate) base.estimate = rec.estimate; else delete base.estimate;
+    if (i < 0) f.favors.push(base);
+    f.people ||= [];
+    if (!f.people.some((x) => x.id === p.id)) f.people.push({ id: p.id, name: p.name });
+  }).then(() => { if (/^\/person\//.test(currentPath())) render(); }).catch(() => toast('账本那边没记上，等会儿再改一次这个日子', 'error'));
 }
 function datesCard(p, today) {
   const list = (p.dates || []).slice().sort((a, b) => b.day.localeCompare(a.day));
   return h('div', { class: 'card' },
     h('div', { class: 'rec-top' }, h('h3', {}, '重要的日子'), h('button', { class: 'link small', onclick: () => dateSheet(p) }, '＋ 一个日子')),
     list.length ? list.map((x) => h('button', { type: 'button', class: 'date-row', onclick: () => dateSheet(p, x) },
-      h('span', { class: 'grow' }, x.title, x.gift ? h('span', { class: 'muted small' }, ' · 要随礼') : null),
+      h('span', { class: 'grow' }, x.title, x.gift ? h('span', { class: 'muted small' }, (() => { const f = (ledgerSnap()?.favors || []).find((y) => y.id === `fd-${x.id}`); return f?.status === 'done' ? ' · 随过了' : f?.estimate ? ` · 随礼约 ¥${f.estimate}` : ' · 要随礼'; })()) : null),
       h('span', { class: 'muted small' }, x.yearly ? `每年 ${Number(x.day.slice(5, 7))}月${Number(x.day.slice(8))}日` : `${x.day}${x.day >= today ? ` · 还有 ${daysBetween(today, x.day)} 天` : ''}`)))
       : h('p', { class: 'muted small' }, '婚礼、乔迁、孩子满月、答辩……记下来，前一天会提醒你；要随礼的，会告诉你以前来回送过多少。'));
 }
@@ -4313,7 +4372,7 @@ function peopleAlerts(today) {
   const hol = holidayAround(today);
   if (!ledger || !hol) return out;
   const pname = (id) => d.people.find((p) => p.id === id)?.name || (ledger.people || []).find((p) => p.id === id)?.name || '某人';
-  const list = (ledger.favors || []).filter((f) => f.dir === 'owe' && f.status !== 'done' && f.skip !== hol.key && f.date <= today);
+  const list = (ledger.favors || []).filter((f) => f.dir === 'owe' && f.status !== 'done' && !f.due && f.skip !== hol.key && f.date <= today);
   const mark = (f, k) => saving('正在记进账本…', () => updateLedger(k === 'plan' ? `人情：这个假期还 ${pname(f.person)}（从「生活」）` : `人情：这次先不还 ${pname(f.person)}（从「生活」）`, (fin) => {
     const x = (fin.favors || []).find((y) => y.id === f.id);
     if (!x) return false;

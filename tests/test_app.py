@@ -1256,13 +1256,26 @@ def _(c):
     p.get_by_role("button", name="＋ 一个日子").click()
     sh.get_by_role("button", name="婚礼").click()
     sh.get_by_label("哪天").fill(tomorrow)
+    sh.get_by_role("button", name="估一个").click()
+    expect(sh.get_by_label("预计要准备多少")).to_have_value("150")
+    expect(sh.get_by_text("DeepSeek：编的估法")).to_be_visible()
+    assert "上次" not in LAST_AI[-1] and "¥200" in LAST_AI[-1]  # 带上以前来回的钱
+    sh.get_by_label("预计要准备多少").fill("600")
     sh.get_by_role("button", name="存好").click()
     c.wait(lambda d: next(x for x in d["people"] if x["id"] == pid).get("dates", [{}])[0].get("gift") is True, "日子存好")
+    did = next(x for x in c.data()["people"] if x["id"] == pid)["dates"][0]["id"]
+    for _ in range(50):
+        if any(f["id"] == f"fd-{did}" for f in json.loads(LEDGER.read("finance.json")).get("favors", [])):
+            break
+        p.wait_for_timeout(200)
+    fd = next(f for f in json.loads(LEDGER.read("finance.json"))["favors"] if f["id"] == f"fd-{did}")
+    assert fd["due"] == tomorrow and fd["estimate"] == 600 and fd["kind"] == "date" and fd["person"] == pid and fd["text"] == "婚礼", fd
+    expect(p.locator(".date-row")).to_contain_text("随礼约 ¥600")
     c.go("#/")
     expect(p.locator(".alert-line", has_text="明天：编的乙 婚礼")).to_contain_text("上次你给他：红包 · 编的婚礼 ¥200")
     # 怎么还人情：从想去的地方里挑
     c.go(f"#/person/{pid}")
-    p.locator(".favor-item").get_by_role("button", name="怎么还").click()
+    p.locator(".favor-item", has_text="编的帮我改论文").get_by_role("button", name="怎么还").click()
     ideas = p.locator(".repay-ideas")
     expect(ideas).to_contain_text("请编的乙吃饭")
     expect(ideas.get_by_role("link", name="看看 编的饭馆 ›")).to_have_attribute("href", "#/place/pl-food")
@@ -1342,7 +1355,9 @@ def fake_externals(page):
     def ai(route):
         body = route.request.post_data or ""
         LAST_AI.append(body)
-        if "微信问候" in body:
+        if "估一下" in body:
+            content = {"estimate": 150, "why": "编的估法"}
+        elif "微信问候" in body:
             content = {"text": "编的问候：中秋快乐"}
         elif "怎么还一个人情" in body:
             content = {"ideas": [{"text": "请编的乙吃饭", "why": "编的理由", "place": "pl-food"}, {"text": "帮他一个忙", "why": "", "place": "pl-nope"}]}
