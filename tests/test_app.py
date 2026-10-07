@@ -215,7 +215,7 @@ def _(c):
     expect(c.period("早上").get_by_text("7 小时 50 分")).to_be_visible()
 
 
-@step("睡前复盘：心情、一句话、科研；明天首页问计划做到没有")
+@step("睡前复盘：心情、一句话、科研、明天要做；第二天早上提一句，睡前复盘问做到没有")
 def _(c):
     p = c.page
     c.go("#/night")
@@ -231,15 +231,31 @@ def _(c):
     assert (r["mood"], r["energy"], r["stress"], r["note"], r["did"]) == (7, 4, 4, "测试的一天，还不错", "读了一篇论文"), r
     expect(p.get_by_text("接下来")).to_be_visible()
     expect(p.get_by_role("link", name="去祷告")).to_be_visible()
-    # 昨天写的计划：今天首页问
+    # 昨天写的计划：今天早上只提一句（不打勾），睡前复盘问做到没有
     c.write(lambda d: d["days"].setdefault(YESTERDAY, {}).update(plan="编的计划乙"))
-    c.go("#/")
+    c.go(f"#/day/{TODAY}")
     p.reload()
     am = c.period("早上")
-    expect(am.get_by_text("编的计划乙")).to_be_visible()
-    am.get_by_role("button", name="一部分").click()
+    expect(am.locator(".today-plan")).to_have_text("今天要做：编的计划乙")
+    expect(am.get_by_role("button", name="一部分")).to_have_count(0)
+    c.go("#/night")
+    expect(p.get_by_text("今天要做：编的计划乙")).to_be_visible()
+    p.get_by_role("group", name="做到了吗").get_by_role("button", name="做了一部分").click()
+    p.get_by_role("button", name="记好了").click()
     c.wait(lambda d: d["days"][TODAY].get("planDone") == "part", "计划做了一部分")
+    c.go("#/")
     expect(c.period("晚上").get_by_text("心情 7 · 测试的一天，还不错")).to_be_visible()
+
+
+@step("每周的（面膜）只在周六晚上出现")
+def _(c):
+    p = c.page
+    sat = (datetime.fromisoformat(TODAY) + timedelta(days=(5 - datetime.fromisoformat(TODAY).weekday()) % 7 - 7)).date().isoformat()
+    fri = (datetime.fromisoformat(sat) - timedelta(days=1)).date().isoformat()
+    c.go(f"#/day/{sat}")
+    expect(c.period("晚上").get_by_role("button", name="面膜 0/1")).to_be_visible()
+    c.go(f"#/day/{fri}")
+    expect(c.period("晚上").get_by_text("这周", exact=True)).to_have_count(0)
 
 
 @step("祷告：和 ChatGPT 一起（复制提示词、祷告完了），一天可以很多次；晚上那次念主祷文；不用写字；只显示最近一天")

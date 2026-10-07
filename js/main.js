@@ -462,12 +462,6 @@ function periodList(day, p) {
     const sl = r.sleep;
     item('sleep', Boolean(sl?.bed || sl?.wake), '睡眠', sl?.bed || sl?.wake ? `${sl.bed || '?'} → ${sl.wake || '?'}${sleepText(sl) ? ` · ${sleepText(sl)}` : ''}` : '昨晚几点睡、几点起', { onclick: () => sleepSheet(day) });
     careItem(list, day, 'am', '早上护肤');
-    const plan = d.days[addDays(day, -1)]?.plan;
-    if (plan) {
-      item('plan', Boolean(r.planDone), '昨天说今天要做', plan, { below: choiceRow('做到了吗', [['yes', '做到了'], ['part', '一部分'], ['no', '没做']], r.planDone ?? null, (v) =>
-        saveRender('今天的计划', (data) => { if (v) dayOf(data, day).planDone = v; else delete dayOf(data, day).planDone; })
-          .then((ok) => { if (ok && v) toast(CHEER_ON[{ yes: 'planYes', part: 'planPart', no: 'planNo' }[v]]); })) });
-    }
     if (day !== dayKey() || new Date().getHours() < 8 || r.fetch?.mid) waterItem(list, day, 'mid');
   }
   if (p === 'noon') {
@@ -485,8 +479,9 @@ function periodList(day, p) {
     if (day !== dayKey() || (hr >= 4 && hr < 19) || r.fetch?.eve) waterItem(list, day, 'eve');
     if (showeredOn(d, day)) careItem(list, day, 'shower', routineOf(d, 'shower').map((x) => x.name).join('、') || '洗澡后', '洗过澡了');
     careItem(list, day, 'pm', '晚上护肤');
-    careItem(list, day, 'week', '这周', null, false);
-    item('night', Boolean(r.mood || r.note), '睡前复盘', r.mood ? `心情 ${r.mood}${r.note ? ` · ${r.note}` : ''}` : '心情、一句话、科研、明天', { href: day === dayKey() ? '#/night' : `#/night?d=${day}` });
+    // 每周的（面膜等）只在周六晚上问；别的日子做了的，那天也显示
+    if (parseDay(day).getDay() === 6 || routineOf(d, 'week').some((x) => r.care?.[x.id])) careItem(list, day, 'week', '这周', null, false);
+    item('night', Boolean(r.mood || r.note), '睡前复盘', r.mood ? `心情 ${r.mood}${r.note ? ` · ${r.note}` : ''}` : '心情、一句话、科研、明天要做', { href: day === dayKey() ? '#/night' : `#/night?d=${day}` });
     if (day === dayKey()) item('prayer', Boolean(r.prayer?.night), '祷告', r.prayer?.night ? '祷告了' : '22:30', { href: '#/pray/go?m=night' });
   }
   return list;
@@ -499,8 +494,11 @@ function periodCard(day, p) {
   const list = periodList(day, p);
   const c = list.filter((x) => x.count);
   const done = c.filter((x) => x.done).length;
+  // 昨晚写的「明天要做」：早上只提一句，不打勾；做到没有睡前复盘再问
+  const plan = p === 'am' ? store.data.days[addDays(day, -1)]?.plan : null;
   return h('section', { class: 'card period' },
     h('div', { class: 'period-head' }, h('h3', {}, PERIODS[p]), c.length ? h('span', { class: 'muted small' }, done === c.length ? '都好了' : `${done} / ${c.length}`) : null),
+    plan ? h('p', { class: 'small today-plan' }, h('span', { class: 'muted' }, '今天要做：'), plan) : null,
     list.map((x) => x.node));
 }
 // 清单里的一行：左边圆圈（做了实心、不做了虚线），点整行去做 / 打开
@@ -781,7 +779,7 @@ function yearAgoCard(today) {
 // ---------- 睡前复盘 ----------
 
 const NIGHT_HELP = [
-  ['睡前复盘', ['每晚一页，1 分钟填完：心情打分和一句话、精力、压力、科研两句话。都可以不填，填几样算几样。', '「明天要做」会在明天的首页出现，问你做到了没有。', '填完点「记好了」，接着做晚上的护肤，然后去祷告。']],
+  ['睡前复盘', ['每晚一页，1 分钟填完：心情打分和一句话、精力、压力、科研做了什么、明天要做什么。都可以不填，填几样算几样。', '「明天要做」什么事都可以写。明天早上的清单上会提一句，做到了没有到明天睡前复盘再问。', '填完点「记好了」，接着做晚上的护肤，然后去祷告。']],
   ['分数怎么打', ['心情 1–10：5 是平常，越高越好。', '精力 1–5：今天有没有精神。', '压力 1–5：越高压力越大。']],
 ];
 
@@ -799,7 +797,7 @@ function nightView(day) {
     h('div', { class: 'label-sm' }, '心情（1–10）'), scoreRow('心情', 10, st.mood, (v) => { st.mood = v; draw(); }),
     h('div', { class: 'label-sm' }, '精力'), scoreRow('精力', 5, st.energy, (v) => { st.energy = v; draw(); }, ['没劲', '有点累', '一般', '不错', '满满']),
     h('div', { class: 'label-sm' }, '压力'), scoreRow('压力', 5, st.stress, (v) => { st.stress = v; draw(); }, ['很轻松', '轻松', '一般', '有点大', '很大']),
-    prevPlan ? [h('div', { class: 'label-sm' }, `昨天说今天要：${prevPlan}`), choiceRow('做到了吗', [['yes', '做到了'], ['part', '做了一部分'], ['no', '没做']], st.planDone, (v) => { st.planDone = v; draw(); })] : null,
+    prevPlan ? [h('div', { class: 'label-sm' }, `今天要做：${prevPlan}`), choiceRow('做到了吗', [['yes', '做到了'], ['part', '做了一部分'], ['no', '没做']], st.planDone, (v) => { st.planDone = v; draw(); })] : null,
   ].flat().filter(Boolean));
   draw();
   const submit = () => save('睡前复盘', (data) => {
@@ -812,7 +810,8 @@ function nightView(day) {
   return h('div', { class: 'form' },
     headerSub('睡前复盘', isToday ? dayLabel(day) : `${relDay(day)} · ${dayLabel(day)}`, helpButton('睡前复盘怎么用', NIGHT_HELP)),
     h('div', { class: 'card' }, rows, h('div', { class: 'label-sm' }, '一句话'), note),
-    h('div', { class: 'card' }, h('h3', {}, '科研'), h('div', { class: 'label-sm first' }, '今天做了'), did, h('div', { class: 'label-sm' }, '明天要做'), plan),
+    h('div', { class: 'card' }, h('h3', {}, '科研'), h('div', { class: 'label-sm first' }, '今天做了'), did),
+    h('div', { class: 'card' }, h('h3', {}, '明天要做'), plan),
     h('div', { class: 'actions' }, h('button', { class: 'grow', onclick: submit }, '记好了')),
     rec.mood || rec.note ? h('div', { class: 'card next-card' },
       h('h3', {}, '接下来'),
@@ -908,7 +907,7 @@ function routineItemSheet(r = null) {
   const close = openSheet({
     title: r ? '改打卡项' : '加一项',
     body: h('div', { class: 'form' }, name, h('div', { class: 'label-sm' }, '什么时候'), whenRow, timesRow,
-      h('p', { class: 'muted small' }, '早上、晚上的会出现在「今天」的清单里；洗澡后的在记洗澡时问；每周的在这一周里做够几次就行。'),
+      h('p', { class: 'muted small' }, '早上、晚上的会出现在「今天」的清单里；洗澡后的在记洗澡时问；每周的只在周六晚上出现。'),
       r ? h('button', { class: 'danger small', onclick: () => { close(); saveUndoable(`删掉打卡项：${r.name}`, (data) => {
         data.look.routine = data.look.routine.filter((x) => x.id !== r.id);
       }, `删掉了「${r.name}」（以前的打卡还在）`).then(render).catch(() => {}); } }, '删掉这项') : null),
