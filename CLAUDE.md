@@ -65,6 +65,7 @@
 - 推送：`tools/life_push.py`（公开，规则可测：`tests/test_push.py`），数据仓库 `.github/workflows/push.yml` 每晚 22:31 / 22:43 / 22:57（睡前）、白天 10–20 点每 2 小时（只在生病时：喝水、发烧量体温）和打水的时间下载它运行，`config/push-sent.json` 保证不重复；私钥在 life-data 的 secret `VAPID_PRIVATE_KEY`，公钥在 `js/push.js`（和账本、物品档案不是一对）。推送文字只写「睡前」「照顾自己」这类看不出私事的话。**只在时间段里发**（2026-10-07：GitHub 定时实测晚 6 小时，凌晨三四点才跑）：睡前 21–23 点、白天生病提醒 9–21 点、打水按 `FETCH_REMIND`，不在时间段里就跳过、不记成发过（`once` / `in_window`）；定时和外部触发（workflow_dispatch）都按这个规则，只有测试推送不受限。pywebpush 固定 2.5.0。
 - 「我的故事」的简介（2026-10-06）：`js/profile.js`（物品档案、账本、生活三边同一份）读 `story-data/profile.json`（一天一次，缓存 localStorage `story-profile`，读不到就不带），`js/ai.js` 的 `askJson` 每次都把它加在 system 后面（`withProfile`）。令牌要授权 story-data。
 - 人的页面里「在我的故事里」（`storyCard` / `storySnap`）：读 `story-data/story.json` 里 `people` 带这个人的事和阶段（只读，存 5 分钟），点了打开 `../story/#/event/:id`。
+- 提示（toast）一次只出一条，新的换掉旧的；底部有「撤销」时普通提示放在它上面（`.toast.raised`）。四个网站一样。
 
 ## 代码
 
