@@ -61,6 +61,8 @@
 - 选人（两个网站所有填人名的地方，`js/picker.js` 两边同一份）：输入一个字出补全（名字、`hint`「本科 · 舍友」都能搜），空着时出「最近」5 个，没有就「＋ 新加」；不要一大排人名按钮。`hint` 由 `syncPeople` 写进账本 people。和账本名单：`syncPeople` 打开时把账本里新加的人搬过来（还没分组，同名的认成同一个），名字和归档写到账本（`ledgerSync`）；账本那边不改名字。节假日人情（`peopleAlerts`）：放假前一天到假期结束，「今天」里问欠的人情这次还不还（写账本 `favors` 的 `plan` / `skip`，规则和账本 `holidayFavors` 一样）。改账本统一用 `updateLedger`；读账本缓存 5 分钟 `ledgerSnap`。
 - 人情和关系（2026-10-06 第二批）：「我们的经历」`stages`（一段一段，`stagesFromTextSheet` 写一大段话 DeepSeek 按时间分段，只加不改已有的）；重要的日子 `dates`（婚礼乔迁满月……，前一天和当天「今天」一行，`gift` 的带上 `giftSummary` 以前来回送过多少；`yearly` 每年）；礼尚往来（`giftsWith`：账本 tx 的 `who` + 自己记的 `log.gift`）；怎么还人情（`repayIdeas`，请吃饭从「想去的地方」挑，`place` 只认清单里的 id）；过节问候（资料里 `greet` 勾元旦 / 春节 / 端午 / 中秋 / 教师节，`cal.js` 的 `festivalsAround`：节日前一天和当天「今天」一行 → `#/greet/:年-节` 一个个「起个头」（`greetDraft`，按关系和 `tone`「怎么称呼、怎么说话」调整语气）→ 复制 → 「发了」记 `greeted`）。发给 DeepSeek 的「这个人」统一用 `personContext`。要准备的钱：「记一个人情」和要随礼的日子有「他为我花了多少」「大概要准备多少」+「估一个」（`estimateFields`，`js/renqing.js` 和账本同一份）；要随礼、不是每年的日子同步成账本里一个有日子的人情（`syncDateFavor`，id `fd-日子id`，删了 / 不随礼了就拿掉没还的），账本按 300 分大小额算进日常或存款目标。
 - 推送：`tools/life_push.py`（公开，规则可测：`tests/test_push.py`），数据仓库 `.github/workflows/push.yml` 每晚 22:31 / 22:43 / 22:57（睡前）、白天 10–20 点每 2 小时（只在生病时：喝水、发烧量体温）和打水的时间下载它运行，`config/push-sent.json` 保证不重复；私钥在 life-data 的 secret `VAPID_PRIVATE_KEY`，公钥在 `js/push.js`（和账本、物品档案不是一对）。推送文字只写「睡前」「照顾自己」这类看不出私事的话。
+- 「我的故事」的简介（2026-10-06）：`js/profile.js`（物品档案、账本、生活三边同一份）读 `story-data/profile.json`（一天一次，缓存 localStorage `story-profile`，读不到就不带），`js/ai.js` 的 `askJson` 每次都把它加在 system 后面（`withProfile`）。令牌要授权 story-data。
+- 人的页面里「在我的故事里」（`storyCard` / `storySnap`）：读 `story-data/story.json` 里 `people` 带这个人的事和阶段（只读，存 5 分钟），点了打开 `../story/#/event/:id`。
 
 ## 代码
 

@@ -1395,7 +1395,30 @@ def fake_externals(page):
     page.route("https://api.deepseek.com/**", ai)
 
 
+@step("身边的人：「我的故事」里和他有关的事；DeepSeek 带上「我的故事」的简介")
+def _(c):
+    p = c.page
+    pid = next(x["id"] for x in c.data()["people"] if not x.get("archived"))
+    STORY.external_write("story.json", json.dumps({"stages": [{"id": "s1", "title": "编的阶段", "people": [pid]}],
+        "events": [{"id": "e1", "date": "2015-09", "title": "编的往事", "people": [pid]}]}, ensure_ascii=False).encode())
+    STORY.external_write("profile.json", json.dumps({"text": "编的简介：他喜欢编的东西"}, ensure_ascii=False).encode())
+    p.evaluate("localStorage.removeItem('story-profile')")
+    c.go(f"#/person/{pid}")
+    card = p.locator(".story-card")
+    expect(card).to_contain_text("编的阶段的时候在身边")
+    expect(card.locator(".story-row")).to_contain_text("2015.9 编的往事")
+    LAST_AI.clear()
+    p.get_by_role("button", name="想想送什么").click()
+    p.wait_for_function("() => document.querySelector('.gift-card, .card')")
+    for _ in range(50):
+        if LAST_AI:
+            break
+        p.wait_for_timeout(100)
+    assert LAST_AI and "编的简介：他喜欢编的东西" in LAST_AI[-1], LAST_AI[-1][:300] if LAST_AI else "没有请求"
+
+
 LEDGER = FakeRepo(ledger_seed())
+STORY = FakeRepo({"README.md": b"# story-data\n"})
 INVENTORY = FakeRepo(inventory_seed())
 
 
@@ -1403,7 +1426,7 @@ def main():
     only = sys.argv[1:]
     ART.mkdir(exist_ok=True)
     repo = FakeRepo({"README.md": b"# life-data\n"})
-    serve({REPO: repo, "x/inventory-data": INVENTORY, "test/finance-data": LEDGER}, API_PORT)
+    serve({REPO: repo, "x/inventory-data": INVENTORY, "test/finance-data": LEDGER, "test/story-data": STORY}, API_PORT)
     class Quiet(SimpleHTTPRequestHandler):
         def log_message(self, *a):
             pass

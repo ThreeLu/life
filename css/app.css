@@ -956,3 +956,6 @@ button.tl-text { background: none; padding: 0; min-height: 0; font-weight: 400; 
 :root[data-theme="dark"] .pray-glow { background: radial-gradient(ellipse at center, rgb(232 199 122 / 16%), transparent 70%); }
 :root[data-theme="dark"] .pray-hero::after { filter: invert(1); opacity: 0.06; }
 :root[data-theme="dark"] .pray-time.night { color: #e0c27e; }
+
+/* 身边的人：在我的故事里 */
+.story-row { display: block; padding: 5px 0; color: var(--text); font-size: 15px; }

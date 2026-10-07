@@ -3687,6 +3687,33 @@ async function updateLedger(message, fn) {
   }
 }
 
+// 「我的故事」（../story）里和这个人有关的事：读 story-data 的 story.json 存 5 分钟，只读
+const storyCache = { at: 0, data: null, busy: false };
+function storySnap() {
+  if (!storyCache.busy && Date.now() - storyCache.at > 300000) {
+    storyCache.busy = true;
+    const ss = readJson('story-settings');
+    const owner = (settings.repo || DEFAULT_REPO).split('/')[0];
+    new GitHub({ token: ss.token || settings.token, repo: ss.repo || `${owner}/story-data` }).readText('story.json', 'main')
+      .then((t) => { storyCache.data = JSON.parse(t); if (/^\/person\/[^/]+$/.test(currentPath())) render(); })
+      .catch(() => { /* 没授权 story-data 就不显示 */ })
+      .finally(() => { storyCache.busy = false; storyCache.at = Date.now(); });
+  }
+  return storyCache.data;
+}
+function storyCard(p) {
+  const s = storySnap();
+  if (!s) return null;
+  const evs = (s.events || []).filter((e) => (e.people || []).includes(p.id)).sort((a, b) => (a.date || '9').localeCompare(b.date || '9'));
+  const stages = (s.stages || []).filter((x) => (x.people || []).includes(p.id));
+  if (!evs.length && !stages.length) return null;
+  const when = (e) => e.label || (e.date ? e.date.split('-').map(Number).join('.') : '');
+  return h('div', { class: 'card story-card' },
+    h('h3', {}, '在我的故事里'),
+    stages.length ? h('p', { class: 'small muted' }, `${stages.map((x) => x.title).join('、')}的时候在身边`) : null,
+    evs.map((e) => h('a', { class: 'story-row', href: `../story/#/event/${e.id}`, target: '_blank', rel: 'noopener' }, h('span', { class: 'muted small' }, when(e)), ' ', e.title)));
+}
+
 // 和账本名单对上：账本里新加的搬过来，这边的名字、归档写过去
 const peopleSync = { at: 0, busy: false };
 async function syncPeople(force = false) {
@@ -4025,6 +4052,7 @@ function personView(id) {
       p.archived ? null : h('button', { class: 'secondary', disabled: gs.busy, onclick: gift }, gs.busy ? '正在想……' : '想想送什么')),
     gs.ideas ? giftCard(p, gs, next) : null,
     stagesCard(p),
+    storyCard(p),
     openFavors.length || owe ? h('div', { class: 'card favor-sum' }, h('h3', {}, '人情'),
       favorRows(p, ledger),
       owe ? h('p', { class: 'small muted' }, owe > 0 ? `钱：${ta(p)}欠你 ¥${owe}` : `钱：你欠${ta(p)} ¥${-owe}`) : null,
