@@ -5,7 +5,7 @@ from datetime import datetime
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "tools"))
-from life_push import day_message, fetch_key, fetch_message, message  # noqa: E402
+from life_push import day_message, fetch_key, fetch_message, in_window, message  # noqa: E402
 
 SAT = datetime(2026, 10, 10, 22, 31)  # 周六
 SUN = datetime(2026, 10, 11, 22, 31)  # 周日
@@ -54,3 +54,9 @@ assert fetch_message({"days": {D: {"fetch": {"mid": True, "eve": True}}}}, datet
 assert fetch_message({"days": {D: {"fetch": {"mid": "skip"}}}}, datetime(2026, 10, 10, 12, 30)) is None  # 点了「不打了」
 print("打水提醒 ✓")
 
+
+# GitHub 定时晚到半夜：不在时间段里就不发（睡前 21–23，白天 9–21）
+assert in_window(datetime(2026, 10, 10, 22, 31), 21, 23) and not in_window(datetime(2026, 10, 11, 3, 38), 21, 23)
+assert not in_window(datetime(2026, 10, 11, 3, 38), 9, 21) and in_window(datetime(2026, 10, 11, 16, 48), 9, 21)
+assert not in_window(datetime(2026, 10, 10, 23, 0), 21, 23)
+print("时间段 ✓")

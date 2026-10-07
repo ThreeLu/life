@@ -186,14 +186,20 @@ def git_commit(message, paths):
     print("记录没传上去")
 
 
-def once(key, now, latest_hour):
-    """GitHub 的定时任务不准时，整点高峰还会整次跳过，所以一晚上排了几次触发：
-    今天已经发过就不再发；太晚了（过了 latest_hour 点）也不发。手动运行不受影响。
-    只有真的发了（或者今晚不用发）才记下来，免得早一点的那次还没到时间就把今天占掉。"""
-    if os.environ.get("GITHUB_EVENT_NAME") != "schedule":
+def in_window(now, earliest, latest):
+    """现在（北京时间）是不是在 earliest–latest 点之间"""
+    return earliest <= now.hour + now.minute / 60 < latest
+
+
+def once(key, now, earliest, latest):
+    """只在北京时间 earliest–latest 点之间发，同一个 key 一天一次。
+    GitHub 的定时任务常常晚好几个小时（2026-10 实测晚 6 小时，凌晨三四点才跑），所以不在时间段里就跳过，
+    也不记成发过了。定时触发和外部触发（workflow_dispatch）都按这个规则；只有「测试推送」不受限制。
+    只有真的发了（或者这一回不用发）才记下来（mark_sent），免得早一点的那次还没到时间就把今天占掉。"""
+    if os.environ.get("TEST") == "true":
         return True
-    if now.hour >= latest_hour:
-        print(f"已经 {now:%H:%M} 了，今天不发了")
+    if not in_window(now, earliest, latest):
+        print(f"现在 {now:%H:%M}，不在 {earliest:g}–{latest:g} 点之间，不发")
         return False
     try:
         sent = json.load(open(SENT_FILE, encoding="utf-8"))
@@ -206,7 +212,7 @@ def once(key, now, latest_hour):
 
 
 def mark_sent(key, now):
-    if os.environ.get("GITHUB_EVENT_NAME") != "schedule":
+    if os.environ.get("TEST") == "true":
         return
     try:
         sent = json.load(open(SENT_FILE, encoding="utf-8"))
@@ -224,7 +230,7 @@ def main():
     if not night and os.environ.get("TEST") != "true":
         data = json.load(open("life.json", encoding="utf-8"))
         fkey = fetch_key(now)
-        if fkey and once(fkey, now, 24):
+        if fkey and once(fkey, now, 0, 24):
             msg = fetch_message(data, now)
             mark_sent(fkey, now)
             if msg:
@@ -233,7 +239,8 @@ def main():
             else:
                 print("水打过了")
     key = "night" if night else f"day{now.hour // 2}"
-    if not once(key, now, 23):
+    # 睡前那条 21–23 点；白天（只在生病时）9–21 点，半夜不吵
+    if not (once(key, now, 21, 23) if night else once(key, now, 9, 21)):
         return
     data = json.load(open("life.json", encoding="utf-8"))
     if os.environ.get("TEST") == "true":
