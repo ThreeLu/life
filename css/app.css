@@ -281,6 +281,11 @@ nav .dot-badge { position: absolute; top: 0; right: -4px; width: 8px; height: 8p
 .quick-chip { background: var(--accent-soft); color: var(--accent); }
 .row-2 { display: grid; grid-template-columns: 1fr 1.4fr; gap: 8px; margin: 16px 0 12px; }
 .row-2 input { min-width: 0; }
+.row-2 > * { min-width: 0; }
+/* iPhone 的时间框自带宽度、不肯缩，两个并排会叠在一起 */
+input[type="time"], input[type="date"] { -webkit-appearance: none; appearance: none; display: block; min-width: 0; max-width: 100%; text-align: left; }
+input[type="time"]::-webkit-date-and-time-value, input[type="date"]::-webkit-date-and-time-value { text-align: left; }
+.sleep-form .row-2 { grid-template-columns: 1fr 1fr; gap: 12px; }
 .form-label { display: block; margin: 12px 0; font-weight: 600; font-size: 14px; }
 .form-label > input { margin-top: 6px; font-weight: 400; }
 button.chip { border: 0; cursor: pointer; font-weight: 500; min-height: 36px; border-radius: 999px; padding: 0 14px; }

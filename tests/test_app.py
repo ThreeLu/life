@@ -164,15 +164,27 @@ def _(c):
     c.wait(lambda d: not d["days"][TODAY]["care"], "取消打卡")
 
 
-@step("随手记：洗澡顺便问身体乳、运动、喝的（可以撤销）")
+@step("随手记：洗澡先问一句（能取消、能撤销）顺便问身体乳、运动、喝的")
 def _(c):
     p = c.page
     c.go("#/")
+    # 没洗澡：晚上有一行「洗澡」
+    c.period("晚上").locator(".it", has_text="洗澡").locator(".it-main").click()
+    expect(c.sheet().get_by_role("heading", name="洗澡了吗")).to_be_visible()
+    c.sheet().get_by_role("button", name="取消").click()
+    expect(p.locator(".sheet")).to_have_count(0)
+    assert not events(c.data(), "shower")
+    # 点了「洗好了」也能撤销
     p.get_by_role("button", name="记一下").click()
     c.sheet().get_by_role("button", name="洗澡").click()
-    expect(c.sheet().get_by_text("洗完澡了")).to_be_visible()
+    c.sheet().get_by_role("button", name="洗好了").click()
+    c.wait(lambda d: len(events(d, "shower")) == 1, "洗澡")
+    p.locator(".toast").get_by_role("button", name="撤销").click()
+    c.wait(lambda d: not events(d, "shower"), "撤销洗澡")
+    p.get_by_role("button", name="记一下").click()
+    c.sheet().get_by_role("button", name="洗澡").click()
     c.sheet().get_by_role("button", name="身体乳").click()
-    c.sheet().get_by_role("button", name="好了").click()
+    c.sheet().get_by_role("button", name="洗好了").click()
     c.wait(lambda d: len(events(d, "shower")) == 1 and any(r["id"] in d["days"][TODAY]["care"] for r in d["look"]["routine"] if r["name"] == "身体乳"), "洗澡 + 身体乳")
     # 洗过澡：晚上多一行身体乳，晚上的洗脸划掉
     pm = c.period("晚上")
@@ -518,20 +530,29 @@ def _(c):
     assert p.evaluate("JSON.parse(localStorage.getItem('life-voice')).rate") == 0.8
 
 
-@step("打水：中午那回点了、晚上那回不打了（有清单的时段才显示）")
+@step("打水：一天一次，「不打了」只是这一回不打，挪到下一回")
 def _(c):
     p = c.page
-    c.go("#/")
-    noon = c.period("中午")
-    row = noon.locator(".it", has_text="打水")
-    row.locator(".it-main").click()
-    c.wait(lambda d: d["days"][TODAY].get("fetch") == {"mid": True}, "打水")
-    expect(c.period("中午").locator(".it.done", has_text="打水")).to_be_visible()
     hour = p.evaluate("new Date().getHours()")
-    if 4 <= hour < 19:
-        c.period("晚上").locator(".it", has_text="打水").get_by_role("button", name="不打了").click()
-        c.wait(lambda d: d["days"][TODAY].get("fetch") == {"mid": True, "eve": "skip"}, "晚上不打了")
+    if not 4 <= hour < 19:
+        return  # 开水房都关了，跑不了这一段
+    c.go("#/")
+    want, name = ("am", "早上") if hour < 8 else ("noon", "中午") if hour < 13 else ("eve", "晚上")
+    row = c.period(name).locator(".it", has_text="打水")
+    row.get_by_role("button", name="不打了").click()
+    c.wait(lambda d: d["days"][TODAY].get("fetch") == {want: "skip"}, "这一回不打了")
+    if want == "eve":
         expect(c.period("晚上").locator(".it.skipped", has_text="今天不打了")).to_be_visible()
+        return
+    # 挪到下一回，还能打；打了就「今天不用再打」
+    nxt = c.period("中午" if want == "am" else "晚上").locator(".it", has_text="打水")
+    expect(nxt).to_contain_text("没打")
+    nxt.locator(".it-main").click()
+    c.wait(lambda d: True in d["days"][TODAY].get("fetch", {}).values(), "下一回打了")
+    done = c.period("中午" if want == "am" else "晚上").locator(".it.done", has_text="今天不用再打")
+    expect(done).to_be_visible()
+    done.locator(".it-main").click()
+    c.wait(lambda d: d["days"][TODAY].get("fetch") == {want: "skip"}, "取消打水")
 
 
 @step("定期打理：到日子出现在今天，点做了；前一天预告；入口在「生活」")
@@ -608,7 +629,7 @@ def _(c):
     p.get_by_role("link", name="昨天").first.click()
     expect(p.get_by_role("heading", name="昨天")).to_be_visible()
     c.period("中午").get_by_role("button", name="洗澡").click()
-    c.sheet().get_by_role("button", name="待会儿再说").click()
+    c.sheet().get_by_role("button", name="洗好了").click()
     c.wait(lambda d: any(e["day"] == YESTERDAY for e in events(d, "shower")), "补记昨天洗澡")
 
 

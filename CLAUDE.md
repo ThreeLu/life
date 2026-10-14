@@ -17,7 +17,7 @@
 { version, startDate,
   settings: { rhythmDays, checks, bibleVersion, bibleVersionEn?, sportKinds, drinkKinds, pin: { salt, iter, hash }, city?: { name, lat, lon, districts: [] } },
   days: { 日期: { mood 1–10, note, energy 1–5, stress 1–5, did, plan, planDone: yes|part|no,
-                  sleep: { bed, wake, q }, fetch: { mid, eve }（打水）, goals: { 习惯id: true }, affirm（默念了）, care: { 打卡项id: true }, prayer: { night: { at, mode, note, summary }, morning: { at } }, read, readBook } },
+                  sleep: { bed, wake, q }, fetch: { am|noon|eve: true|'skip' }（打水，老数据 { mid, eve }）, goals: { 习惯id: true }, affirm（默念了）, care: { 打卡项id: true }, prayer: { night: { at, mode, note, summary }, morning: { at } }, read, readBook } },
   events: [{ id, day, at, type: shower|sport|drink|english|p|p2, kind?, minutes?, km?, level?, note?, mode?, topic?, mistakes?, exprs?, score?, flag?, checks?: { c1, c2, c3 } }],
   look: { routine: [{ id, step?, name, when: am|pm|shower|week, times?, optional? }], products: { 物品档案id: { opened, verdict, note, pao? } }, hide: [物品档案id],
           老的 direction / steps / identity / moments 不再用 },
@@ -52,7 +52,8 @@
 - 生病（`#/sick`、`#/sick/book`）：体温曲线（37.3 起问切发烧）、喝水 8 杯、预案打勾、什么时候去医院（`RED_FLAGS`，到了自动变红）、药从物品档案「药品急救」读（只读），`MED_KNOWLEDGE` 认成分：同成分 / 两种退烧药提醒、抗生素激素「医生判断」；用户自己抄说明书（`sick.meds`）算下次几点能吃。肠胃从账本读昨天今天吃的（只读）。好了进 `history`（勾哪些管用 → `helped`），之后 2 天恢复期。**只写常识，不替用户定剂量。** 攒经验（用户要的「记多了，下次同样情况就有预案」）：每天点症状（`SYMPTOMS`）、做了什么（预案 + `extra`），`sickLessons` 按种类算几天好、感冒几次转发烧第几天、常见症状、管用的（n/做过次数），`similarSick` 找症状最像的一次，`planMissing` 一键加进预案；生病页最上面「以前的经验」、手册「我的经验」。不要「看病去哪」（用户说不需要），只留急救 120。
 - 活出自己（用户想摆脱唯唯诺诺、老好人，「活出我自己、清晰明了的人生」；他明确说不要功能，只要话）：每页最下面角落一句 `SELF_LINES`（`whisper`，按日期 + 页面挑，同一天不变；小记、`/low/go`、`/pray/go`、设置不放）。标准放在「真的、对的、我在乎的」，不是换一套外面给的规矩；不说教。形象页也不放。
 - 难受的时候（`#/low`、`#/low/go`，用户说「很关键」，平时不占地方）：祷告页最下面一行，心情低时首页提醒一行；一步一页：呼吸（吸 4 呼 6，6 次）→ 有多难受 1–10（9 以上马上给热线 `HOTLINES`）→ 哪一种（`LOW_KINDS`）→ 预案清单（`LOW_PLANS`，可改；`lowLessons` 说以前什么最管用）→ 给你的话（先自己写的 `low.notes`，再是心情 8 分以上那天写的 `goodDays`、经文 `LOW_VERSES`）→ 现在呢 + 哪些有用 → 存进 `low.log`。心情 8 分以上且两周没写过，首页请他写一句给难受时的自己。不推送、不进「问问我的记录」。
-- 打水：开水房早上 7–8、中午 11–13、晚上 17–19；两个暖壶，一天两回：上午或中午一回（`mid`，早上打了中午就不用）、晚上一回（`eve`）。首页清单里的「打水」行（`waterItem`、`boilerStatus`）；推送 `fetch_message`：这一回没打就在刚开（11:05 / 17:05）和快关（12:20 / 18:20）各提醒一次。
+- 打水（2026-10-14 改）：开水房早上 7–8、中午 11–13、晚上 17–19；**一天只打一次**，哪一回打了后面都不用打；「不打了」只是这一回不打，挪到下一回（早上 → 中午 → 晚上）。首页只在轮到的那一段出现一行「打水」（`waterItem`、`fetchTurn`），开水房都关了还没打就是「今天没打」。老数据 `{ mid, eve }` 由 `fetchState`（python 里 `fetch_state`）换算：mid 算中午、mid 不打了算早上和中午都不打；改的时候顺手换成新格式。推送 `fetch_message`：今天没打、这一回没点不打了，就在刚开（11:05 / 17:05）和快关（12:20 / 18:20）各提醒一次。
+- 洗澡（2026-10-14 改）：不是每天，晚上那段有一行「洗澡」（不算进度）；点了（或「＋」、中午「记一下」）先弹「洗澡了吗」（`showerSheet`），顺便勾洗澡后的项，点「洗好了」才记，「取消」什么都不记，记了能撤销、也能在「今天记下的」里删。
 - 换季：`settings.city` 有经纬度时用 Open-Meteo 查天气（每天一次存 localStorage，`seasonWarning`），首页写在天气标签下面一句小字（`wx-note`，左边一条琥珀色细线，不是可点的提醒行；日子说今天 / 明天 / 后天），睡前推送也加一句。
 - 打开 ChatGPT（`chatgptButton`，祷告、英语、想做到的事）：链接 `https://chatgpt.com/?prompt=<提示词>`——ChatGPT 的通用链接里根路径只认带 `prompt` / `q` 参数的，这样 iPhone 上直接打开 App 并带上提示词；同时悄悄复制一份，没带上就粘贴。
 - 英语：贴回 ChatGPT「wrap up」总结（`parseSummary`）进错句本 / 表达本，`english.next` 写进下一次提示词；复习间隔 1/3/7/14/30/60 天（`reviewCard`）。

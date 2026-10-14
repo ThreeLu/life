@@ -1,7 +1,7 @@
 """每晚 22:30 左右（北京时间）：今天的一句话还没写、还没有晚上的祷告就提醒；生病时加一句早点睡；
 要降温了加一句。合成一条推送，都做了就不发。
 白天（10–20 点每 2 小时一次）：只在生病时提醒喝水、发烧时提醒量体温。
-打水：开水房中午 11–13、晚上 17–19 开，这一回还没打就在刚开的时候和快关的时候各提醒一次。
+打水：一天只打一次。今天还没打、这一回也没点「不打了」，就在中午 11–13、晚上 17–19 刚开和快关的时候各提醒一次。
 
 在数据仓库 life-data 的定时任务里运行（那边的 workflow 每次从公开仓库下载这个文件）：
 订阅在 config/push.json，私钥在 secret VAPID_PRIVATE_KEY。规则和网页 js/life.js 一致（一天从凌晨 4 点开始）。
@@ -96,10 +96,10 @@ def day_message(data, now):
     return {"title": "照顾自己", "body": "；".join(lines), "url": f"{APP}#/sick", "tag": f"life-day-{t}-{now.hour}"}
 
 
-# 打水：(第几回, 提醒几, 从几点几分, 到几点几分, 文字)。上午 / 中午算一回（早上 7–8 打了，中午就不提醒）
+# 打水：(哪一回, 提醒几, 从几点几分, 到几点几分, 文字)。一天打一次：早上 7–8 或中午打了，后面都不提醒
 FETCH_REMIND = [
-    ("mid", 1, (11, 0), (12, 15), "开水房开着（到 13:00），记得打水"),
-    ("mid", 2, (12, 15), (12, 50), "开水房 13:00 关门，水还没打"),
+    ("noon", 1, (11, 0), (12, 15), "开水房开着（到 13:00），记得打水"),
+    ("noon", 2, (12, 15), (12, 50), "开水房 13:00 关门，水还没打"),
     ("eve", 1, (17, 0), (18, 15), "开水房开着（到 19:00），晚上洗漱要用水"),
     ("eve", 2, (18, 15), (18, 50), "开水房 19:00 关门，水还没打"),
 ]
@@ -114,16 +114,31 @@ def fetch_key(now):
     return None
 
 
+def fetch_state(f):
+    """(今天打了没有, 哪几回点了不打了)。老数据 { mid, eve }：mid 算中午，mid 不打了算早上和中午都不打。规则和网页 fetchState 一样"""
+    g = dict(f or {})
+    if "mid" in g:
+        mid = g.pop("mid")
+        if mid is True:
+            g.setdefault("noon", True)
+        elif mid == "skip":
+            g.setdefault("am", "skip")
+            g.setdefault("noon", "skip")
+    return any(v is True for v in g.values()), {k for k, v in g.items() if v == "skip"}
+
+
 def fetch_message(data, now):
-    """这一回还没打水就提醒；打了返回 None"""
+    """今天还没打水、这一回也没说不打，就提醒；否则返回 None"""
     key = fetch_key(now)
     if not key:
         return None
     t = day_key(now).isoformat()
-    done = ((data.get("days") or {}).get(t) or {}).get("fetch") or {}
+    got, skip = fetch_state(((data.get("days") or {}).get(t) or {}).get("fetch"))
+    if got:
+        return None
     for slot, n, _, _, text in FETCH_REMIND:
         if key == f"fetch-{slot}{n}":
-            if done.get(slot):
+            if slot in skip:
                 return None
             return {"title": "打水", "body": text, "url": f"{APP}#/", "tag": f"life-{key}-{t}"}
     return None

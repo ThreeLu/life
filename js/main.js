@@ -7,7 +7,7 @@ import {
   dailyCheer, weekHighlights, newMilestones, careFullDay, showeredOn, careSkipped,
   sickActive, recoveryLeft, tempStats, medInfo, doseStatus, medConflicts, seasonWarning,
   sickDid, sickSymptoms, sickLessons, similarSick, planMissing, sickKinds,
-  boilerStatus, solarTerm, lowLessons, goodDays, 
+  fetchTurn, fetchState, solarTerm, lowLessons, goodDays, 
   parseSummary, reviewCard, dueCards, mistakeTypes, REVIEW_STEPS,
   goalProgress, goalLine, habitWeek, goalWeekDone, applyGoalPlan, lookMonth, careItemRates, paoMonths, openedStatus,
 } from './life.js';
@@ -383,8 +383,8 @@ const TODAY_HELP = [
     '一天从凌晨 4 点开始算：1 点洗的澡还算昨天。',
   ]],
   ['几样小规矩', [
-    '打水：点一下是打了；不想打就点「不打了」，这一回就不再提醒。',
-    '洗澡不用每天：洗了就在「＋」或中午的「记一下」里点。洗过澡的晚上会多一行身体乳，晚上的洗脸自动划掉。',
+    '打水：一天打一次就够。点一下是打了，后面的都不用再打；点「不打了」只是这一回不打，会挪到下一回（早上 → 中午 → 晚上）。',
+    '洗澡不用每天：洗了就点晚上的「洗澡」（或「＋」、中午的「记一下」），会先问一句，点「洗好了」才记，点错了点「取消」；记了也能撤销，或在「今天记下的」里删掉。洗过澡的晚上会多一行身体乳，晚上的洗脸自动划掉。',
     '最上面一行一行的是提醒：生病、降温、该打理了，有事才出现。',
   ]],
   ['其他', ['看以前的某一天、这周的你、一年前的今天：「生活 → 最近的记录」。']],
@@ -471,22 +471,23 @@ function periodList(day, p) {
     const sl = r.sleep;
     item('sleep', Boolean(sl?.bed || sl?.wake), '睡眠', sl?.bed || sl?.wake ? `${sl.bed || '?'} → ${sl.wake || '?'}${sleepText(sl) ? ` · ${sleepText(sl)}` : ''}` : '昨晚几点睡、几点起', { onclick: () => sleepSheet(day) });
     careItem(list, day, 'am', '早上护肤');
-    if (day !== dayKey() || new Date().getHours() < 8 || r.fetch?.mid) waterItem(list, day, 'mid');
+    waterItem(list, day, 'am');
   }
   if (p === 'noon') {
-    waterItem(list, day, 'mid');
+    waterItem(list, day, 'noon');
     const n = dueCards(d, day).length;
     if (n && day === dayKey()) item('english', false, '英语复习', `${n} 张卡`, { href: '#/english/review' });
     list.push({ key: 'record', count: false, node: h('div', { class: 'it plain' }, h('span', { class: 't' }, '记一下',
       h('div', { class: 'minis' },
         h('button', { type: 'button', class: 'mini', onclick: () => sportSheet(day) }, '运动'),
         h('button', { type: 'button', class: 'mini', onclick: () => drinkSheet(day) }, '喝了一杯'),
-        h('button', { type: 'button', class: 'mini', onclick: () => recordShower(day) }, '洗澡')))) });
+        h('button', { type: 'button', class: 'mini', onclick: () => showerSheet(day) }, '洗澡')))) });
   }
   if (p === 'pm') {
-    const hr = new Date().getHours();
-    if (day !== dayKey() || (hr >= 4 && hr < 19) || r.fetch?.eve) waterItem(list, day, 'eve');
+    waterItem(list, day, 'eve');
+    // 洗澡不是每天：没洗是一行「洗澡」（不算进度），洗了换成洗澡后要做的
     if (showeredOn(d, day)) careItem(list, day, 'shower', routineOf(d, 'shower').map((x) => x.name).join('、') || '洗澡后', '洗过澡了');
+    else item('shower', false, '洗澡', '洗了就点一下，不是每天都要', { onclick: () => showerSheet(day), count: false });
     careItem(list, day, 'pm', '晚上护肤');
     // 每周的（面膜等）只在周六晚上问；别的日子做了的，那天也显示
     if (parseDay(day).getDay() === 6 || routineOf(d, 'week').some((x) => r.care?.[x.id])) careItem(list, day, 'week', '这周', null, false);
@@ -553,23 +554,36 @@ function careItem(list, day, when, title, sub = null, count = true) {
   }
   list.push({ key: `care-${when}`, count, done, node: listItem(done, title, sub, { chips }) });
 }
-// 打水一行：点一下打了，旁边「不打了」
+// 打水一行：一天只打一次，只出现在轮到的那一回（早上 / 中午 / 晚上）。点一下打了；「不打了」只是这一回不打，挪到下一回
+const FETCH_NAME = { am: '早上', noon: '中午', eve: '晚上' };
 function waterItem(list, day, slot) {
   const d = store.data;
-  const v = d.days[day]?.fetch?.[slot];
-  const set = (val) => saveRender(val === 'skip' ? '打水：不打了' : '打水', (data) => {
+  const f = d.days[day]?.fetch || {};
+  const now = new Date();
+  const turn = fetchTurn(f, day === dayKey() ? now.getHours() * 60 + now.getMinutes() : 24 * 60);
+  if (turn.slot !== slot) return;
+  const edit = (fn) => (data) => {
     const r = dayOf(data, day);
-    r.fetch ||= {};
-    if (val) r.fetch[slot] = val; else delete r.fetch[slot];
-    if (!Object.keys(r.fetch).length) delete r.fetch;
-  });
-  const minutes = new Date().getHours() * 60 + new Date().getMinutes();
-  const st = day === dayKey() ? boilerStatus({ [slot === 'mid' ? 'eve' : 'mid']: true }, minutes) : null;
-  const sub = v === 'skip' ? '今天不打了' : v ? '打好了' : st ? st.text : (slot === 'mid' ? '早上 7–8 点、中午 11–13 点' : '晚上 17–19 点');
-  list.push({ key: `water-${slot}`, count: true, done: v === 'skip' ? 'skip' : Boolean(v), node: listItem(v === 'skip' ? 'skip' : Boolean(v), '打水', sub, {
-    onclick: () => set(v ? null : true),
-    right: v ? null : h('button', { type: 'button', class: 'skip-btn', onclick: () => set('skip') }, '不打了'),
-  }) });
+    const g = { ...(r.fetch || {}) };
+    if ('mid' in g) { const st = fetchState(g); delete g.mid; if (st.got) g[st.got] = true; for (const x of st.skip) g[x] = 'skip'; }
+    fn(g);
+    if (Object.keys(g).length) r.fetch = g; else delete r.fetch;
+  };
+  const got = () => saveRender('打水', edit((g) => { g[slot] = true; }));
+  const undo = () => saveRender('打水：没打', edit((g) => { for (const k of Object.keys(g)) if (g[k] === true) delete g[k]; }));
+  const skip = () => saveUndoable(`打水：${FETCH_NAME[slot]}不打了`, edit((g) => { g[slot] = 'skip'; }), `${FETCH_NAME[slot]}不打了`).then(render).catch(() => {});
+  const skipped = fetchState(f).skip.map((x) => FETCH_NAME[x]);
+  if (turn.done) {
+    list.push({ key: 'water', count: true, done: true, node: listItem(true, '打水', `${FETCH_NAME[slot]}打好了，今天不用再打`, { onclick: undo }) });
+  } else if (turn.over) {
+    list.push({ key: 'water', count: true, done: 'skip', node: listItem('skip', '打水', turn.skipped ? '今天不打了' : '今天没打', { onclick: got }) });
+  } else {
+    const sub = skipped.length ? `${turn.text} · ${skipped.join('、')}没打` : turn.text;
+    list.push({ key: 'water', count: true, done: false, node: listItem(false, '打水', sub, {
+      onclick: got,
+      right: h('button', { type: 'button', class: 'skip-btn', onclick: skip }, '不打了'),
+    }) });
+  }
 }
 // 今天记下的：一行，点开能删
 function logLine(day) {
@@ -691,27 +705,29 @@ function atFor(day) {
   return day === dayKey() ? nowIso() : new Date(`${day}T21:00:00`).toISOString();
 }
 
-async function recordShower(day) {
-  try {
-    await save('洗澡', (data) => { data.events.push({ id: newId('e'), day, at: atFor(day), type: 'shower' }); });
-  } catch { return; }
+// 洗澡：先问一句，点「洗好了」才记；点错了「取消」，记了也能撤销或在「今天记下的」里删
+function showerSheet(day) {
   const items = routineOf(store.data, 'shower');
-  render();
-  if (!items.length) { toast('记好了'); return; }
   const picked = new Set(items.filter((r) => store.data.days[day]?.care?.[r.id]).map((r) => r.id));
-  const body = h('div', { class: 'chips' }, items.map((r) => {
-    const b = h('button', { type: 'button', class: `chip check${picked.has(r.id) ? ' on' : ''}`, onclick: () => {
+  const chips = h('div', { class: 'chips' }, items.map((r) => {
+    const b = h('button', { type: 'button', class: `chip check${picked.has(r.id) ? ' on' : ''}`, 'aria-pressed': String(picked.has(r.id)), onclick: () => {
       if (picked.has(r.id)) picked.delete(r.id); else picked.add(r.id);
       b.classList.toggle('on', picked.has(r.id));
+      b.setAttribute('aria-pressed', String(picked.has(r.id)));
     } }, r.name);
     return b;
   }));
   openSheet({
-    title: '洗完澡了', body: [h('p', { class: 'muted small' }, '这些做了吗？做了的点一下。'), body], confirmText: '好了', cancelText: '待会儿再说',
-    onConfirm: () => saveRender('洗澡后', (data) => {
+    title: day === dayKey() ? '洗澡了吗' : `${relDay(day)}洗澡了吗`,
+    body: [
+      h('p', { class: 'muted small' }, '洗好了就点「洗好了」。点错了点「取消」，什么都不记。'),
+      items.length ? [h('p', { class: 'muted small' }, '洗完以后这些做了吗？做了的点一下，没做也可以待会儿在首页点。'), chips] : null],
+    confirmText: '洗好了', cancelText: '取消',
+    onConfirm: () => saveUndoable('洗澡', (data) => {
+      data.events.push({ id: newId('e'), day, at: atFor(day), type: 'shower' });
       const c = (dayOf(data, day).care ||= {});
       for (const r of items) { if (picked.has(r.id)) c[r.id] = true; else delete c[r.id]; }
-    }).then((ok) => { if (ok && picked.size === items.length) toast(CHEER_ON.shower); }),
+    }, items.length && picked.size === items.length ? `记好了。${CHEER_ON.shower}` : '记好了：洗澡').then(render).catch(() => false),
   });
 }
 
@@ -753,7 +769,7 @@ function quickSheet() {
   const close = openSheet({
     title: '记一下',
     body: h('div', { class: 'group' },
-      cell({ ic: 'drop', title: '洗澡', onclick: () => { close(); recordShower(day); } }),
+      cell({ ic: 'drop', title: '洗澡', onclick: () => { close(); showerSheet(day); } }),
       cell({ ic: 'run', color: 'var(--sage)', title: '运动', onclick: () => { close(); sportSheet(day); } }),
       cell({ ic: 'cup', color: 'var(--amber)', title: '喝了一杯', sub: store.data.settings.drinkKinds.join(' / '), onclick: () => { close(); drinkSheet(day); } }),
       cell({ ic: 'bed', color: 'var(--blue)', title: '睡眠', onclick: () => { close(); sleepSheet(day); } }),

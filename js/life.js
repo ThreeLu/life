@@ -550,22 +550,33 @@ export const pickOne = (list, seed) => (list?.length ? list[Math.floor(seeded(se
 export const sessionPoints = (results, tasks) => tasks.reduce((a, t) => a + (results[t.id] === 'done' ? (t.level || 1) * 10 : 0), 0);
 
 // ---------- 打水 ----------
-// 开水房：早上 7–8、中午 11–13、晚上 17–19。两个暖壶，一天打两回：上午或中午一回（早上打了中午就不用），晚上一回。
-// 记在 days[日期].fetch = { mid: true, eve: true }
+// 开水房：早上 7–8、中午 11–13、晚上 17–19。一天只打一次：哪一回打了，后面的都不用打。
+// 「不打了」只是这一回不打，下一回还会问。记在 days[日期].fetch = { am|noon|eve: true | 'skip' }
 export const BOILER = [
-  { slot: 'mid', from: 7 * 60, to: 8 * 60, name: '早上' },
-  { slot: 'mid', from: 11 * 60, to: 13 * 60, name: '中午' },
+  { slot: 'am', from: 7 * 60, to: 8 * 60, name: '早上' },
+  { slot: 'noon', from: 11 * 60, to: 13 * 60, name: '中午' },
   { slot: 'eve', from: 17 * 60, to: 19 * 60, name: '晚上' },
 ];
-export const fetchSlot = (minutes) => (minutes < 15 * 60 ? 'mid' : 'eve');
 const clock = (m) => `${Math.floor(m / 60)}:${String(m % 60).padStart(2, '0')}`;
-// 现在开着吗、下一回什么时候开（只看还没打的那一回）。minutes = 一天里的第几分钟
-export function boilerStatus(fetch = {}, minutes) {
-  const todo = BOILER.filter((w) => !fetch[w.slot] && w.to > minutes);
-  const open = todo.find((w) => w.from <= minutes);
-  if (open) return { open: true, text: `开水房开着，${clock(open.to)} 关`, slot: open.slot };
-  const next = todo[0];
-  return next ? { open: false, text: `${next.name} ${clock(next.from)}–${clock(next.to)} 开`, slot: next.slot } : null;
+// 哪一回打了、哪几回不打了（老数据 { mid, eve }：mid 算中午，mid 不打了算早上和中午都不打）
+export function fetchState(f = {}) {
+  const g = { ...f };
+  if ('mid' in g) {
+    if (g.mid === true) g.noon ??= true;
+    else if (g.mid === 'skip') { g.am ??= 'skip'; g.noon ??= 'skip'; }
+    delete g.mid;
+  }
+  return { got: BOILER.find((w) => g[w.slot] === true)?.slot || null, skip: BOILER.filter((w) => g[w.slot] === 'skip').map((w) => w.slot) };
+}
+// 现在轮到哪一回。minutes = 一天里的第几分钟（看以前的日子传 24 * 60）
+// { slot, done: true } 打了；{ slot, open, text } 等着打；{ slot: 'eve', over: true, skipped } 开水房都关了还没打
+export function fetchTurn(f, minutes) {
+  const { got, skip } = fetchState(f);
+  if (got) return { slot: got, done: true };
+  const w = BOILER.find((x) => !skip.includes(x.slot) && x.to > minutes);
+  if (!w) return { slot: 'eve', over: true, skipped: skip.length > 0 };
+  const open = w.from <= minutes;
+  return { slot: w.slot, open, text: open ? `开水房开着，${clock(w.to)} 关` : `${w.name} ${clock(w.from)}–${clock(w.to)} 开` };
 }
 
 // ---------- 难受的时候 ----------
