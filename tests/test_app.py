@@ -271,7 +271,7 @@ def _(c):
     expect(c.period("晚上").get_by_text("这周", exact=True)).to_have_count(0)
 
 
-@step("祷告：白天和 ChatGPT 简短说（不读经文）或写一句；晚上 ChatGPT 当牧师聊、念主祷文；只显示最近一天")
+@step("祷告：白天和 ChatGPT 简短说（不读经文）或写一句；晚上 ChatGPT 聊天开导、最后为我祷告（不念主祷文）；只显示最近一天")
 def _(c):
     p = c.page
     c.write(lambda d: d["days"].setdefault(YESTERDAY, {}).update(prayer={"times": [{"at": YESTERDAY + "T21:00:00.000Z", "kind": "quick"}]}))
@@ -302,28 +302,22 @@ def _(c):
     p.wait_for_function("location.hash === '#/pray'")
     c.wait(lambda d: d["days"][TODAY]["prayer"]["times"][-1].get("text") == "主，编的一句祷告", "写一句的祷告")
     expect(p.locator(".pray-recent")).to_contain_text("主，编的一句祷告")
-    # 晚上那次：祷告完了 → 主祷文 → 阿们
+    # 晚上那次：聊天开导，最后它为我祷告；祷告完了就记下（没有主祷文）
     c.go("#/pray/go?m=night")
     p.wait_for_timeout(400)
     p.screenshot(path=ART / "pray-go.png", full_page=True)
     p.get_by_role("button", name="复制").click()
     prompt = p.evaluate("navigator.clipboard.readText()")
-    assert "主祷文我最后自己念" in prompt and "今晚" in prompt and "牧师" in prompt and "和合本" in prompt, prompt
+    assert "开导" in prompt and "一两句圣经" in prompt and "为我今天聊到的事做一个简短的祷告" in prompt and "主祷文" not in prompt and "牧师" not in prompt, prompt
     p.get_by_role("button", name="祷告完了").click()
-    lines = p.locator(".lords-lines .pray-line")
-    expect(lines).to_have_count(8)
-    expect(lines.first).to_have_text("我们在天上的父：")
-    expect(lines.last).to_have_text(re.compile("阿们！$"))
-    p.wait_for_timeout(400)
-    p.screenshot(path=ART / "pray-lords.png", full_page=True)
-    p.get_by_role("button", name="阿们").click()
+    expect(p.locator(".lords-lines")).to_have_count(0)
     p.wait_for_function("location.hash === '#/pray'")
     c.wait(lambda d: d["days"][TODAY]["prayer"].get("night", {}).get("mode") == "chatgpt", "晚上的祷告")
     assert [x["kind"] for x in c.data()["days"][TODAY]["prayer"]["times"]] == ["quick", "quick", "night"]
     recent = p.locator(".pray-recent")
     expect(recent).to_contain_text("今天")
     expect(recent).to_contain_text("祷告了 3 次")
-    expect(recent).to_contain_text("晚上 · 主祷文")
+    expect(recent).not_to_contain_text("主祷文")
     expect(p.get_by_text("第 1 阶段")).to_have_count(0)
     p.wait_for_timeout(400)
     p.screenshot(path=ART / "pray.png", full_page=True)
