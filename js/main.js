@@ -229,6 +229,8 @@ function whisper(path) {
 
 // 一次只出一条提示：新的换掉旧的；底部有「撤销」时放在它上面，不压住
 function toast(message, kind = 'ok') {
+  // 底部已经有「…  撤销」时，普通的「已保存」就不再叠一条了，只出错误
+  if (kind !== 'error' && document.querySelector('.toast.undo')) return;
   for (const x of document.querySelectorAll('.toast:not(.undo)')) x.remove();
   const el = h('div', { class: `toast ${kind}${document.querySelector('.toast.undo') ? ' raised' : ''}` }, message);
   document.body.append(el);
@@ -1370,7 +1372,7 @@ function englishCardsView() {
   const del = (c) => saveUndoable('英语：删一张', (data) => { data.english.cards = data.english.cards.filter((x) => x.id !== c.id); }, '删掉了').then(render).catch(() => {});
   const list = (kind) => d.english.cards.filter((c) => c.kind === kind).slice().reverse().map((c) => h('div', { class: 'event-row' },
     h('span', { class: 'grow small' }, kind === 'mistake' ? [h('s', { class: 'muted' }, c.front), h('span', { class: 'block' }, c.back)] : [h('b', {}, c.front), c.cn ? ` · ${c.cn}` : '', c.back ? h('span', { class: 'muted block' }, c.back) : null]),
-    h('button', { class: 'link small muted', onclick: () => del(c) }, '删')));
+    h('button', { class: 'link small muted icon-del', 'aria-label': '删掉', onclick: () => del(c) }, icon('trash'))));
   return h('div', {},
     headerSub('我的本子', '错句和表达'),
     h('div', { class: 'section-title' }, '表达本'), h('div', { class: 'card' }, list('expr')),
@@ -3287,7 +3289,7 @@ function rulesCard() {
   const lv = levelOf(d, pts);
   return h('div', { class: 'card' },
     h('div', { class: 'rec-top' }, h('h3', {}, ui.rulesTitle || '规矩手册'), lv.cur ? h('span', { class: 'small' }, `${lv.cur.name} · ${pts} 分`) : null),
-    rs.length ? h('ol', { class: 'small rules' }, rs.map((r) => h('li', {}, r.text, ' ', h('button', { class: 'link small muted', onclick: () => saveUndoable('小记：删规矩', (data) => { data.private.rules = data.private.rules.filter((x) => x.id !== r.id); }, '删掉了').then(render).catch(() => {}) }, '删')))) : h('p', { class: 'muted small' }, '还没有。任务做到了会往这里加，奖励可以撤销。'),
+    rs.length ? h('ol', { class: 'small rules' }, rs.map((r) => h('li', {}, r.text, ' ', h('button', { class: 'link small muted icon-del', 'aria-label': '删掉', onclick: () => saveUndoable('小记：删规矩', (data) => { data.private.rules = data.private.rules.filter((x) => x.id !== r.id); }, '删掉了').then(render).catch(() => {}) }, icon('trash'))))) : h('p', { class: 'muted small' }, '还没有。任务做到了会往这里加，奖励可以撤销。'),
     h('div', { class: 'inline-add' }, input, h('button', { class: 'small', onclick: add }, '加')));
 }
 
@@ -3316,7 +3318,7 @@ function sessionsCard(today) {
       return h('div', { class: 'event-row' },
         h('span', { class: 'grow small' }, `${s.day.slice(5).replace('-', '/')} · ${s.minutes} 分钟 · 任务 ${done}/${all}${s.points ? ` · ${s.points} 分` : ''}`,
           h('span', { class: 'muted' }, [s.score ? ` · ${ui.score} ${s.score}` : '', s.after ? ` · 心情 ${s.after}` : ''].join(''))),
-        h('button', { class: 'link small muted', onclick: () => saveUndoable('小记：删一段', (data) => { data.private.sessions = data.private.sessions.filter((x) => x.id !== s.id); }, '删掉了').then(render).catch(() => {}) }, '删'));
+        h('button', { class: 'link small muted icon-del', 'aria-label': '删掉', onclick: () => saveUndoable('小记：删一段', (data) => { data.private.sessions = data.private.sessions.filter((x) => x.id !== s.id); }, '删掉了').then(render).catch(() => {}) }, icon('trash')));
     }));
 }
 
@@ -3359,11 +3361,11 @@ function limitsCard() {
   return [
     h('div', { class: 'card' }, h('h3', {}, ui.limitsTitle),
       d.private.limits.map((x, i) => h('div', { class: 'event-row' }, h('span', { class: 'grow small' }, x),
-        h('button', { class: 'link small muted', onclick: () => saveRender('小记：删绝对不要', (data) => { data.private.limits.splice(i, 1); }) }, '删'))),
+        h('button', { class: 'link small muted icon-del', 'aria-label': '删掉', onclick: () => saveRender('小记：删绝对不要', (data) => { data.private.limits.splice(i, 1); }) }, icon('trash')))),
       h('div', { class: 'inline-add' }, input, h('button', { class: 'small', onclick: add }, '加'))),
     h('div', { class: 'card' }, h('h3', {}, ui.customTitle), h('p', { class: 'muted small' }, '路线走完以后，这些会和最后一周的任务一起出现。'),
       d.private.custom.map((x) => h('div', { class: 'event-row' }, h('span', { class: 'grow small' }, x.text),
-        h('button', { class: 'link small muted', onclick: () => saveRender('小记：删自己写的', (data) => { data.private.custom = data.private.custom.filter((y) => y.id !== x.id); }) }, '删'))),
+        h('button', { class: 'link small muted icon-del', 'aria-label': '删掉', onclick: () => saveRender('小记：删自己写的', (data) => { data.private.custom = data.private.custom.filter((y) => y.id !== x.id); }) }, icon('trash')))),
       h('div', { class: 'inline-add' }, custom, h('button', { class: 'small', onclick: addCustom }, '加'))),
   ];
 }
@@ -3385,7 +3387,7 @@ function suppliesCard(ui) {
     d.private.supplies.map((x) => h('div', { class: 'event-row' },
       h('span', { class: 'grow' }, x.name, x.low ? h('span', { class: 'soon small' }, ' · 快用完了') : null),
       h('button', { class: 'link small', onclick: () => saveRender('小记：用品', (data) => { const y = data.private.supplies.find((z) => z.id === x.id); if (y) y.low = !y.low; }) }, x.low ? '补上了' : '快用完了'),
-      h('button', { class: 'link small muted', onclick: () => saveUndoable('小记：删用品', (data) => { data.private.supplies = data.private.supplies.filter((z) => z.id !== x.id); }, '删掉了').then(render).catch(() => {}) }, '删'))),
+      h('button', { class: 'link small muted icon-del', 'aria-label': '删掉', onclick: () => saveUndoable('小记：删用品', (data) => { data.private.supplies = data.private.supplies.filter((z) => z.id !== x.id); }, '删掉了').then(render).catch(() => {}) }, icon('trash')))),
     h('div', { class: 'inline-add' }, input, h('button', { class: 'small', onclick: add }, '加')));
 }
 
