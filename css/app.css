@@ -767,6 +767,30 @@ button.cell .grow { display: block; }
 .mini.off { background: none; color: var(--muted); text-decoration: line-through; padding-left: 0; cursor: default; }
 .mini.pop { animation: pop .45s cubic-bezier(.3, 1.6, .5, 1); }
 .it.plain .t { padding: 11px 0 10px 34px; }
+/* 点下去：整行底色变淡紫，圆圈微微缩一下；打上勾：圆圈弹一下、勾一笔画出来、散开一圈淡紫光 */
+.it-main { transition: background-color .15s ease; }
+.period .it-main { margin-left: -16px; padding-left: 16px; }
+.period .it-main:last-child { margin-right: -16px; padding-right: 16px; }
+button.it-main:not(:disabled):active, a.it-main:active { transform: none; background: var(--accent-soft); }
+.it-main:active .ck { transform: scale(.86); }
+.ck { transition: transform .15s ease, background-color .2s ease, border-color .2s ease; }
+.it.pop .ck { animation: ck-pop .5s cubic-bezier(.3, 1.6, .5, 1); }
+.it.pop .ck .i path { stroke-dasharray: 22; stroke-dashoffset: 22; animation: ck-draw .32s .12s ease-out forwards; }
+@keyframes ck-pop { 0% { transform: scale(.7); box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 50%, transparent); } 55% { transform: scale(1.15); } 100% { transform: scale(1); box-shadow: 0 0 0 12px transparent; } }
+@keyframes ck-draw { to { stroke-dashoffset: 0; } }
+button.mini:not(:disabled):active, .skip-btn:not(:disabled):active { transform: scale(.92); }
+.mini.check:not(.on):active { background: color-mix(in srgb, var(--accent) 22%, var(--chip)); }
+.skip-btn:active { background: var(--chip); }
+/* 一段都做完：右上角「都好了」，最后一项打上勾时卡片边上亮一下 */
+.period-done { display: inline-flex; align-items: center; gap: 3px; color: var(--accent); }
+.period-done .i { width: 13px; height: 13px; }
+.period.finish { animation: finish 1.2s ease-out; }
+.period { outline: 0 solid transparent; }
+.period.finish .period-done { animation: enter .5s .2s ease-out both; }
+@keyframes finish { 0% { outline: 1.5px solid color-mix(in srgb, var(--accent) 55%, transparent); outline-offset: 0; } 100% { outline: 1.5px solid transparent; outline-offset: 9px; } }
+@media (prefers-reduced-motion: reduce) {
+  .it.pop .ck, .it.pop .ck .i path, .period.finish, .period.finish .period-done { animation: none; stroke-dashoffset: 0; }
+}
 .skip-btn { flex: none; min-height: 30px; padding: 0 12px; border-radius: 999px; background: transparent; color: var(--muted); box-shadow: inset 0 0 0 1px var(--line); font-family: inherit; font-weight: 400; font-size: 12px; }
 .other-periods { display: flex; gap: 8px; margin: -2px 0 12px; }
 .other-p { flex: 1; min-height: 38px; border-radius: 12px; background: transparent; color: var(--muted); box-shadow: inset 0 0 0 1px var(--line); font-family: inherit; font-weight: 400; font-size: 13px; border: 1px dashed transparent; }

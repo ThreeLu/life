@@ -195,10 +195,14 @@ function render() {
     else content = fn(m[1], q);
     break;
   }
+  // 刚点过：记下重画前哪些行已经打勾、哪张卡已经都好了，重画后新变的那几个动一下
+  const fresh = tapped && Date.now() - tapped.at < 4000 && path === lastPath;
+  const was = fresh ? new Set([...view.querySelectorAll('.it.done[data-key], .period.all-done[data-key]')].map((el) => el.dataset.key)) : null;
   view.replaceChildren(...[content || notFound(), store?.data && !NO_WHISPER.test(path) ? whisper(path) : null].filter(Boolean));
   if (path !== lastPath) { view.classList.remove('enter'); void view.offsetWidth; view.classList.add('enter'); lastPath = path; }
   if (tapped && Date.now() - tapped.at < 4000) {
-    for (const el of view.querySelectorAll('.chip.check.on, .mini.check.on, .ring')) if (el.textContent.trim() === tapped.text) el.classList.add('pop');
+    if (tapped.text) for (const el of view.querySelectorAll('.chip.check.on, .mini.check.on, .ring')) if (el.textContent.trim() === tapped.text) el.classList.add('pop');
+    if (was) for (const el of view.querySelectorAll('.it.done[data-key], .period.all-done[data-key]')) if (!was.has(el.dataset.key)) el.classList.add(el.matches('.period') ? 'finish' : 'pop');
     tapped = null;
   }
   document.documentElement.dataset.season = solarTerm(dayKey()).season;
@@ -217,7 +221,10 @@ let tapped = null;
 document.addEventListener('click', (e) => {
   const b = e.target.closest?.('.chip.check, .mini.check');
   if (b && !b.classList.contains('on')) tapped = { text: b.textContent.trim(), at: Date.now() };
+  else if (e.target.closest?.('button, a')) tapped = { at: Date.now() };
 }, true);
+// iPhone 上要有这个，按住时 :active 的样子才会出来
+document.addEventListener('touchstart', () => {}, { passive: true });
 
 // 各页最下面角落的一句话（活出自己）：每页每天一句，同一天不变。小记、难受的时候一步一步、带着祷告、设置不放
 const NO_WHISPER = /^\/(p|p\/s|low\/go|pray\/go|settings|look)$/;
@@ -510,8 +517,10 @@ function periodCard(day, p) {
   const done = c.filter((x) => x.done).length;
   // 昨晚写的「明天要做」：早上只提一句，不打勾；做到没有睡前复盘再问
   const plan = p === 'am' ? store.data.days[addDays(day, -1)]?.plan : null;
-  return h('section', { class: 'card period' },
-    h('div', { class: 'period-head' }, h('h3', {}, PERIODS[p]), c.length ? h('span', { class: 'muted small' }, done === c.length ? '都好了' : `${done} / ${c.length}`) : null),
+  const all = c.length > 0 && done === c.length;
+  for (const x of list) x.node.dataset.key = `${day}-${p}-${x.key}`;
+  return h('section', { class: `card period${all ? ' all-done' : ''}`, 'data-key': `${day}-${p}` },
+    h('div', { class: 'period-head' }, h('h3', {}, PERIODS[p]), c.length ? h('span', { class: all ? 'period-done small' : 'muted small' }, all ? [icon('check', 'i tiny'), '都好了'] : `${done} / ${c.length}`) : null),
     plan ? h('p', { class: 'small today-plan' }, h('span', { class: 'muted' }, '今天要做：'), plan) : null,
     list.map((x) => x.node));
 }

@@ -198,6 +198,7 @@ def _(c):
     pm = c.period("晚上")
     expect(pm.locator(".mini.off")).to_have_text("洗脸 · 洗澡时洗过了")
     expect(pm.locator(".it.done", has_text="身体乳")).to_be_visible()
+    expect(pm.locator(".it.done.pop", has_text="身体乳")).to_have_count(1)  # 刚打上的勾动一下
     p.get_by_role("button", name="记一下").click()
     c.sheet().get_by_role("button", name="运动").click()
     c.sheet().get_by_role("button", name="跑步").click()
