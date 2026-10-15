@@ -7,7 +7,7 @@ import {
   dailyCheer, weekHighlights, newMilestones, careFullDay, showeredOn, careSkipped,
   sickActive, recoveryLeft, tempStats, medInfo, doseStatus, medConflicts, seasonWarning,
   sickDid, sickSymptoms, sickLessons, similarSick, planMissing, sickKinds,
-  fetchTurn, fetchState, solarTerm, lowLessons, goodDays, 
+  fetchRows, fetchState, solarTerm, lowLessons, goodDays, 
   parseSummary, reviewCard, dueCards, mistakeTypes, REVIEW_STEPS,
   goalProgress, goalLine, habitWeek, goalWeekDone, applyGoalPlan, lookMonth, careItemRates, paoMonths, openedStatus,
 } from './life.js';
@@ -392,7 +392,8 @@ const TODAY_HELP = [
     '一天从凌晨 4 点开始算：1 点洗的澡还算昨天。',
   ]],
   ['几样小规矩', [
-    '打水：一天打一次就够。点一下是打了，后面的都不用再打；点「不打了」只是这一回不打，会挪到下一回（早上 → 中午 → 晚上）。',
+    '打水：一天一桶，中午打。中午点「不打了」，晚上会再出一行打水，17:00 也会提醒你。',
+    '打扫卫生：中午做。点「不弄了」就是今天不弄了。',
     '洗澡不用每天：洗了就点晚上的「洗澡」（或「＋」、中午的「记一下」），会先问一句，点「洗好了」才记，点错了点「取消」；记了也能撤销，或在「今天记下的」里删掉。不洗就点「今晚不洗」，后来又洗了，点这一行照样能记。洗过澡的晚上会多一行身体乳，晚上的洗脸自动划掉。',
     '最上面一行一行的是提醒：生病、降温、该打理了，有事才出现。',
   ]],
@@ -480,10 +481,10 @@ function periodList(day, p) {
     const sl = r.sleep;
     item('sleep', Boolean(sl?.bed || sl?.wake), '睡眠', sl?.bed || sl?.wake ? `${sl.bed || '?'} → ${sl.wake || '?'}${sleepText(sl) ? ` · ${sleepText(sl)}` : ''}` : '昨晚几点睡、几点起', { onclick: () => sleepSheet(day) });
     careItem(list, day, 'am', '早上护肤');
-    waterItem(list, day, 'am');
   }
   if (p === 'noon') {
     waterItem(list, day, 'noon');
+    cleanItem(list, day);
     const n = dueCards(d, day).length;
     if (n && day === dayKey()) item('english', false, '英语复习', `${n} 张卡`, { href: '#/english/review' });
     list.push({ key: 'record', count: false, node: h('div', { class: 'it plain' }, h('span', { class: 't' }, '记一下',
@@ -567,14 +568,12 @@ function careItem(list, day, when, title, sub = null, count = true) {
   }
   list.push({ key: `care-${when}`, count, done, node: listItem(done, title, sub, { chips }) });
 }
-// 打水一行：一天只打一次，只出现在轮到的那一回（早上 / 中午 / 晚上）。点一下打了；「不打了」只是这一回不打，挪到下一回
-const FETCH_NAME = { am: '早上', noon: '中午', eve: '晚上' };
+// 打水：一天一桶。中午一行一直在；中午点了「不打了」（或 13 点过了），晚上再出一行
 function waterItem(list, day, slot) {
-  const d = store.data;
-  const f = d.days[day]?.fetch || {};
   const now = new Date();
-  const turn = fetchTurn(f, day === dayKey() ? now.getHours() * 60 + now.getMinutes() : 24 * 60);
-  if (turn.slot !== slot) return;
+  const rows = fetchRows(store.data.days[day]?.fetch || {}, day === dayKey() ? now.getHours() * 60 + now.getMinutes() : 24 * 60);
+  const row = rows[slot];
+  if (!row) return;
   const edit = (fn) => (data) => {
     const r = dayOf(data, day);
     const g = { ...(r.fetch || {}) };
@@ -582,21 +581,25 @@ function waterItem(list, day, slot) {
     fn(g);
     if (Object.keys(g).length) r.fetch = g; else delete r.fetch;
   };
-  const got = () => saveRender('打水', edit((g) => { g[slot] = true; }));
+  const name = slot === 'noon' ? '中午' : '晚上';
+  const got = () => saveRender('打水', edit((g) => { for (const k of Object.keys(g)) if (g[k] === true) delete g[k]; g[slot] = true; }));
   const undo = () => saveRender('打水：没打', edit((g) => { for (const k of Object.keys(g)) if (g[k] === true) delete g[k]; }));
-  const skip = () => saveUndoable(`打水：${FETCH_NAME[slot]}不打了`, edit((g) => { g[slot] = 'skip'; }), `${FETCH_NAME[slot]}不打了`).then(render).catch(() => {});
-  const skipped = fetchState(f).skip.map((x) => FETCH_NAME[x]);
-  if (turn.done) {
-    list.push({ key: 'water', count: true, done: true, node: listItem(true, '打水', `${FETCH_NAME[slot]}打好了，今天不用再打`, { onclick: undo }) });
-  } else if (turn.over) {
-    list.push({ key: 'water', count: true, done: 'skip', node: listItem('skip', '打水', turn.skipped ? '今天不打了' : '今天没打', { onclick: got }) });
-  } else {
-    const sub = skipped.length ? `${turn.text} · ${skipped.join('、')}没打` : turn.text;
-    list.push({ key: 'water', count: true, done: false, node: listItem(false, '打水', sub, {
-      onclick: got,
-      right: h('button', { type: 'button', class: 'skip-btn', onclick: skip }, '不打了'),
-    }) });
-  }
+  const skip = () => saveUndoable(`打水：${name}不打了`, edit((g) => { g[slot] = 'skip'; }), `${name}不打了`).then(render).catch(() => {});
+  list.push({ key: 'water', count: true, done: row.done, node: listItem(row.done, '打水', row.text, {
+    onclick: row.done === true ? undo : got,
+    right: row.done === false ? h('button', { type: 'button', class: 'skip-btn', onclick: skip }, '不打了') : null,
+  }) });
+}
+// 打扫卫生：中午做；点了「不弄了」今天就不弄了
+function cleanItem(list, day) {
+  const v = store.data.days[day]?.clean;
+  const set = (val) => (data) => { const r = dayOf(data, day); if (val === undefined) delete r.clean; else r.clean = val; };
+  if (v === true) list.push({ key: 'clean', count: true, done: true, node: listItem(true, '打扫卫生', '打扫好了', { onclick: () => saveRender('打扫卫生：没弄', set(undefined)) }) });
+  else if (v === 'skip') list.push({ key: 'clean', count: true, done: 'skip', node: listItem('skip', '打扫卫生', '今天不弄了', { onclick: () => saveRender('打扫卫生', set(true)) }) });
+  else list.push({ key: 'clean', count: true, done: false, node: listItem(false, '打扫卫生', '中午收拾一下', {
+    onclick: () => saveRender('打扫卫生', set(true)),
+    right: h('button', { type: 'button', class: 'skip-btn', onclick: () => saveUndoable('打扫卫生：今天不弄了', set('skip'), '今天不弄了').then(render).catch(() => {}) }, '不弄了'),
+  }) });
 }
 // 今天记下的：一行，点开能删
 function logLine(day) {

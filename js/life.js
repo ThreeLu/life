@@ -555,10 +555,9 @@ export const pickOne = (list, seed) => (list?.length ? list[Math.floor(seeded(se
 export const sessionPoints = (results, tasks) => tasks.reduce((a, t) => a + (results[t.id] === 'done' ? (t.level || 1) * 10 : 0), 0);
 
 // ---------- 打水 ----------
-// 开水房：早上 7–8、中午 11–13、晚上 17–19。一天只打一次：哪一回打了，后面的都不用打。
-// 「不打了」只是这一回不打，下一回还会问。记在 days[日期].fetch = { am|noon|eve: true | 'skip' }
+// 一天打一桶。早上不打；中午 11–13 打，中午「不打了」就晚上 17–19 打（17:00 推送提醒）。
+// 记在 days[日期].fetch = { noon|eve: true | 'skip' }（老数据还有 am，和 { mid, eve }）
 export const BOILER = [
-  { slot: 'am', from: 7 * 60, to: 8 * 60, name: '早上' },
   { slot: 'noon', from: 11 * 60, to: 13 * 60, name: '中午' },
   { slot: 'eve', from: 17 * 60, to: 19 * 60, name: '晚上' },
 ];
@@ -571,17 +570,27 @@ export function fetchState(f = {}) {
     else if (g.mid === 'skip') { g.am ??= 'skip'; g.noon ??= 'skip'; }
     delete g.mid;
   }
-  return { got: BOILER.find((w) => g[w.slot] === true)?.slot || null, skip: BOILER.filter((w) => g[w.slot] === 'skip').map((w) => w.slot) };
+  const slots = ['am', 'noon', 'eve'];
+  return { got: slots.find((x) => g[x] === true) || null, skip: slots.filter((x) => g[x] === 'skip') };
 }
-// 现在轮到哪一回。minutes = 一天里的第几分钟（看以前的日子传 24 * 60）
-// { slot, done: true } 打了；{ slot, open, text } 等着打；{ slot: 'eve', over: true, skipped } 开水房都关了还没打
-export function fetchTurn(f, minutes) {
+// 中午、晚上两行该怎么显示。minutes = 一天里的第几分钟（看以前的日子传 24 * 60）
+// 中午那行一直在；晚上那行只在中午没打上时出现（点了不打了，或 13 点过了）
+// 每行 { done: true | 'skip' | false, text }
+export function fetchRows(f, minutes) {
   const { got, skip } = fetchState(f);
-  if (got) return { slot: got, done: true };
-  const w = BOILER.find((x) => !skip.includes(x.slot) && x.to > minutes);
-  if (!w) return { slot: 'eve', over: true, skipped: skip.length > 0 };
-  const open = w.from <= minutes;
-  return { slot: w.slot, open, text: open ? `开水房开着，${clock(w.to)} 关` : `${w.name} ${clock(w.from)}–${clock(w.to)} 开` };
+  const [noon, eve] = BOILER;
+  const open = (w) => (minutes >= w.from ? `开水房开着，${clock(w.to)} 关` : `${clock(w.from)}–${clock(w.to)} 开`);
+  if (got && got !== 'eve') return { noon: { done: true, text: '打好了，今天不用再打' }, eve: null };
+  const rows = {};
+  if (got === 'eve') rows.noon = { done: 'skip', text: '晚上打了' };
+  else if (skip.includes('noon')) rows.noon = { done: 'skip', text: '中午不打了，晚上打' };
+  else if (minutes >= noon.to) rows.noon = { done: 'skip', text: '中午没打，晚上打' };
+  else return { noon: { done: false, text: open(noon) }, eve: null };
+  if (got === 'eve') rows.eve = { done: true, text: '晚上打好了' };
+  else if (skip.includes('eve')) rows.eve = { done: 'skip', text: '今天不打了' };
+  else if (minutes >= eve.to) rows.eve = { done: 'skip', text: '今天没打' };
+  else rows.eve = { done: false, text: open(eve) };
+  return rows;
 }
 
 // ---------- 难受的时候 ----------

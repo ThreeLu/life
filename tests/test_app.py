@@ -533,29 +533,34 @@ def _(c):
     assert p.evaluate("JSON.parse(localStorage.getItem('life-voice')).rate") == 0.8
 
 
-@step("打水：一天一次，「不打了」只是这一回不打，挪到下一回")
+@step("打水：中午一行，中午不打了晚上再出一行；打扫卫生中午做，可以不弄")
 def _(c):
     p = c.page
     hour = p.evaluate("new Date().getHours()")
-    if not 4 <= hour < 19:
-        return  # 开水房都关了，跑不了这一段
     c.go("#/")
-    want, name = ("am", "早上") if hour < 8 else ("noon", "中午") if hour < 13 else ("eve", "晚上")
-    row = c.period(name).locator(".it", has_text="打水")
-    row.get_by_role("button", name="不打了").click()
-    c.wait(lambda d: d["days"][TODAY].get("fetch") == {want: "skip"}, "这一回不打了")
-    if want == "eve":
-        expect(c.period("晚上").locator(".it.skipped", has_text="今天不打了")).to_be_visible()
-        return
-    # 挪到下一回，还能打；打了就「今天不用再打」
-    nxt = c.period("中午" if want == "am" else "晚上").locator(".it", has_text="打水")
-    expect(nxt).to_contain_text("没打")
-    nxt.locator(".it-main").click()
-    c.wait(lambda d: True in d["days"][TODAY].get("fetch", {}).values(), "下一回打了")
-    done = c.period("中午" if want == "am" else "晚上").locator(".it.done", has_text="今天不用再打")
-    expect(done).to_be_visible()
-    done.locator(".it-main").click()
-    c.wait(lambda d: d["days"][TODAY].get("fetch") == {want: "skip"}, "取消打水")
+    expect(c.period("早上").locator(".it", has_text="打水")).to_have_count(0)  # 早上不打
+    if hour < 13:
+        c.period("中午").locator(".it", has_text="打水").get_by_role("button", name="不打了").click()
+        c.wait(lambda d: d["days"][TODAY].get("fetch") == {"noon": "skip"}, "中午不打了")
+    expect(c.period("中午").locator(".it.skipped", has_text="打水")).to_contain_text("晚上打")
+    if 4 <= hour < 19:
+        eve = c.period("晚上").locator(".it", has_text="打水")
+        eve.locator(".it-main").click()
+        c.wait(lambda d: d["days"][TODAY].get("fetch", {}).get("eve") is True, "晚上打了")
+        expect(c.period("中午").locator(".it.skipped", has_text="晚上打了")).to_be_visible()
+        c.period("晚上").locator(".it.done", has_text="晚上打好了").locator(".it-main").click()
+        c.wait(lambda d: True not in d["days"][TODAY].get("fetch", {}).values(), "取消打水")
+    # 中午改主意又打了：晚上那行就没了
+    c.period("中午").locator(".it", has_text="打水").locator(".it-main").click()
+    c.wait(lambda d: d["days"][TODAY].get("fetch", {}).get("noon") is True, "中午打了")
+    expect(c.period("晚上").locator(".it", has_text="打水")).to_have_count(0)
+    # 打扫卫生
+    row = c.period("中午").locator(".it", has_text="打扫卫生")
+    row.get_by_role("button", name="不弄了").click()
+    c.wait(lambda d: d["days"][TODAY].get("clean") == "skip", "今天不弄了")
+    expect(c.period("中午").locator(".it.skipped", has_text="今天不弄了")).to_be_visible()
+    c.period("中午").locator(".it", has_text="打扫卫生").locator(".it-main").click()
+    c.wait(lambda d: d["days"][TODAY].get("clean") is True, "打扫好了")
 
 
 @step("定期打理：到日子出现在今天，点做了；前一天预告；入口在「生活」")
