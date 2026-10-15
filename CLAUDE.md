@@ -17,7 +17,7 @@
 { version, startDate,
   settings: { rhythmDays, checks, bibleVersion, bibleVersionEn?, sportKinds, drinkKinds, pin: { salt, iter, hash }, city?: { name, lat, lon, districts: [] } },
   days: { 日期: { mood 1–10, note, energy 1–5, stress 1–5, did, plan, planDone: yes|part|no,
-                  sleep: { bed, wake, q }, fetch: { am|noon|eve: true|'skip' }（打水，老数据 { mid, eve }）, goals: { 习惯id: true }, affirm（默念了）, care: { 打卡项id: true }, prayer: { night: { at, mode, note, summary }, morning: { at } }, read, readBook } },
+                  sleep: { bed, wake, q }, fetch: { am|noon|eve: true|'skip' }（打水，老数据 { mid, eve }）, goals: { 习惯id: true }, affirm（默念了）, care: { 打卡项id: true }, noShower（今晚不洗）, prayer: { night: { at, mode, note, summary }, morning: { at } }, read, readBook } },
   events: [{ id, day, at, type: shower|sport|drink|english|p|p2, kind?, minutes?, km?, level?, note?, mode?, topic?, mistakes?, exprs?, score?, flag?, checks?: { c1, c2, c3 } }],
   look: { routine: [{ id, step?, name, when: am|pm|shower|week, times?, optional? }], products: { 物品档案id: { opened, verdict, note, pao? } }, hide: [物品档案id],
           老的 direction / steps / identity / moments 不再用 },

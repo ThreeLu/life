@@ -386,7 +386,7 @@ const TODAY_HELP = [
   ]],
   ['几样小规矩', [
     '打水：一天打一次就够。点一下是打了，后面的都不用再打；点「不打了」只是这一回不打，会挪到下一回（早上 → 中午 → 晚上）。',
-    '洗澡不用每天：洗了就点晚上的「洗澡」（或「＋」、中午的「记一下」），会先问一句，点「洗好了」才记，点错了点「取消」；记了也能撤销，或在「今天记下的」里删掉。洗过澡的晚上会多一行身体乳，晚上的洗脸自动划掉。',
+    '洗澡不用每天：洗了就点晚上的「洗澡」（或「＋」、中午的「记一下」），会先问一句，点「洗好了」才记，点错了点「取消」；记了也能撤销，或在「今天记下的」里删掉。不洗就点「今晚不洗」，后来又洗了，点这一行照样能记。洗过澡的晚上会多一行身体乳，晚上的洗脸自动划掉。',
     '最上面一行一行的是提醒：生病、降温、该打理了，有事才出现。',
   ]],
   ['其他', ['看以前的某一天、这周的你、一年前的今天：「生活 → 最近的记录」。']],
@@ -489,7 +489,9 @@ function periodList(day, p) {
     waterItem(list, day, 'eve');
     // 洗澡不是每天：没洗是一行「洗澡」（不算进度），洗了换成洗澡后要做的
     if (showeredOn(d, day)) careItem(list, day, 'shower', routineOf(d, 'shower').map((x) => x.name).join('、') || '洗澡后', '洗过澡了');
-    else item('shower', false, '洗澡', '洗了就点一下，不是每天都要', { onclick: () => showerSheet(day), count: false });
+    else if (r.noShower) item('shower', 'skip', '洗澡', '今晚不洗了', { onclick: () => showerSheet(day), count: false });
+    else item('shower', false, '洗澡', '洗了就点一下，不是每天都要', { onclick: () => showerSheet(day), count: false,
+      right: h('button', { type: 'button', class: 'skip-btn', onclick: () => saveUndoable('洗澡：今晚不洗', (data) => { dayOf(data, day).noShower = true; }, '今晚不洗了').then(render).catch(() => {}) }, '今晚不洗') });
     careItem(list, day, 'pm', '晚上护肤');
     // 每周的（面膜等）只在周六晚上问；别的日子做了的，那天也显示
     if (parseDay(day).getDay() === 6 || routineOf(d, 'week').some((x) => r.care?.[x.id])) careItem(list, day, 'week', '这周', null, false);
@@ -727,6 +729,7 @@ function showerSheet(day) {
     confirmText: '洗好了', cancelText: '取消',
     onConfirm: () => saveUndoable('洗澡', (data) => {
       data.events.push({ id: newId('e'), day, at: atFor(day), type: 'shower' });
+      delete dayOf(data, day).noShower;
       const c = (dayOf(data, day).care ||= {});
       for (const r of items) { if (picked.has(r.id)) c[r.id] = true; else delete c[r.id]; }
     }, items.length && picked.size === items.length ? `记好了。${CHEER_ON.shower}` : '记好了：洗澡').then(render).catch(() => false),

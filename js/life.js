@@ -46,7 +46,7 @@ export function defaultData(today) {
       sportKinds: ['跑步', '走路', '爬山', '健身', '球类', '其他'],
       drinkKinds: ['咖啡', '奶茶', '茶'],
     },
-    days: {}, // { 日期: { mood, note, energy, stress, did, plan, planDone, sleep: { bed, wake, q }, care: { 打卡项 id: true }, prayer: { night, morning }, read } }
+    days: {}, // { 日期: { mood, note, energy, stress, did, plan, planDone, sleep: { bed, wake, q }, care: { 打卡项 id: true }, prayer: { night, morning }, read, noShower } }
     events: [], // 洗澡、运动、喝的、小记……：{ id, day, at, type, ... }
     look: { direction: [], steps: {}, routine: [], products: {}, hide: [], identity: null, moments: [] }, // identity：「我是这样的人」自己改过的句子；moments：精致时刻 { id, day, text }
     notes: [], // 我学到的：{ id, title, text, track, link, at }
@@ -87,6 +87,11 @@ export function migrate(data) {
   data.periodic = data.periodic.filter((p) => p.name !== '擦鞋'); // 2026-10-06 擦鞋改成每天早上打卡
   if (data.look.steps['g-clothes'] && !data.look.routine.some((r) => r.step === 'g-clothes' && r.name === '擦鞋')) {
     data.look.routine.push({ id: `r-g-clothes-${data.look.routine.length}`, step: 'g-clothes', name: '擦鞋', when: 'am' });
+  }
+  // 2026-10-15 润唇只在早上做：晚上的挪到早上（早上已有就去掉晚上的）
+  for (const r of data.look.routine.filter((x) => x.when === 'pm' && /润唇|唇膏/.test(x.name))) {
+    if (data.look.routine.some((x) => x.when === 'am' && /润唇|唇膏/.test(x.name))) data.look.routine.splice(data.look.routine.indexOf(r), 1);
+    else r.when = 'am';
   }
   data.weeks ||= {};
   data.prayer = { ...d.prayer, ...(data.prayer || {}) };
