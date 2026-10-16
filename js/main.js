@@ -150,7 +150,7 @@ const routes = [
   [/^\/p\/s$/, () => sessionView()],
   [/^\/periodic$/, () => periodicView()],
   [/^\/chats$/, () => chatsView()],
-  [/^\/chat\/new$/, () => chatEditView('new')],
+  [/^\/chat\/new$/, (_, q) => chatEditView('new', q)],
   [/^\/chat\/([^/]+)\/edit$/, (id) => chatEditView(id)],
   [/^\/chat\/([^/]+)$/, (id) => chatView(id)],
   [/^\/low$/, () => lowView()],
@@ -1199,6 +1199,16 @@ function prayView() {
     h('a', { class: 'quiet-link', href: '#/low', onclick: () => resetLow() }, '难受的时候 ›'));
 }
 
+// 晚上祷告完问一句：要不要把今晚聊的记下来（不想记就点「不用了」）
+function askRecordChat() {
+  openSheet({
+    title: '把今晚聊的记下来？',
+    body: h('p', { class: 'muted small' }, '在刚才那次聊天里发一段话，ChatGPT 会把聊的整理成文字，复制回来就行。'),
+    confirmText: '记一段', cancelText: '不用了',
+    onConfirm: () => { delete chatDraft.new; go('#/chat/new?from=pray'); },
+  });
+}
+
 // 白天的祷告叫什么：早上 / 下午 / 傍晚
 function dayPrayName() {
   const hr = new Date().getHours();
@@ -1220,7 +1230,9 @@ function prayGoView(mode) {
     const at = nowIso();
     (p.times ||= []).push(said ? { at, kind: m, text: said } : { at, kind: m });
     if (m === 'night') p.night = { at, mode: 'chatgpt' };
-  }).then((ok) => { if (!ok) return; prayState.key = ''; toast(CHEER_ON.prayer); go('#/pray'); });
+  }).then((ok) => { if (!ok) return; prayState.key = ''; toast(CHEER_ON.prayer);
+    if (m === 'night') { go('#/pray', true); askRecordChat(); } else go('#/pray'); // 换页会关掉弹出的，所以晚上那次直接换、再问
+  });
   const back = h('a', { class: 'button secondary', href: '#/pray', onclick: () => { prayState.key = ''; } }, '先不了');
   const chatgpt = (text, steps) => [
     h('ol', { class: 'pray-steps' }, steps.map((x) => h('li', {}, x))),
@@ -1268,14 +1280,14 @@ const CHATS_HELP = [
     '长按它的回复，点「Copy」，回来贴进「聊天内容」。也可以只贴几句自己想留下的话。',
     '当时的心情、聊了什么可以不填；不写「聊了什么」就用内容的第一行。',
   ]],
-  ['以后看', ['在「祷告」页下面和「全部」里按时间排着，能按心情挑、能搜。点进去能改、能删。', '这些只有你自己看得到，不会拿去分析，也不会发给 DeepSeek。']],
+  ['以后看', ['晚上祷告完会问一句要不要记下今晚聊的，点「记一段」就行，不想记点「不用了」。', '在「祷告」页下面和「全部」里按时间排着，能按心情挑、能搜。点进去能改、能删。', '这些只有你自己看得到，不会拿去分析，也不会发给 DeepSeek。']],
 ];
 const byNewest = (a, b) => `${b.day}${b.at}`.localeCompare(`${a.day}${a.at}`);
 const chatFirstLine = (text) => (String(text).split('\n').map((x) => x.trim()).find(Boolean) || '').slice(0, 40);
 function chatCell(c) {
   const today = dayKey();
   return cell({ href: `#/chat/${c.id}`, title: c.title || chatFirstLine(c.text),
-    sub: [c.mood ? CHAT_MOODS[c.mood] : '', `${c.text.length} 字`].filter(Boolean).join(' · '),
+    sub: [c.from === 'pray' ? '晚上祷告' : '', c.mood ? CHAT_MOODS[c.mood] : '', `${c.text.length} 字`].filter(Boolean).join(' · '),
     meta: daysBetween(c.day, today) < 3 ? relDay(c.day, today) : `${parseDay(c.day).getMonth() + 1}/${parseDay(c.day).getDate()}` });
 }
 
@@ -1318,11 +1330,11 @@ function chatsView() {
 }
 
 const chatDraft = {}; // 写了一半的，页面重画不丢
-function chatEditView(id) {
+function chatEditView(id, q = {}) {
   const d = store.data;
   const c = id === 'new' ? null : d.chats.find((x) => x.id === id);
   if (id !== 'new' && !c) return notFound();
-  const dr = (chatDraft[id] ||= { day: c?.day || dayKey(), mood: c?.mood || '', title: c?.title || '', text: c?.text || '' });
+  const dr = (chatDraft[id] ||= { day: c?.day || dayKey(), mood: c?.mood || '', title: c?.title || '', text: c?.text || '', from: c?.from || (q.from === 'pray' ? 'pray' : '') });
   const keep = (k) => (e) => { dr[k] = e.target.value; };
   const day = h('input', { type: 'date', value: dr.day, max: dayKey(), 'aria-label': '哪天聊的', oninput: keep('day') });
   const title = h('input', { type: 'text', value: dr.title, placeholder: '一句话（可以不写，就用内容的第一行）', 'aria-label': '聊了什么', oninput: keep('title') });
@@ -1334,6 +1346,7 @@ function chatEditView(id) {
     if (!body) { toast('先把聊的内容贴进来', 'error'); text.focus(); return; }
     const entry = { day: dr.day || dayKey(), title: dr.title.trim(), text: body };
     if (dr.mood) entry.mood = dr.mood;
+    if (dr.from) entry.from = dr.from;
     const cid = c?.id || newId('ct');
     const ok = await saveRender(c ? `改聊过的：${entry.title || chatFirstLine(body)}` : `记一段聊过的：${entry.title || chatFirstLine(body)}`, (data) => {
       if (c) {
@@ -1346,7 +1359,7 @@ function chatEditView(id) {
     if (ok) { delete chatDraft[id]; toast(c ? '改好了' : '记下了'); go(`#/chat/${cid}`, true); }
   };
   return h('div', {},
-    headerSub(c ? '改一下' : '记一段', '和 ChatGPT 聊过的'),
+    headerSub(c ? '改一下' : '记一段', dr.from === 'pray' ? '晚上祷告时聊的' : '和 ChatGPT 聊过的'),
     c ? null : h('div', { class: 'card' },
       h('h3', {}, '从 ChatGPT 搬过来'),
       h('ol', { class: 'small steps' },
@@ -1373,7 +1386,7 @@ function chatView(id) {
   const remove = () => saveUndoable(`删掉聊过的：${name}`, (data) => { data.chats = data.chats.filter((x) => x.id !== id); }, `删掉了「${name}」`)
     .then(() => go('#/chats', true)).catch(() => {});
   return h('div', {},
-    headerSub(name, [dayLabel(c.day), c.mood ? CHAT_MOODS[c.mood] : ''].filter(Boolean).join(' · ')),
+    headerSub(name, [dayLabel(c.day), c.from === 'pray' ? '晚上祷告' : '', c.mood ? CHAT_MOODS[c.mood] : ''].filter(Boolean).join(' · ')),
     h('div', { class: 'card' }, h('p', { class: 'letter-text' }, c.text)),
     h('div', { class: 'actions' },
       h('button', { class: 'secondary', onclick: () => copyText(c.text, '复制好了') }, icon('copy'), '复制'),

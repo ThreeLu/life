@@ -321,6 +321,9 @@ def _(c):
     p.get_by_role("button", name="祷告完了").click()
     expect(p.locator(".lords-lines")).to_have_count(0)
     p.wait_for_function("location.hash === '#/pray'")
+    # 祷告完问要不要记下今晚聊的，这次不用
+    expect(c.sheet()).to_contain_text("把今晚聊的记下来？")
+    c.sheet().get_by_role("button", name="不用了").click()
     c.wait(lambda d: d["days"][TODAY]["prayer"].get("night", {}).get("mode") == "chatgpt", "晚上的祷告")
     assert [x["kind"] for x in c.data()["days"][TODAY]["prayer"]["times"]] == ["quick", "quick", "night"]
     recent = p.locator(".pray-recent")
@@ -380,6 +383,16 @@ def _(c):
     p.get_by_role("button", name="删掉").click()
     c.wait(lambda d: [x["id"] for x in d["chats"]] == [cid], "删掉")
     p.wait_for_function("location.hash === '#/chats'")
+    # 晚上祷告完直接记一段，标上「晚上祷告」
+    c.go("#/pray/go?m=night")
+    p.get_by_role("button", name="祷告完了").click()
+    c.sheet().get_by_role("button", name="记一段").click()
+    p.wait_for_function("location.hash === '#/chat/new?from=pray'")
+    expect(p.get_by_text("晚上祷告时聊的")).to_be_visible()
+    p.get_by_label("聊天内容").fill("编的祷告时聊的")
+    p.get_by_role("button", name="存好").click()
+    c.wait(lambda d: any(x.get("from") == "pray" and x["text"] == "编的祷告时聊的" for x in d["chats"]), "祷告完记一段")
+    expect(p.locator(".sub")).to_contain_text("晚上祷告")
 
 
 @step("小记：设密码、记一次、三项勾选、锁上再解锁；文字从数据里读")
