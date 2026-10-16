@@ -3,7 +3,7 @@
 //
 // 代码是公开的：这里只放通用的默认值。用的什么产品、祷告事项、密码（只存哈希）都在私有仓库的 life.json 里。
 
-import { CHEERS, CHEER_VERSES, MILESTONE_TEXT, DEFAULT_PLANS, LOW_PLANS, MED_KNOWLEDGE, FEVER_INGREDIENTS, FEVER_FROM, RECOVERY_DAYS, BIBLE_BOOKS } from './content.js';
+import { CHEERS, CHEER_VERSES, MILESTONE_TEXT, DEFAULT_PLANS, LOW_PLANS, MED_KNOWLEDGE, FEVER_INGREDIENTS, FEVER_FROM, RECOVERY_DAYS } from './content.js';
 
 export const DAY_START_HOUR = 4; // 凌晨 4 点前还算前一天（熬夜到 1 点洗的澡算「昨天」）
 
@@ -42,11 +42,10 @@ export function defaultData(today) {
     settings: {
       rhythmDays: 2, // 小记：几天一次的节奏，只在那一页上提
       checks: true, // 小记：记完弹出三项勾选
-      bibleVersion: 48, // Bible App 的译本编号：48 = 新标点和合本（简体，神版）
       sportKinds: ['跑步', '走路', '爬山', '健身', '球类', '其他'],
       drinkKinds: ['咖啡', '奶茶', '茶'],
     },
-    days: {}, // { 日期: { mood, note, energy, stress, did, plan, planDone, sleep: { bed, wake, q }, care: { 打卡项 id: true }, prayer: { night, morning }, read, noShower } }
+    days: {}, // { 日期: { mood, note, energy, stress, did, plan, planDone, sleep: { bed, wake, q }, care: { 打卡项 id: true }, prayer: { night, morning }, noShower } }
     events: [], // 洗澡、运动、喝的、小记……：{ id, day, at, type, ... }
     look: { direction: [], steps: {}, routine: [], products: {}, hide: [], identity: null, moments: [] }, // identity：「我是这样的人」自己改过的句子；moments：精致时刻 { id, day, text }
     notes: [], // 我学到的：{ id, title, text, track, link, at }
@@ -62,6 +61,7 @@ export function defaultData(today) {
     places: [], // 想去的地方，见 places.js
     letters: {}, // DeepSeek 写的回顾：{ w周一 / m月份 / y年份: { at, text, research } }
     goals: [], // 想做到的事，见下面「想做到的事」
+    chats: [], // 和 ChatGPT 聊过的：{ id, day, at, mood?, title, text }
     people: [], // 身边的人，见 people.js
     greeted: {}, // 过节问候发了没有：{ '年-节': { 人 id: 日期 } }
   };
@@ -103,6 +103,7 @@ export function migrate(data) {
   data.places ||= [];
   data.letters ||= {};
   data.goals ||= [];
+  data.chats ||= [];
   data.people ||= [];
   data.greeted ||= {};
   return data;
@@ -211,46 +212,6 @@ export function stageReady(data, today) {
   return Boolean(weeks) && daysBetween(data.prayer.since, today) >= weeks * 7;
 }
 
-// 读经：诗篇一天一篇，119 篇太长拆成 4 天。返回 [{ ch, from?, to?, label }]
-export const PSALMS = (() => {
-  const out = [];
-  for (let ch = 1; ch <= 150; ch++) {
-    if (ch === 119) for (const [from, to] of [[1, 48], [49, 96], [97, 144], [145, 176]]) out.push({ ch, from, to, label: `诗篇 119 篇 ${from}–${to} 节` });
-    else out.push({ ch, label: `诗篇第 ${ch} 篇` });
-  }
-  return out;
-})();
-export function psalmLink(p, version = 48) {
-  return `https://www.bible.com/bible/${version}/PSA.${p.ch}${p.from ? `.${p.from}-${p.to}` : ''}`;
-}
-
-// 读经：现在读哪一卷、今天读哪一章。诗篇用 PSALMS（119 篇拆开），箴言按日期，其他按顺序一天一章。
-export function readingToday(data, today) {
-  const book = data.prayer.book || 'PSA';
-  const info = BIBLE_BOOKS[book] || BIBLE_BOOKS.PSA;
-  if (book === 'PSA') {
-    const idx = data.prayer.next || 0;
-    if (idx >= PSALMS.length) return { book, info, done: true };
-    const p = PSALMS[idx];
-    return { book, info, idx, label: p.label, ref: `PSA.${p.ch}${p.from ? `.${p.from}-${p.to}` : ''}`, total: PSALMS.length };
-  }
-  if (info.byDate) {
-    const ch = Math.min(parseDay(today).getDate(), info.chapters);
-    return { book, info, idx: ch - 1, label: `${info.name}第 ${ch} 章`, ref: `${book}.${ch}`, total: info.chapters };
-  }
-  const idx = (data.prayer.pos || {})[book] || 0;
-  if (idx >= info.chapters) return { book, info, done: true };
-  return { book, info, idx, label: `${info.name}第 ${idx + 1} 章`, ref: `${book}.${idx + 1}`, total: info.chapters };
-}
-export const bibleLink = (ref, version) => `https://www.bible.com/bible/${version}/${ref}`;
-export function markRead(data, today) {
-  const r = readingToday(data, today);
-  if (r.done) return;
-  dayOf(data, today).read = r.idx;
-  dayOf(data, today).readBook = r.book;
-  if (r.book === 'PSA') data.prayer.next = r.idx + 1;
-  else if (!r.info.byDate) data.prayer.pos = { ...(data.prayer.pos || {}), [r.book]: r.idx + 1 };
-}
 const dayOf = (data, day) => (data.days[day] ||= {});
 
 // ---------- 鼓励 ----------
@@ -283,8 +244,6 @@ export function weekHighlights(data, today) {
   if (pray) out.push(`祷告 ${pray} 晚`);
   const notes = days.filter((x) => data.days[x]?.note || data.days[x]?.mood).length;
   if (notes) out.push(`记录了 ${notes} 天`);
-  const read = days.filter((x) => data.days[x]?.read !== undefined).length;
-  if (read) out.push(`读经 ${read} 次`);
   return out;
 }
 

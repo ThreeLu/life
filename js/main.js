@@ -3,7 +3,7 @@ import { Store, newId, diff, apply as applyPatch } from './store.js';
 import {
   defaultData, dayKey, addDays, daysBetween, weekOf, weekLabel, hm, parseDay, WHEN, routineOf, careDone, weekCount,
   periodicDue, periodicTomorrow, eventsOn, privateStats,
-  prayedOn, readingToday, markRead, bibleLink, programWeek, weekTasks, privateNote, fillText, pickOne, sessionPoints,
+  prayedOn, programWeek, weekTasks, privateNote, fillText, pickOne, sessionPoints,
   dailyCheer, weekHighlights, newMilestones, careFullDay, showeredOn, careSkipped,
   sickActive, recoveryLeft, tempStats, medInfo, doseStatus, medConflicts, seasonWarning,
   sickDid, sickSymptoms, sickLessons, similarSick, planMissing, sickKinds,
@@ -12,8 +12,8 @@ import {
 } from './life.js';
 import {
   VERSES, verseFor, prayerPrompt, quickPrayerPrompt,
-  goalPrompt,
-  CHEER_ON, cheerNight, MILESTONE_TEXT, SICK_KINDS, SYMPTOMS, LOW_KINDS, LOW_VERSES, HOTLINES, SELF_LINES, RED_FLAGS, FEVER_FROM, BIBLE_BOOKS,
+  goalPrompt, CHAT_MOODS, CHAT_RECORD_PROMPT,
+  CHEER_ON, cheerNight, MILESTONE_TEXT, SICK_KINDS, SYMPTOMS, LOW_KINDS, LOW_VERSES, HOTLINES, SELF_LINES, RED_FLAGS, FEVER_FROM,
 } from './content.js';
 import { pushSupport, subscribe, currentSubscription, deviceName, PUSH_FILE } from './push.js';
 import { h, compressImage, blobToBase64 } from './util.js';
@@ -32,7 +32,7 @@ import { nextBirthday, birthdayText, lunarName, holidayAround, holidayLine, GREE
 
 const SETTINGS_KEY = 'life-settings';
 const DEFAULT_REPO = 'ThreeLu/life-data';
-const EDITING_ROUTES = /^\/(night|pray\/go|p$|p\/s|place\/|ask|person\/new|person\/[^/]+\/edit)/;
+const EDITING_ROUTES = /^\/(night|pray\/go|chat\/new|chat\/[^/]+\/edit|p$|p\/s|place\/|ask|person\/new|person\/[^/]+\/edit)/;
 
 const readJson = (key) => { try { return JSON.parse(localStorage.getItem(key)) || {}; } catch { return {}; } };
 const writeJson = (key, v) => { try { localStorage.setItem(key, JSON.stringify(v)); } catch { /* 存不了就算了 */ } };
@@ -149,6 +149,10 @@ const routes = [
   [/^\/p$/, () => privateView()],
   [/^\/p\/s$/, () => sessionView()],
   [/^\/periodic$/, () => periodicView()],
+  [/^\/chats$/, () => chatsView()],
+  [/^\/chat\/new$/, () => chatEditView('new')],
+  [/^\/chat\/([^/]+)\/edit$/, (id) => chatEditView(id)],
+  [/^\/chat\/([^/]+)$/, (id) => chatView(id)],
   [/^\/low$/, () => lowView()],
   [/^\/low\/go$/, () => lowGoView()],
   [/^\/history$/, () => historyView()],
@@ -165,7 +169,7 @@ const routes = [
 const NAV_GROUPS = {
   '/': [/^\/?$/, /^\/day\//, /^\/night/, /^\/sick$/],
   '/look': [/^\/look/],
-  '/pray': [/^\/pray/, /^\/low/],
+  '/pray': [/^\/pray/, /^\/low/, /^\/chats?(\/|$)/],
   '/more': [/^\/more/, /^\/history/, /^\/settings/, /^\/places?/, /^\/stats/, /^\/report/, /^\/ask/, /^\/sick\/book/, /^\/periodic/, /^\/goals?(\/|$)/, /^\/people/, /^\/person\//, /^\/greet\//],
 };
 
@@ -223,7 +227,7 @@ document.addEventListener('click', (e) => {
 document.addEventListener('touchstart', () => {}, { passive: true });
 
 // 各页最下面角落的一句话（活出自己）：每页每天一句，同一天不变。小记、难受的时候一步一步、带着祷告、设置不放
-const NO_WHISPER = /^\/(p|p\/s|low\/go|pray\/go|settings|look)$/;
+const NO_WHISPER = /^\/(p|p\/s|low\/go|pray\/go|settings|look|chat\/.+)$/;
 function whisper(path) {
   const n = [...`${dayKey()}${path || '/'}`].reduce((a, c) => (a * 31 + c.charCodeAt(0)) >>> 0, 11);
   const x = SELF_LINES[n % SELF_LINES.length];
@@ -358,10 +362,10 @@ function chatgptButton(text, cls = 'button secondary') {
     onclick: () => { navigator.clipboard?.writeText(text).catch(() => {}); } }, '打开 ChatGPT');
 }
 
-async function copyText(text) {
+async function copyText(text, done = '复制好了，去 ChatGPT 里粘贴') {
   try {
     await navigator.clipboard.writeText(text);
-    toast('复制好了，去 ChatGPT 里粘贴');
+    toast(done);
   } catch {
     toast('复制不了：长按上面的文字，全选后复制', 'error');
   }
@@ -1156,7 +1160,6 @@ const PRAY_HELP = [
     '想结束了就说「差不多了」，它会为你今天聊的事祷告。回来点「祷告完了」。',
   ]],
   ['提醒', ['每晚 22:30 左右，如果还没有晚上的祷告会提醒你（在「设置」里开启推送）。锁屏上看不出是什么。']],
-  ['读经（不强求）', ['诗篇一天一篇，点「打开」跳到 Bible App 的这一篇，读完点「读了」。读一篇，再用里面的一句话开始祷告。']],
 ];
 
 // 某一天的祷告：几点、是晚上那次还是随时的（老数据只有 night / morning）
@@ -1192,45 +1195,8 @@ function prayView() {
       h('div', { class: 'pray-times' }, list.map((x) => h('span', { class: `pray-time ${x.kind}` },
         x.kind === 'night' ? '✝ ' : '', String(x.at).includes('T') ? hm(x.at) : '', x.kind === 'night' ? ' 晚上' : ''))),
       list.filter((x) => x.text).map((x) => h('p', { class: 'small pray-said' }, h('span', { class: 'muted' }, `${hm(x.at)}　`), x.text))) : null,
-    readingCard(today),
+    chatsCard(),
     h('a', { class: 'quiet-link', href: '#/low', onclick: () => resetLow() }, '难受的时候 ›'));
-}
-
-function readingCard(today) {
-  const d = store.data;
-  const r = readingToday(d, today);
-  const readToday = d.days[today]?.read !== undefined;
-  const read = () => saveRender(`读经：${r.label}`, (data) => markRead(data, today)).then((ok) => ok && toast(CHEER_ON.read));
-  const en = d.settings.bibleVersionEn;
-  return h('div', { class: 'card' },
-    h('div', { class: 'rec-top' }, h('h3', {}, `读经（不强求）· ${r.info.name}`), h('button', { class: 'link small', onclick: bookSheet }, '换一卷')),
-    r.done ? h('p', {}, `${r.info.name}读完了一遍 🎉 点「换一卷」接着读别的。`) : [
-      h('p', {}, readToday ? `今天读过了 ✓${r.info.byDate ? '' : ` 下一次：${r.label}`}` : `今天：${r.label}`),
-      h('div', { class: 'actions' },
-        h('a', { class: 'button secondary', href: bibleLink(r.ref, d.settings.bibleVersion), target: '_blank', rel: 'noopener' }, '打开 Bible App'),
-        en ? h('a', { class: 'button secondary', href: bibleLink(r.ref, en), target: '_blank', rel: 'noopener' }, '英文版') : null,
-        readToday ? null : h('button', { onclick: read }, '读了')),
-      h('p', { class: 'muted small' }, r.info.byDate ? r.info.note : `${r.info.note}。一共 ${r.total} 次读完，读到第 ${r.idx + 1} 次。`)]);
-}
-
-function bookSheet() {
-  const d = store.data;
-  const cur = d.prayer.book || 'PSA';
-  let pick = cur;
-  let en = Boolean(d.settings.bibleVersionEn);
-  const list = h('div', {});
-  const draw = () => list.replaceChildren(
-    h('div', { class: 'group' }, Object.entries(BIBLE_BOOKS).map(([k, b]) => h('button', { type: 'button', class: `cell pick${pick === k ? ' on' : ''}`, 'aria-pressed': String(pick === k), onclick: () => { pick = k; draw(); } },
-      h('span', { class: 'grow' }, b.name, h('span', { class: 'muted small block' }, b.note)), pick === k ? icon('check', 'i') : null))),
-    h('label', { class: 'switch-row' }, h('input', { type: 'checkbox', checked: en, onchange: (e) => { en = e.target.checked; } }), '旁边加一个英文版（NLT）链接，中英对照读'));
-  draw();
-  openSheet({
-    title: '读哪一卷', body: [h('p', { class: 'muted small' }, '换了以后，原来那一卷读到哪里还记着，换回来接着读。'), list], confirmText: '好了',
-    onConfirm: () => saveRender('读经：换一卷', (data) => {
-      data.prayer.book = pick;
-      if (en) data.settings.bibleVersionEn = 116; else delete data.settings.bibleVersionEn;
-    }),
-  });
 }
 
 // 白天的祷告叫什么：早上 / 下午 / 傍晚
@@ -1291,6 +1257,129 @@ function prayGoView(mode) {
     h('h2', { class: 'pray-title' }, dayPrayName()),
     tabs, body,
     h('div', { class: 'pray-nav' }, back, done));
+}
+
+// ---------- 和 ChatGPT 聊过的 ----------
+// 烦躁、心情有波动的时候和 ChatGPT 聊过，把聊的内容贴进来留着（只存在私有数据仓库）
+
+const CHATS_HELP = [
+  ['记一段', [
+    '在 ChatGPT 那次聊天的最后（语音聊完也行），把「记一段」页面上那段话复制过去发送，它会把这次聊的整理成文字。',
+    '长按它的回复，点「Copy」，回来贴进「聊天内容」。也可以只贴几句自己想留下的话。',
+    '当时的心情、聊了什么可以不填；不写「聊了什么」就用内容的第一行。',
+  ]],
+  ['以后看', ['在「祷告」页下面和「全部」里按时间排着，能按心情挑、能搜。点进去能改、能删。', '这些只有你自己看得到，不会拿去分析，也不会发给 DeepSeek。']],
+];
+const byNewest = (a, b) => `${b.day}${b.at}`.localeCompare(`${a.day}${a.at}`);
+const chatFirstLine = (text) => (String(text).split('\n').map((x) => x.trim()).find(Boolean) || '').slice(0, 40);
+function chatCell(c) {
+  const today = dayKey();
+  return cell({ href: `#/chat/${c.id}`, title: c.title || chatFirstLine(c.text),
+    sub: [c.mood ? CHAT_MOODS[c.mood] : '', `${c.text.length} 字`].filter(Boolean).join(' · '),
+    meta: daysBetween(c.day, today) < 3 ? relDay(c.day, today) : `${parseDay(c.day).getMonth() + 1}/${parseDay(c.day).getDate()}` });
+}
+
+// 祷告页下面一块：最近两段 + 记一段
+function chatsCard() {
+  const list = [...store.data.chats].sort(byNewest);
+  return [
+    h('div', { class: 'section-title rec-top' }, h('span', {}, '和 ChatGPT 聊过的'), list.length > 2 ? h('a', { href: '#/chats' }, `全部 ${list.length} 段 ›`) : null),
+    h('div', { class: 'group' },
+      list.slice(0, 2).map(chatCell),
+      cell({ href: '#/chat/new', ic: 'plus', title: '记一段', sub: list.length ? null : '烦躁、心里乱的时候和 ChatGPT 聊过，可以把聊的留下来' }))];
+}
+
+const chatState = { mood: '', q: '' };
+function chatsView() {
+  const all = [...store.data.chats].sort(byNewest);
+  const box = h('div', {});
+  const filter = () => {
+    const q = chatState.q.trim();
+    const list = all.filter((c) => (!chatState.mood || c.mood === chatState.mood) && (!q || `${c.title}\n${c.text}`.includes(q)));
+    const months = [];
+    for (const c of list) {
+      const m = c.day.slice(0, 7);
+      if (months.at(-1)?.m !== m) months.push({ m, list: [] });
+      months.at(-1).list.push(c);
+    }
+    box.replaceChildren(...(list.length ? months.flatMap(({ m, list: l }) => [
+      h('div', { class: 'section-title' }, `${Number(m.slice(0, 4))}年${Number(m.slice(5))}月`), h('div', { class: 'group' }, l.map(chatCell))])
+      : [h('div', { class: 'card' }, h('p', { class: 'muted' }, all.length ? '没有找到。' : '还没有。和 ChatGPT 聊过以后，点「记一段」把聊的贴进来。'))]));
+  };
+  filter();
+  const used = Object.entries(CHAT_MOODS).filter(([k]) => all.some((c) => c.mood === k));
+  return h('div', {},
+    headerSub('聊过的', all.length ? `和 ChatGPT 聊过 ${all.length} 段` : '和 ChatGPT 聊过的，留下来', helpButton('聊过的怎么用', CHATS_HELP)),
+    h('a', { class: 'button wide', href: '#/chat/new' }, '＋ 记一段'),
+    all.length > 5 ? h('input', { type: 'search', class: 'av-search', placeholder: '搜一搜', 'aria-label': '搜一搜', value: chatState.q, oninput: (e) => { chatState.q = e.target.value; filter(); } }) : null,
+    used.length ? choiceRow('按心情', used, chatState.mood, (v) => { chatState.mood = v || ''; render(); }) : null,
+    box,
+    h('a', { class: 'small', href: '#/pray' }, '‹ 祷告'));
+}
+
+const chatDraft = {}; // 写了一半的，页面重画不丢
+function chatEditView(id) {
+  const d = store.data;
+  const c = id === 'new' ? null : d.chats.find((x) => x.id === id);
+  if (id !== 'new' && !c) return notFound();
+  const dr = (chatDraft[id] ||= { day: c?.day || dayKey(), mood: c?.mood || '', title: c?.title || '', text: c?.text || '' });
+  const keep = (k) => (e) => { dr[k] = e.target.value; };
+  const day = h('input', { type: 'date', value: dr.day, max: dayKey(), 'aria-label': '哪天聊的', oninput: keep('day') });
+  const title = h('input', { type: 'text', value: dr.title, placeholder: '一句话（可以不写，就用内容的第一行）', 'aria-label': '聊了什么', oninput: keep('title') });
+  const text = h('textarea', { rows: 12, placeholder: '把 ChatGPT 整理好的文字贴在这里，也可以只贴几句想留下的', 'aria-label': '聊天内容', oninput: keep('text') });
+  text.value = dr.text;
+  const back = c ? `#/chat/${c.id}` : '#/pray';
+  const submit = async () => {
+    const body = dr.text.trim();
+    if (!body) { toast('先把聊的内容贴进来', 'error'); text.focus(); return; }
+    const entry = { day: dr.day || dayKey(), title: dr.title.trim(), text: body };
+    if (dr.mood) entry.mood = dr.mood;
+    const cid = c?.id || newId('ct');
+    const ok = await saveRender(c ? `改聊过的：${entry.title || chatFirstLine(body)}` : `记一段聊过的：${entry.title || chatFirstLine(body)}`, (data) => {
+      if (c) {
+        const x = data.chats.find((y) => y.id === c.id);
+        if (!x) return;
+        delete x.mood;
+        Object.assign(x, entry);
+      } else data.chats.push({ id: cid, at: nowIso(), ...entry });
+    });
+    if (ok) { delete chatDraft[id]; toast(c ? '改好了' : '记下了'); go(`#/chat/${cid}`, true); }
+  };
+  return h('div', {},
+    headerSub(c ? '改一下' : '记一段', '和 ChatGPT 聊过的'),
+    c ? null : h('div', { class: 'card' },
+      h('h3', {}, '从 ChatGPT 搬过来'),
+      h('ol', { class: 'small steps' },
+        h('li', {}, '复制下面这段话，回到刚才那次聊天里发送（语音聊的也行）。'),
+        h('li', {}, '它会把这次聊的整理成文字。长按它的回复，点「Copy」。'),
+        h('li', {}, '回来贴到下面「聊天内容」里。')),
+      h('details', { class: 'inner' }, h('summary', {}, '看看这段话'), h('p', { class: 'goal-prompt' }, CHAT_RECORD_PROMPT)),
+      h('button', { class: 'secondary small', onclick: () => copyText(CHAT_RECORD_PROMPT) }, icon('copy'), '复制这段话')),
+    h('div', { class: 'card form' },
+      h('label', {}, '哪天聊的', day),
+      h('div', { class: 'label-sm' }, '那时候的心情（可以不选）'),
+      choiceRow('那时候的心情', Object.entries(CHAT_MOODS), dr.mood, (v) => { dr.mood = v || ''; render(); }),
+      h('label', {}, '聊了什么', title),
+      h('label', {}, '聊天内容', text)),
+    h('div', { class: 'actions' },
+      h('a', { class: 'button secondary', href: back, onclick: () => { delete chatDraft[id]; } }, '取消'),
+      h('button', { class: 'grow', onclick: submit }, '存好')));
+}
+
+function chatView(id) {
+  const c = store.data.chats.find((x) => x.id === id);
+  if (!c) return notFound();
+  const name = c.title || chatFirstLine(c.text);
+  const remove = () => saveUndoable(`删掉聊过的：${name}`, (data) => { data.chats = data.chats.filter((x) => x.id !== id); }, `删掉了「${name}」`)
+    .then(() => go('#/chats', true)).catch(() => {});
+  return h('div', {},
+    headerSub(name, [dayLabel(c.day), c.mood ? CHAT_MOODS[c.mood] : ''].filter(Boolean).join(' · ')),
+    h('div', { class: 'card' }, h('p', { class: 'letter-text' }, c.text)),
+    h('div', { class: 'actions' },
+      h('button', { class: 'secondary', onclick: () => copyText(c.text, '复制好了') }, icon('copy'), '复制'),
+      h('a', { class: 'button secondary', href: `#/chat/${c.id}/edit` }, '改一下'),
+      h('button', { class: 'danger', onclick: remove }, '删掉')),
+    h('a', { class: 'small', href: '#/chats' }, '‹ 聊过的'));
 }
 
 // ---------- 想去的地方 ----------
@@ -1901,7 +1990,7 @@ function reportView(q) {
   const tiles = [
     ['心情', fmt1(s.mood)], ['精力', fmt1(s.energy)], ['压力', fmt1(s.stress)], ['平均睡', s.sleep === null ? '—' : `${fmt1(s.sleep)} 小时`],
     ['护肤做完', `${s.careDays} 天`], ['洗澡', `${s.showers} 次`], ['运动', `${s.sports} 次${s.km ? ` · ${Math.round(s.km * 10) / 10} 公里` : ''}`], ['咖啡奶茶茶', `${s.drinks} 杯`],
-    ['祷告', `${s.prayers} 晚`], ['读经', `${s.reads} 次`], ['去了', `${new Set(s.visits.map((v) => v.name)).size} 个地方`],
+    ['祷告', `${s.prayers} 晚`], ['去了', `${new Set(s.visits.map((v) => v.name)).size} 个地方`],
   ];
   const write = async () => {
     letterBusy[r.key] = true; render();
@@ -1951,7 +2040,7 @@ function summaryText(s) {
   const f = (v) => (v === null ? '没记' : Math.round(v * 10) / 10);
   return [
     `记录了 ${s.recorded}/${s.days} 天。心情平均 ${f(s.mood)}（1–10），精力 ${f(s.energy)}（1–5），压力 ${f(s.stress)}（1–5），平均睡 ${f(s.sleep)} 小时。`,
-    `护肤都做完 ${s.careDays} 天，洗澡 ${s.showers} 次，运动 ${s.sports} 次（${s.sportMinutes} 分钟${s.km ? `，${Math.round(s.km * 10) / 10} 公里` : ''}），咖啡奶茶茶 ${s.drinks} 杯，祷告 ${s.prayers} 晚，读经 ${s.reads} 次，生病 ${s.sick} 次，新养成习惯 ${s.habits} 个。`,
+    `护肤都做完 ${s.careDays} 天，洗澡 ${s.showers} 次，运动 ${s.sports} 次（${s.sportMinutes} 分钟${s.km ? `，${Math.round(s.km * 10) / 10} 公里` : ''}），咖啡奶茶茶 ${s.drinks} 杯，祷告 ${s.prayers} 晚，生病 ${s.sick} 次，新养成习惯 ${s.habits} 个。`,
     s.visits.length ? `去过：${s.visits.map((v) => `${v.name}${v.score ? `（${v.score} 分）` : ''}`).join('、')}。` : '',
     s.notes.length ? `每天的一句话：${s.notes.map((x) => `${x.day.slice(5)} ${x.mood || '-'}分 ${x.note}`).join('；')}` : '',
     s.did.length ? `科研：${s.did.map((x) => `${x.day.slice(5)} ${x.did}`).join('；')}` : '',
@@ -1988,7 +2077,7 @@ function recordContext() {
       ev.filter((e) => e.type === 'sport').map((e) => `运动${e.kind}${e.minutes ? `${e.minutes}分` : ''}`).join(' '),
       ev.filter((e) => e.type === 'drink').map((e) => `${e.kind}@${hm(e.at)}`).join(' '),
       careFullDay(d, day) ? '护肤做完' : Object.keys(r.care || {}).length ? '护肤做了一部分' : '',
-      r.prayer?.night ? '祷告' : '', r.read !== undefined ? '读经' : '',
+      r.prayer?.night ? '祷告' : '',
       r.note ? `「${r.note}」` : '', r.did ? `科研:${r.did}` : '', r.planDone ? `计划${{ yes: '做到', part: '部分', no: '没做' }[r.planDone]}` : '',
     ].filter(Boolean);
     if (parts.length) lines.push(`${day} ${parts.join('，')}`);

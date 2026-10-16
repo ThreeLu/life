@@ -15,15 +15,15 @@
 
 ```
 { version, startDate,
-  settings: { rhythmDays, checks, bibleVersion, bibleVersionEn?, sportKinds, drinkKinds, pin: { salt, iter, hash }, city?: { name, lat, lon, districts: [] } },
+  settings: { rhythmDays, checks, sportKinds, drinkKinds, pin: { salt, iter, hash }, city?: { name, lat, lon, districts: [] } },
   days: { 日期: { mood 1–10, note, energy 1–5, stress 1–5, did, plan, planDone: yes|part|no,
-                  sleep: { bed, wake, q }, fetch: { am|noon|eve: true|'skip' }（打水，老数据 { mid, eve }）, goals: { 习惯id: true }, affirm（默念了）, care: { 打卡项id: true }, noShower（今晚不洗）, clean: true|'skip'（打扫卫生）, prayer: { night: { at, mode, note, summary }, morning: { at } }, read, readBook } },
+                  sleep: { bed, wake, q }, fetch: { am|noon|eve: true|'skip' }（打水，老数据 { mid, eve }）, goals: { 习惯id: true }, affirm（默念了）, care: { 打卡项id: true }, noShower（今晚不洗）, clean: true|'skip'（打扫卫生）, prayer: { night: { at, mode, note, summary }, morning: { at } } }（老的 read、readBook 不再用） },
   events: [{ id, day, at, type: shower|sport|drink|english（老的，不再用）|p|p2, kind?, minutes?, km?, level?, note?, mode?, topic?, mistakes?, exprs?, score?, flag?, checks?: { c1, c2, c3 } }],
   look: { routine: [{ id, step?, name, when: am|pm|shower|week, times?, optional? }], products: { 物品档案id: { opened, verdict, note, pao? } }, hide: [物品档案id],
           老的 direction / steps / identity / moments 不再用 },
   periodic: [{ id, name, every, last }],
   weeks: { 周一日期: { thanks } }（老的 skin 不再用）,
-  prayer: { stage: 1|2|3, since, about（ChatGPT 祷告提示词里的自我介绍）, items: [{ id, text, at, answered?, answerNote? }], next: 下一篇诗篇序号, book, pos: { 卷: 下一章序号 } },
+  prayer: { stage: 1|2|3, since, about（ChatGPT 祷告提示词里的自我介绍）, items: [{ id, text, at, answered?, answerNote? }], 老的 next、book、pos（读经）不再用 },
   private: { supplies: [{ id, name, low? }], ui: { title, main, alt, score, flag, checks: { c1, c2, c3 }, checksTitle, help, programTitle, sessionStart, safety: [], aftercare: [], … },
              program: { start: 第一周周一, weeks: [{ title, intro, buy?, tasks: [{ id, track: a|b, text, level, note? }] }], pool: [任务 + from 第几周起], draw: 每次抽几张, scenes: [情景], rewards: [文字 | { text, unrule }], penalties: [惩罚], checks: [突击检查], checkEvery: [最少, 最多分钟], levels: [{ name, min, text }] }, rules: [{ id, text, at }], callNames: [称呼], begs: [求的话], voiceLines: { before: [], after: [] }, custom: [任务], limits: [字],
              sessions: [{ id, day, start, end, minutes, week, tasks: { id: done|skip }, score, after, note }], media: [{ id, day, title, link, minutes, after, note }], minutes, latest, perWeek },
@@ -37,7 +37,8 @@
   letters: { w周一 | m月份 | y年份: { at, text, research } },
   people: [{ id（和账本 people 同一个）, name, sex: m|f, groups: [主要的档, …]（family|relative|primary|middle|high|college|grad）, rel, how, birthday?: { cal: solar|lunar, m, d, y? }, likes, note, tone, greet: [节 key], dates: [{ id, day, title, gift?, yearly? }], stages: [{ id, title, from, to?, text }], log: [{ id, day, text, favor?, gift?: out|in }], at, archived?, archiveNote? }],
   greeted: { '年-节': { 人id: 日期 } },
-  goals: [{ id, wish, title, status: talking|active|done|dropped, at, chat, why, key, note, stages: [{ id, title, tasks: [{ id, text, done: 日期|null, buy?: { name, price, query }, wishId? }] }], habits: [{ id, text, perWeek }], doneAt?, droppedAt? }] }
+  goals: [{ id, wish, title, status: talking|active|done|dropped, at, chat, why, key, note, stages: [{ id, title, tasks: [{ id, text, done: 日期|null, buy?: { name, price, query }, wishId? }] }], habits: [{ id, text, perWeek }], doneAt?, droppedAt? }],
+  chats: [{ id, day, at, mood?: irritable|down|anxious|hurt|tired|stuck|other, title（空就用内容第一行）, text }] }
 ```
 
 - **一天从凌晨 4 点开始**（`dayKey`）。周从周一开始，`weeks` 的键是周一。
@@ -45,9 +46,10 @@
 - 形象页（2026-10-06 用户要求大改）：**只放数据、不放口号、不涉及钱**（钱在账本看）。这个月（护肤做完几天 `lookMonth`、洗澡、洗澡后 / 每周的项各几次、月历：早晚都做完深紫、做一部分浅紫）、护肤（最近 30 天每一项做到多少 `careItemRates`、记满一周说最常忘的；「改打卡项」直接加 / 改 / 删 `look.routine`）、护肤品。已经删掉：路线图和每一步的说明、我的方向、我是这样的人和精致时刻、每周皮肤打分（首页周末提醒和分析里的图也删了）、我学到的、身材、衣服（在物品档案看）、形象页角落那句话。老数据里的 `steps`、`direction`、`identity`、`moments`、`notes` 留着不用。
 - 护肤品：读物品档案里「洗漱护肤」类的物品（`isSkincare` 去掉热水壶、剃须刀、牙刷、毛巾这类用具，2026-10-15 用户说的），开封日期、好不好用、开封后多久用完（`pao` 月，默认按名字 `paoMonths`：香水 36、睫毛膏 6、其他 12，默认值不存）存在 `look.products`；快到 / 过了标出来（`openedStatus`）。「快用完了」直接提交物品档案 inventory.json 的 `runningLow`（`updateInventoryItem`），会进那边的购物清单。
 - 定期打理（`#/periodic`，入口在「生活」页，不在形象页）：做了从那天重新数；到期后每天出现在「今天」直到点「做了」（`periodicDue`），前一天出现「明天该……了」（`periodicTomorrow`），其余时候不出现，不推送（用户 2026-10-06 定）。擦鞋、修眉这类以后由用户自己在「改打卡项」或定期打理里加；`migrate` 会拿掉老的「擦鞋」定期项。
-- 祷告（2026-10-06 重做，同日又分成白天 / 晚上）：页面只有一个「开始祷告」（`prayView`：今天的经文 + 金色小十字 + 按钮 + 最近有祷告的那一天几点祷告了几次、写过的那句 + 读经 + 难受的时候）。**白天的祷告**（早上 / 下午 / 傍晚，`dayPrayName`）`#/pray/go?m=quick`：两种方式切换——「和 ChatGPT 说」（`quickPrayerPrompt`，两三分钟，**不读经文**、不讲道，只把现在的事交给神）或「写一句」（一句话 →「阿们」，存进 `times[].text`；提示「所有的事，都有神在帮助我」）。**晚上的祷告** `?m=night`（2026-10-14 改）：`prayerPrompt` 让 ChatGPT 当懂信仰的**长辈**，**聊天和开导**为主（问问题、理清想法、先理解再给具体看法），圣经合适的时候带一两句，不讲道、不替神传话；我说「差不多了」它为今天聊的事做简短祷告；回来「祷告完了」直接记下，**不念主祷文**（`LORDS_PRAYER` 留在 content.js 不用）。都不要 ChatGPT 写小结。记在 `days[日].prayer.times: [{ at, kind: quick|night, text? }]`，晚上那次同时写 `prayer.night`（统计、推送、圆满章都看它）。晚上 8 点后第一次默认是晚上那次，可以切换。晚上不让打字；不问「近了 / 远了」。阶段、晨祷、祷告事项、每周感恩、周日感恩推送都拿掉了，老数据留着。设计：彩窗透光的淡紫到暖金光晕、角落很淡的十字、经文宋体加金色「」、金色分隔线。
+- 祷告（2026-10-06 重做，同日又分成白天 / 晚上）：页面只有一个「开始祷告」（`prayView`：今天的经文 + 金色小十字 + 按钮 + 最近有祷告的那一天几点祷告了几次、写过的那句 + 和 ChatGPT 聊过的 + 难受的时候）。**白天的祷告**（早上 / 下午 / 傍晚，`dayPrayName`）`#/pray/go?m=quick`：两种方式切换——「和 ChatGPT 说」（`quickPrayerPrompt`，两三分钟，**不读经文**、不讲道，只把现在的事交给神）或「写一句」（一句话 →「阿们」，存进 `times[].text`；提示「所有的事，都有神在帮助我」）。**晚上的祷告** `?m=night`（2026-10-14 改）：`prayerPrompt` 让 ChatGPT 当懂信仰的**长辈**，**聊天和开导**为主（问问题、理清想法、先理解再给具体看法），圣经合适的时候带一两句，不讲道、不替神传话；我说「差不多了」它为今天聊的事做简短祷告；回来「祷告完了」直接记下，**不念主祷文**（`LORDS_PRAYER` 留在 content.js 不用）。都不要 ChatGPT 写小结。记在 `days[日].prayer.times: [{ at, kind: quick|night, text? }]`，晚上那次同时写 `prayer.night`（统计、推送、圆满章都看它）。晚上 8 点后第一次默认是晚上那次，可以切换。晚上不让打字；不问「近了 / 远了」。阶段、晨祷、祷告事项、每周感恩、周日感恩推送都拿掉了，老数据留着。设计：彩窗透光的淡紫到暖金光晕、角落很淡的十字、经文宋体加金色「」、金色分隔线。
 - 每周的打卡项（面膜等 `when: 'week'`）：首页只在**周六晚上**出现（别的日子做过的那天也显示）。「明天要做」（2026-10-06）：睡前复盘单独一块，什么都能写；第二天早上那张清单顶上只提一句「今天要做：…」，不打勾、不算进度；做到没有只在第二天的睡前复盘问（`planDone`）。
-- 读经可以换卷（`BIBLE_BOOKS`、`readingToday`、`markRead`）：诗篇一天一篇（119 篇拆 4 天，进度 `prayer.next`），箴言按几号读第几章，其他一天一章（`prayer.pos`）。链接 bible.com（48 = 新标点和合本简体神版，`bibleVersionEn` 116 = NLT）。
+- 读经（2026-10-15 用户说删掉）：读经卡、换一卷、统计 / 回顾 / 分析里的读经都去掉了，老数据留着。不要再加回来。
+- 和 ChatGPT 聊过的（2026-10-15，用户烦躁、心情有波动时会和 ChatGPT 聊，想留下来）：祷告页「难受的时候」上面一块（`chatsCard`：最近两段 + 记一段），`#/chats` 按月列、按心情挑、能搜，`#/chat/new` 先给一段 `CHAT_RECORD_PROMPT`（复制后回那次聊天发送，让 ChatGPT 把聊的整理成文字），长按复制贴回来；心情 `CHAT_MOODS` 可不选，「聊了什么」可不写。`#/chat/:id` 看、复制、改、删（能撤销）。只存不分析：不进统计、回顾、「问问我的记录」，不发给 DeepSeek。
 - 鼓励（用户要求「让我感到自信、有激励」）：首页每天一句（`CHEERS` / `CHEER_VERSES`）、做完一件事一句（`CHEER_ON`、`cheerNight` 按心情）、「这周的你」只数做到的（`weekHighlights`）、里程碑（`MILESTONE_TEXT`，首页祝贺 3 天）、状态不对轻轻提一句（`gentleNote`）。温和具体，不喊口号、不说教。
 - 小记（`#/p`，首页右上角叶子图标）：单独 6 位密码，PBKDF2 哈希存 `settings.pin`，离开网站就锁。**这一页的文字（名字、按钮、勾选项、说明）都在 `private.ui`，公开代码里只有中性默认值（`P_DEFAULT`），不要把具体用途写进代码、提交说明或这份文件。** 只做中性记录和统计，不要「减少 / 坚持天数」之类；节奏只在这一页提，不推送；别的页面不出现（「问问我的记录」只在这一页开着锁时才带上它的数字）。忘了密码：在数据仓库里删掉 `settings.pin` 让用户重设。这一页还有按周解锁的任务（`programWeek` / `weekTasks`，每周一换；超过最后一周就是最后一周 + 自己写的）和计时的一段时间 `#/p/s`（开始前安全提醒 → 任务一张一张做或跳过，含「绝对不要」里的字的任务不出现 → 收尾清单 + 感受），任务文字里 `{3-6}` 随机整数、`{甲|乙}` 随机选一个（`fillText`，同一次时间里不变）；每次开始抽一个情景；收尾有得分（做到的按强度 10/20/30），全做到抽奖励卡、跳过两张以上抽惩罚卡（可以不做）；任务可以带 `rule`（做到了加进规矩手册 `private.rules`），track 有 a / b / c（显示名 `ui.trackA/B/C`），`{称呼}` 换成 `private.callNames`、`{求}` 换成 `private.begs` 里随机一个（都是用户自己写的）；一段时间里可以开语音（浏览器中文朗读，建议耳机；声音、语速、音调在小记页面选，存在这台设备的 localStorage `life-voice`，默认挑女声；任务和突击检查前后会随机加 `private.voiceLines.before/after` 里的一句）、黑暗模式（body.dark-session），任务里出现「N 分钟 / N 秒」就有计时按钮，突击检查按 `checkEvery` 随机出现；等级按累计得分（`levels`）；以及 `privateNote`（这周次数超过 `perWeek`、最近几次结束后心情低、老超时 → 只在这一页轻轻提）。任务内容只写在私有仓库。
 - 生病（`#/sick`、`#/sick/book`）：体温曲线（37.3 起问切发烧）、喝水 8 杯、预案打勾、什么时候去医院（`RED_FLAGS`，到了自动变红）、药从物品档案「药品急救」读（只读），`MED_KNOWLEDGE` 认成分：同成分 / 两种退烧药提醒、抗生素激素「医生判断」；用户自己抄说明书（`sick.meds`）算下次几点能吃。肠胃从账本读昨天今天吃的（只读）。好了进 `history`（勾哪些管用 → `helped`），之后 2 天恢复期。**只写常识，不替用户定剂量。** 攒经验（用户要的「记多了，下次同样情况就有预案」）：每天点症状（`SYMPTOMS`）、做了什么（预案 + `extra`），`sickLessons` 按种类算几天好、感冒几次转发烧第几天、常见症状、管用的（n/做过次数），`similarSick` 找症状最像的一次，`planMissing` 一键加进预案；生病页最上面「以前的经验」、手册「我的经验」。不要「看病去哪」（用户说不需要），只留急救 120。
@@ -82,7 +84,7 @@
 ## 计划（分批做）
 
 1. ✅ 骨架、今天、形象、祷告、小记、英语提示词、22:30 推送。
-2. ✅ 鼓励的话和里程碑、生病模式、换季提醒、英语错句本表达本和复习、读经换卷。
+2. ✅ 鼓励的话和里程碑、生病模式、换季提醒、英语错句本表达本和复习、读经换卷（英语、读经后来都去掉了）。
 3. ✅ 想去的地方（地图、按区、足迹、周末去哪）、分析（什么在影响我、走势、作息、规律、回顾、问问我的记录）。
 4. 爱好：2026-10-06 聊过，用户决定不做。
 - 首页提醒（2026-10-07）：`alertRows` 的几条合在一张卡里（`.alerts` 分组列表，行间细线），不再一条一张卡；问候语一行写完（`clamp` 字号 + 不折行）。按下去的手感在 `app.css` 最后（四个网站同一段）。

@@ -332,24 +332,54 @@ def _(c):
     p.screenshot(path=ART / "pray.png", full_page=True)
 
 
-@step("读经：今天读诗篇第 1 篇，点读了")
+@step("聊过的：祷告页没有读经；记一段和 ChatGPT 聊的，按心情挑、搜、改、删")
 def _(c):
     p = c.page
     c.go("#/pray")
-    expect(p.get_by_text("今天：诗篇第 1 篇")).to_be_visible()
-    assert p.get_by_role("link", name="打开 Bible App").get_attribute("href") == "https://www.bible.com/bible/48/PSA.1"
-    p.get_by_role("button", name="读了").click()
-    c.wait(lambda d: d["prayer"]["next"] == 1 and d["days"][TODAY]["read"] == 0, "读经")
-    expect(p.get_by_text("下一次：诗篇第 2 篇")).to_be_visible()
-    # 换成箴言：几号读第几章；诗篇读到哪还记着
-    p.get_by_role("button", name="换一卷").click()
-    c.sheet().get_by_role("button", name="箴言").click()
-    c.sheet().get_by_role("checkbox").check()
-    c.sheet().get_by_role("button", name="好了").click()
-    c.wait(lambda d: d["prayer"]["book"] == "PRO" and d["settings"]["bibleVersionEn"] == 116, "换箴言")
-    dom = int(TODAY[8:])
-    expect(p.get_by_text("今天读过了 ✓")).to_be_visible()  # 今天已经读过诗篇
-    assert p.get_by_role("link", name="英文版").get_attribute("href") == f"https://www.bible.com/bible/116/PRO.{dom}"
+    expect(p.get_by_text("读经")).to_have_count(0)
+    expect(p.get_by_role("link", name="打开 Bible App")).to_have_count(0)
+    p.get_by_role("link", name="记一段").click()
+    p.wait_for_function("location.hash === '#/chat/new'")
+    p.wait_for_timeout(400)
+    p.screenshot(path=ART / "chat-new.png", full_page=True)
+    p.get_by_role("button", name="复制这段话").click()
+    prompt = p.evaluate("navigator.clipboard.readText()")
+    assert "整理成一份文字记录" in prompt and "保留原话" in prompt, prompt
+    p.get_by_role("button", name="存好").click()
+    expect(p.get_by_text("先把聊的内容贴进来")).to_be_visible()
+    p.get_by_role("group", name="那时候的心情").get_by_role("button", name="烦躁").click()
+    p.get_by_label("聊天内容").fill("编的一次聊天\n我：编的烦心事\nChatGPT：编的建议")
+    p.get_by_role("button", name="存好").click()
+    c.wait(lambda d: len(d["chats"]) == 1 and d["chats"][0]["mood"] == "irritable" and d["chats"][0]["day"] == TODAY and d["chats"][0]["title"] == "", "记一段")
+    cid = c.data()["chats"][0]["id"]
+    p.wait_for_function(f"location.hash === '#/chat/{cid}'")
+    expect(p.locator("h1")).to_have_text("编的一次聊天")  # 没写聊了什么，用第一行
+    expect(p.get_by_text("ChatGPT：编的建议")).to_be_visible()
+    # 改：换个题目、不选心情
+    p.get_by_role("link", name="改一下").click()
+    p.get_by_label("聊了什么").fill("编的题目")
+    p.get_by_role("group", name="那时候的心情").get_by_role("button", name="烦躁").click()
+    p.get_by_role("button", name="存好").click()
+    c.wait(lambda d: d["chats"][0]["title"] == "编的题目" and "mood" not in d["chats"][0], "改")
+    # 再记一段（昨天，低落），列表按心情挑、能搜
+    c.write(lambda d: d["chats"].append({"id": "ct-old", "day": YESTERDAY, "at": YESTERDAY + "T12:00:00.000Z", "mood": "down", "title": "编的旧的", "text": "编的旧内容"}))
+    c.go("#/pray")
+    p.reload()
+    expect(p.get_by_role("link", name="编的题目")).to_be_visible()
+    expect(p.get_by_role("link", name="编的旧的")).to_be_visible()
+    c.go("#/chats")
+    p.get_by_role("group", name="按心情").get_by_role("button", name="低落").click()
+    expect(p.get_by_role("link", name="编的旧的")).to_be_visible()
+    expect(p.get_by_role("link", name="编的题目")).to_have_count(0)
+    p.get_by_role("group", name="按心情").get_by_role("button", name="低落").click()
+    expect(p.get_by_role("link", name="编的题目")).to_be_visible()
+    p.wait_for_timeout(400)
+    p.screenshot(path=ART / "chats.png", full_page=True)
+    # 删掉
+    p.get_by_role("link", name="编的旧的").click()
+    p.get_by_role("button", name="删掉").click()
+    c.wait(lambda d: [x["id"] for x in d["chats"]] == [cid], "删掉")
+    p.wait_for_function("location.hash === '#/chats'")
 
 
 @step("小记：设密码、记一次、三项勾选、锁上再解锁；文字从数据里读")

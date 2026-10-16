@@ -61,7 +61,6 @@ export function influences(data, today, { weather = {}, spend = {} } = {}) {
   factor('sportE', '运动了', (d) => sport.has(d), next(energy), '第二天精力', '分');
   factor('drink', '下午 3 点后喝了咖啡奶茶茶', (d) => lateDrink.has(d), (d) => bedMinutes(D(addDays(d, 1)).sleep), '当晚几点睡', '分钟晚');
   factor('pray', '前一晚祷告了', (d) => Boolean(D(addDays(d, -1)).prayer?.night), mood, '当天心情', '分');
-  factor('read', '读了经', (d) => D(d).read !== undefined, mood, '当天心情', '分');
   factor('care', '护肤都做完', (d) => careFullDay(data, d), mood, '当天心情', '分');
   factor('planYes', '前一天的计划做到了', (d) => D(d).planDone === 'yes', mood, '当天心情', '分', (d) => Boolean(D(d).planDone));
   if (Object.keys(weather).length) {
@@ -208,7 +207,6 @@ export function periodSummary(data, from, to) {
     sports: sports.length, sportMinutes: sports.reduce((a, e) => a + (e.minutes || 0), 0), km: sports.reduce((a, e) => a + (e.km || 0), 0),
     drinks: ev('drink').length,
     prayers: days.filter((d) => data.days[d]?.prayer?.night).length,
-    reads: days.filter((d) => data.days[d]?.read !== undefined).length,
     did: days.map((d) => ({ day: d, did: data.days[d]?.did })).filter((x) => x.did),
     notes: days.map((d) => ({ day: d, note: data.days[d]?.note, mood: data.days[d]?.mood })).filter((x) => x.note),
     sick: (data.sick?.history || []).filter((x) => x.start <= to && x.end >= from).length,

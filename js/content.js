@@ -141,7 +141,6 @@ export const CHEER_ON = {
   sport: '动了一下，身体会记得。',
   prayer: '晚安，你被爱着。',
   morning: '今天交给神了。',
-  read: '读了。',
   sleepGood: '睡得好，真好。',
   periodic: '打理好了。',
 };
@@ -223,18 +222,15 @@ export const MED_KNOWLEDGE = [
 // 两种退烧药自己别混着吃
 export const FEVER_INGREDIENTS = ['对乙酰氨基酚', '布洛芬'];
 
-// ---------- 读经计划 ----------
-
-export const BIBLE_BOOKS = {
-  PSA: { name: '诗篇', chapters: 150, note: '一天一篇，读完用一句话开始祷告' },
-  PRO: { name: '箴言', chapters: 31, byDate: true, note: '几号就读第几章，一个月一遍' },
-  JHN: { name: '约翰福音', chapters: 21, note: '再读一遍福音书，可以试试英文' },
-  MRK: { name: '马可福音', chapters: 16, note: '最短的福音书，节奏快' },
-  ACT: { name: '使徒行传', chapters: 28, note: '福音书之后的故事' },
-  PHP: { name: '腓立比书', chapters: 4, note: '喜乐的书信，四章' },
-  ROM: { name: '罗马书', chapters: 16, note: '信仰的根基，慢慢读' },
-  JAS: { name: '雅各书', chapters: 5, note: '很实际的生活智慧' },
-};
+// ---------- 聊过的（和 ChatGPT 聊天的记录） ----------
+// 当时是什么心情，可以不选
+export const CHAT_MOODS = { irritable: '烦躁', down: '低落', anxious: '焦虑', hurt: '委屈、生气', tired: '累', stuck: '想不通', other: '说不清' };
+// 聊完发给 ChatGPT，让它把这次的聊天写成文字，整段复制回来
+export const CHAT_RECORD_PROMPT = `把我们这次的聊天整理成一份文字记录，留给我自己以后看：
+第一行：一句话说这次聊了什么。
+然后按顺序写下我说了什么、你说了什么，尽量保留原话，太长的可以缩短。
+最后列出你给我的建议，或者让我想通的地方。
+不用加别的话。`;
 
 // ---------- 难受的时候 ----------
 // 像生病的预案一样：先分一下是哪种难受，每种有一份可以打勾的清单（用户自己能改）。
