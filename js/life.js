@@ -736,6 +736,15 @@ export function paoMonths(name, set) {
   if (/睫毛膏|眼线/.test(name)) return 6;
   return 12;
 }
+// 一项打卡最近 n 天每天的样子（最早的在前）：done 做了 / skip 不用做（洗过澡的晚上洗脸）/ miss 没做 / null 还没开始记
+export function careDots(data, r, today, n = 14) {
+  return Array.from({ length: n }, (_, i) => {
+    const x = addDays(today, i - n + 1);
+    if (x < (data.startDate || today)) return null;
+    if (data.days[x]?.care?.[r.id]) return 'done';
+    return careSkipped(data, x, r) ? 'skip' : 'miss';
+  });
+}
 export function openedStatus(opened, months, today) {
   const days = daysBetween(opened, today);
   const left = Math.round(months * 30.4) - days;

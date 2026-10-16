@@ -9,7 +9,7 @@ import {
   sickDid, sickSymptoms, sickLessons, similarSick, planMissing, sickKinds,
   fetchRows, fetchState, solarTerm, lowLessons, goodDays, 
   parseSummary, reviewCard, dueCards, mistakeTypes, REVIEW_STEPS,
-  goalProgress, goalLine, habitWeek, goalWeekDone, applyGoalPlan, lookMonth, careItemRates, paoMonths, openedStatus,
+  goalProgress, goalLine, habitWeek, goalWeekDone, applyGoalPlan, lookMonth, careItemRates, careDots, paoMonths, openedStatus,
 } from './life.js';
 import {
   VERSES, verseFor, prayerPrompt, quickPrayerPrompt,
@@ -876,9 +876,9 @@ function careCardInline(day, when) {
 // 只看做了什么：这个月、护肤（月历、每一项做到多少）、护肤品。不放口号，不涉及钱（钱在账本里看）
 
 const LOOK_HELP = [
-  ['这一页是什么', ['看你在形象上做了什么：这个月护肤做完几天、洗澡几次，每一项做到了多少，用的护肤品开封多久了。']],
-  ['护肤', ['月历：早晚都做完是深紫，做了一部分是浅紫。', '每一项做到多少按最近 30 天算；洗过澡的那天，晚上的洗脸不算（洗澡时洗过了）。', '「改打卡项」可以加、改名、删掉每天的打卡项，比如加「防晒（早上）」「擦鞋（早上）」。']],
-  ['护肤品', ['从物品档案里读「洗漱护肤」类的东西。点一下记开封日期、好不好用、开封后多久用完（一般 12 个月）。', '快到时间会标出来。「快用完了」会放进物品档案的购物清单。']],
+  ['这一页是什么', ['看你在形象上做了什么：这个月护肤做完几天、洗澡几次，每一项最近两周做了哪几天，用的护肤品开封多久了。']],
+  ['护肤', ['月历：早晚都做完是实心的紫点，做了一部分是浅紫点，今天带一个圈。', '每一项后面是最近 14 天，一天一个点，最右边是今天。洗过澡的晚上，洗脸那天是一个小空心圈（洗澡时洗过了）。', '「改打卡项」可以加、改名、删掉每天的打卡项，比如加「防晒（早上）」「擦鞋（早上）」。']],
+  ['护肤品', ['从物品档案里读「洗漱护肤」类的东西，横着滑。点一下记开封日期、好不好用、开封后多久用完（一般 12 个月）。', '下面那条是开封以后过了多久，快到时间变成琥珀色。「快用完了」会放进物品档案的购物清单。']],
 ];
 
 function lookView() {
@@ -890,32 +890,55 @@ function lookView() {
     productsCard());
 }
 
+// 这个月：一个大数字、一行次数、圆点月历
 function lookMonthCard(today) {
   const d = store.data;
   const m = lookMonth(d, today);
-  const tiles = [['护肤做完', `${m.full.size}/${m.days} 天`], ['洗澡', `${m.showers} 次`], ...m.extra.slice(0, 2).map((x) => [x.r.name, `${x.n} 次`])];
-  return h('div', { class: 'card' },
+  const counts = [`洗澡 ${m.showers} 次`, ...m.extra.map((x) => `${x.r.name} ${x.n} 次`)];
+  return h('div', { class: 'card look-month' },
     h('h3', {}, `${Number(today.slice(5, 7))} 月`),
-    h('div', { class: 'stat-grid' }, tiles.map(([a, b]) => stat(a, b))),
-    monthGrid(today.slice(0, 7), m.full, { partial: m.some, title: '这个月哪天护肤做完了' }),
-    h('p', { class: 'muted small legend' }, h('i', { class: 'sw full' }), '早晚都做完　', h('i', { class: 'sw part' }), '做了一部分'));
+    h('div', { class: 'look-big' }, h('b', {}, String(m.full.size)), h('span', {}, '天')),
+    h('p', { class: 'muted small look-cap' }, '这个月护肤做完的日子'),
+    h('p', { class: 'look-counts' }, counts.map((x) => h('span', {}, x))),
+    dotMonth(today, m),
+    h('p', { class: 'muted small legend' }, h('i', { class: 'dot-sw full' }), '早晚都做完　', h('i', { class: 'dot-sw part' }), '做了一部分'));
+}
+function dotMonth(today, m) {
+  const first = `${today.slice(0, 7)}-01`;
+  const lead = (parseDay(first).getDay() + 6) % 7;
+  const n = new Date(Number(today.slice(0, 4)), Number(today.slice(5, 7)), 0).getDate();
+  const cells = Array.from({ length: lead }, () => h('span', {}));
+  for (let i = 1; i <= n; i++) {
+    const x = `${today.slice(0, 7)}-${String(i).padStart(2, '0')}`;
+    const st = m.full.has(x) ? 'full' : m.some.has(x) ? 'part' : x > today ? 'future' : x < m.from ? 'before' : 'empty';
+    cells.push(h('span', { class: `md ${st}${x === today ? ' today' : ''}`, title: `${i} 日` }, h('i', {}), h('small', {}, String(i))));
+  }
+  return h('div', { class: 'dot-month', role: 'img', 'aria-label': '这个月哪天护肤做完了' },
+    ['一', '二', '三', '四', '五', '六', '日'].map((w) => h('span', { class: 'wd' }, w)), cells);
 }
 
+// 护肤：按早上 / 晚上 / 洗澡后 / 每周分组，每一项后面最近 14 天一天一个点
+const WHEN_ICON = { am: 'today', pm: 'moon', shower: 'drop', week: 'calendar' };
 function careDataCard(today) {
   const d = store.data;
   const rates = careItemRates(d, today);
   const span = Math.min(30, daysBetween(d.startDate || today, today) + 1);
-  const pct = (x) => (x.rate === null ? '—' : `${Math.round(x.rate * 100)}%`);
-  const order = { am: 0, pm: 1, shower: 2, week: 3 };
-  const rows = rates.slice().sort((a, b) => order[a.r.when] - order[b.r.when]).map((x) => h('div', { class: 'care-rate' },
-    h('span', { class: 'grow' }, x.r.name, h('span', { class: 'muted small' }, ` · ${WHEN[x.r.when]}`)),
-    x.week ? h('span', { class: 'small' }, `这周 ${x.done}/${x.total}`)
-      : [h('span', { class: 'bar-track' }, h('span', { class: 'bar', style: `width:${Math.round((x.rate || 0) * 100)}%` })),
-        h('span', { class: 'small rate-num' }, x.r.when === 'shower' ? `${x.done}/${x.total} 次` : pct(x))]));
+  const dots = (list) => h('span', { class: 'dots', 'aria-hidden': 'true' }, list.map((v) => h('i', { class: v || 'none' })));
+  const groups = ['am', 'pm', 'shower', 'week'].map((w) => {
+    const items = rates.filter((x) => x.r.when === w);
+    if (!items.length) return null;
+    return h('div', { class: 'care-group' },
+      h('div', { class: 'care-when' }, icon(WHEN_ICON[w], 'i'), WHEN[w]),
+      items.map((x) => h('div', { class: 'care-rate' },
+        h('span', { class: 'grow' }, x.r.name),
+        w === 'week' ? h('span', { class: 'week-dots' }, dots(Array.from({ length: x.total }, (_, i) => (i < x.done ? 'done' : 'miss'))), h('small', { class: 'muted' }, '这周'))
+          : w === 'shower' ? h('span', { class: 'small muted' }, x.total ? `洗澡 ${x.total} 次里做了 ${x.done} 次` : '还没洗过澡')
+            : dots(careDots(d, x.r, today)))));
+  });
   const forgot = span >= 7 ? rates.filter((x) => !x.week && x.total >= 5 && x.rate < 0.8 && !x.r.optional).sort((a, b) => a.rate - b.rate)[0] : null;
   return h('div', { class: 'card' },
-    h('div', { class: 'rec-top' }, h('h3', {}, `护肤 · 最近 ${span} 天`), h('button', { class: 'link small', onclick: routineSheet }, '改打卡项')),
-    rates.length ? rows : h('p', { class: 'muted small' }, '还没有打卡项。点「改打卡项」加一个。'),
+    h('div', { class: 'rec-top' }, h('h3', {}, '护肤 · 最近两周'), h('button', { class: 'link small', onclick: routineSheet }, '改打卡项')),
+    rates.length ? groups : h('p', { class: 'muted small' }, '还没有打卡项。点「改打卡项」加一个。'),
     forgot ? h('p', { class: 'small soon' }, `最常忘：${WHEN[forgot.r.when]}的${forgot.r.name}（${forgot.total} 次里忘了 ${forgot.total - forgot.done} 次）`) : null,
     span < 7 && rates.length ? h('p', { class: 'muted small' }, '记满一周后，会告诉你哪一项最常忘。') : null);
 }
@@ -1021,12 +1044,18 @@ function productsCard() {
       const st = p.opened ? openedStatus(p.opened, paoMonths(i.name, p.pao), today) : null;
       return { i, p, st, rank: st ? { over: 0, soon: 1, ok: 2 }[st.level] : 3 };
     }).sort((a, b) => a.rank - b.rank);
+    const card = ({ i, p, st }) => {
+      const used = p.opened ? Math.min(1, daysBetween(p.opened, today) / (paoMonths(i.name, p.pao) * 30.4)) : 0;
+      const tags = [p.verdict ? VERDICT[p.verdict] : '', i.out ? '用完了' : i.low ? '在购物清单上' : ''].filter(Boolean);
+      return h('button', { class: `prod-card${st && st.level !== 'ok' ? ' warn' : ''}`, onclick: () => productSheet(i) },
+        h('span', { class: 'prod-name' }, i.name),
+        h('span', { class: 'prod-bar' }, h('i', { style: `width:${Math.round(used * 100)}%` })),
+        h('span', { class: 'prod-age' }, st?.age || '还没记开封'),
+        st && st.level !== 'ok' ? h('span', { class: 'prod-warn' }, st.level === 'over' ? '该换新的了' : PAO_TEXT.soon) : null,
+        tags.length ? h('span', { class: 'prod-tags' }, tags.join(' · ')) : null);
+    };
     box.replaceChildren(...[
-      ...(rows.length ? rows.map(({ i, p, st }) => h('button', { class: 'event-row product-row', onclick: () => productSheet(i) },
-        h('span', { class: 'grow' }, i.name,
-          h('span', { class: 'muted small block' }, [st?.age || '还没记开封', p.verdict ? VERDICT[p.verdict] : '', i.out ? '用完了' : i.low ? '快用完了 · 在购物清单上' : ''].filter(Boolean).join(' · ')),
-          st && st.level !== 'ok' ? h('span', { class: `small block ${st.level === 'over' ? 'danger-text' : 'soon'}` }, PAO_TEXT[st.level]) : null),
-        icon('chev', 'i chev'))) : [h('p', { class: 'muted small' }, '物品档案里还没有「洗漱护肤」类的东西。')]),
+      rows.length ? h('div', { class: 'prod-strip' }, rows.map(card)) : h('p', { class: 'muted small' }, '物品档案里还没有「洗漱护肤」类的东西。'),
       d.look.hide.length ? h('button', { class: 'link small', onclick: () => saveRender('显示藏起来的东西', (data) => { data.look.hide = []; }) }, `显示藏起来的 ${d.look.hide.length} 样`) : null,
     ].filter(Boolean));
   };

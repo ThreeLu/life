@@ -837,12 +837,52 @@ input.bare:focus, textarea.bare:focus { outline: 0; box-shadow: 0 1.5px 0 var(--
 textarea.bare { resize: none; }
 
 /* 形象：护肤数据 */
-.care-rate { display: flex; align-items: center; gap: 10px; min-height: 40px; border-top: 0.5px solid var(--line); }
-.rec-top + .care-rate { border-top: 0; }
-.care-rate .grow { flex: 1; min-width: 0; font-size: 15px; }
-.care-rate .bar-track { flex: none; width: 80px; }
-.care-rate .bar { background: var(--accent); }
-.care-rate .rate-num { flex: none; min-width: 52px; text-align: right; font-variant-numeric: tabular-nums; }
+/* 形象：这个月一个大数字 + 圆点月历 */
+.look-big { display: flex; align-items: baseline; gap: 4px; margin-top: 2px; }
+.look-big b { font: 600 36px/1 var(--serif); color: var(--accent); font-variant-numeric: tabular-nums; }
+.look-big span { font-family: var(--serif); font-size: 15px; color: var(--muted); }
+.look-cap { margin: 4px 0 0; }
+.look-counts { display: flex; flex-wrap: wrap; gap: 6px; margin: 12px 0 16px; }
+.look-counts span { padding: 4px 10px; border-radius: 999px; background: var(--accent-soft); color: var(--text); font-size: 13px; }
+.dot-month { display: grid; grid-template-columns: repeat(7, 1fr); row-gap: 6px; text-align: center; }
+.dot-month .wd { font-size: 12px; color: var(--muted); padding-bottom: 2px; }
+.md { display: flex; flex-direction: column; align-items: center; gap: 2px; }
+.md i { width: 14px; height: 14px; border-radius: 50%; background: var(--chip); }
+.md small { font-size: 10px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.md.full i { background: var(--accent); }
+.md.part i { background: color-mix(in srgb, var(--accent) 35%, var(--chip)); }
+.md.future i, .md.before i { background: none; box-shadow: inset 0 0 0 1px var(--line); }
+.md.today i { box-shadow: 0 0 0 2px var(--card), 0 0 0 3.5px var(--accent); }
+.md.today small { color: var(--accent); font-weight: 600; }
+.legend .dot-sw { display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: var(--accent); }
+.legend .dot-sw.part { background: color-mix(in srgb, var(--accent) 35%, var(--chip)); }
+
+/* 形象：每一项最近两周一天一个点 */
+.care-group + .care-group { margin-top: 10px; }
+.care-when { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); padding: 6px 0 2px; }
+.care-when .i { width: 14px; height: 14px; }
+.care-rate { display: flex; align-items: center; gap: 10px; min-height: 38px; }
+.care-rate + .care-rate { border-top: 0.5px solid var(--line); }
+.care-rate .grow { flex: 1; min-width: 0; font-size: 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dots { display: inline-flex; gap: 4px; flex: none; }
+.dots i { width: 8px; height: 8px; border-radius: 50%; background: var(--chip); }
+.dots i.done { background: var(--accent); }
+.dots i.skip { background: none; box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 50%, transparent); }
+.dots i.none { background: none; }
+.dots i:last-child:not(.done) { box-shadow: inset 0 0 0 1px var(--accent); background: none; }
+.week-dots { display: inline-flex; align-items: center; gap: 8px; }
+
+/* 形象：护肤品横着滑的小卡 */
+.prod-strip { display: flex; gap: 10px; overflow-x: auto; scroll-snap-type: x mandatory; scroll-padding-inline: 16px; margin: 0 -16px; padding: 2px 16px 6px; scrollbar-width: none; }
+.prod-strip::-webkit-scrollbar { display: none; }
+.prod-card { flex: none; width: 140px; scroll-snap-align: start; display: flex; flex-direction: column; align-items: stretch; justify-content: flex-start; gap: 6px; padding: 12px; min-height: 0; border-radius: 12px; background: var(--bg); color: var(--text); text-align: left; font: inherit; font-weight: 400; }
+.prod-name { font-size: 14px; font-weight: 500; line-height: 1.35; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; min-height: 2.7em; }
+.prod-bar { display: block; height: 4px; border-radius: 2px; background: var(--chip); overflow: hidden; }
+.prod-bar i { display: block; height: 100%; background: var(--accent); border-radius: 2px; }
+.prod-card.warn .prod-bar i { background: var(--amber); }
+.prod-age { font-size: 12px; color: var(--muted); }
+.prod-warn { font-size: 12px; color: var(--amber); }
+.prod-tags { font-size: 12px; color: var(--muted); }
 .legend { display: flex; align-items: center; gap: 4px; margin: 6px 0 0; }
 .legend .sw { display: inline-block; width: 12px; height: 9px; border-radius: 3px; background: var(--accent); }
 .legend .sw.part { background: color-mix(in srgb, var(--accent) 35%, var(--chip)); }

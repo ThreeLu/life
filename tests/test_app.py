@@ -145,7 +145,7 @@ def _(c):
     # 每周几次
     add("面膜", "每周")
     c.wait(lambda d: any(r["name"] == "面膜" and r["when"] == "week" and r["times"] == 1 for r in d["look"]["routine"]), "面膜")
-    expect(p.locator(".care-rate", has_text="面膜")).to_contain_text("这周 0/1")
+    expect(p.locator(".care-rate", has_text="面膜").locator(".dots i")).to_have_count(1)
     # 删掉可以撤销
     p.get_by_role("button", name="改打卡项").click()
     c.sheet().locator(".event-row", has_text="面膜").get_by_role("button", name="改").click()
@@ -594,9 +594,9 @@ def _(c):
 def _(c):
     p = c.page
     c.go("#/look")
-    expect(p.locator(".stat", has_text="护肤做完")).to_be_visible()
-    expect(p.locator(".month-grid")).to_be_visible()
-    expect(p.locator(".care-rate", has_text="洗脸（洗面奶甲）")).to_be_visible()
+    expect(p.locator(".look-big")).to_be_visible()
+    expect(p.locator(".dot-month .md.today")).to_have_count(1)
+    expect(p.locator(".care-rate", has_text="洗脸（洗面奶甲）").locator(".dots i")).to_have_count(14)
     expect(p.get_by_text("我学到的")).to_have_count(0)
     expect(p.get_by_text("我的方向")).to_have_count(0)
     expect(p.locator(".whisper")).to_have_count(0)  # 形象页不放角落那句话
@@ -606,14 +606,15 @@ def _(c):
     c.sheet().get_by_role("button", name="好了").click()
     c.wait(lambda d: d["look"]["products"].get("inv-1", {}).get("verdict") == "good", "护肤品")
     assert "pao" not in c.data()["look"]["products"]["inv-1"]  # 默认 12 个月不存
-    expect(p.locator(".product-row", has_text="编的洗面奶")).to_contain_text("快到时间了")
+    expect(p.locator(".prod-card", has_text="编的洗面奶")).to_contain_text("快到时间了")
     expect(p.locator("main")).not_to_contain_text("编的零食")  # 不是洗漱护肤类的不显示
     # 快用完了 → 物品档案里标上（进购物清单）
     p.get_by_role("button", name="编的洗面奶").click()
     c.sheet().get_by_role("button", name="快用完了 → 放进购物清单").click()
-    expect(p.locator(".product-row", has_text="编的洗面奶")).to_contain_text("在购物清单上")
+    expect(p.locator(".prod-card", has_text="编的洗面奶")).to_contain_text("在购物清单上")
     it = next(i for i in json.loads(INVENTORY.read("inventory.json"))["items"] if i["id"] == "inv-1")
     assert it.get("runningLow") == TODAY, it
+    p.screenshot(path=ART / "look.png", full_page=True)
 
 
 @step("英语陪练：复制提示词、练完了记一次")
