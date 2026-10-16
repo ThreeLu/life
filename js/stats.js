@@ -209,7 +209,6 @@ export function periodSummary(data, from, to) {
     drinks: ev('drink').length,
     prayers: days.filter((d) => data.days[d]?.prayer?.night).length,
     reads: days.filter((d) => data.days[d]?.read !== undefined).length,
-    english: ev('english').length,
     did: days.map((d) => ({ day: d, did: data.days[d]?.did })).filter((x) => x.did),
     notes: days.map((d) => ({ day: d, note: data.days[d]?.note, mood: data.days[d]?.mood })).filter((x) => x.note),
     sick: (data.sick?.history || []).filter((x) => x.start <= to && x.end >= from).length,

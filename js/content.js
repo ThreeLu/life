@@ -85,82 +85,6 @@ export function quickPrayerPrompt({ about = PRAYER_ABOUT } = {}) {
 我说可以了，就用一句简短的祝福结束。不用写小结。`;
 }
 
-// ---------- 英语陪练 ----------
-
-export const EN_MODES = {
-  chat: { name: '聊天', en: 'Chat' },
-  us: { name: '美国生活', en: 'Life in the US' },
-  conf: { name: '会议', en: 'Conference' },
-};
-// 5 次里 2 次聊天、2 次美国生活、1 次会议
-export const EN_CYCLE = ['chat', 'us', 'chat', 'us', 'conf'];
-
-export const EN_TOPICS = {
-  chat: [
-    'How was your day? Tell me one thing that made you happy and one thing that was hard.',
-    'Tell me about your skincare routine and why you started it.',
-    'Describe your dorm room and what you would change about it.',
-    'What did you eat today? Describe your favorite local dish.',
-    'Tell me about a place in your city you love, or want to visit.',
-    'What kind of person do you want to become in five years?',
-    'Tell me about a book, movie, or show you enjoyed recently.',
-    'How do you usually relax after a long day?',
-    'Describe your perfect weekend.',
-    'What are you grateful for this week?',
-    'Tell me about your hometown and your family.',
-    'What does your style look like, and how do you want it to change?',
-  ],
-  us: [
-    'Ordering coffee and a pastry at a busy café.',
-    'Seeing a doctor for a cold: describe your symptoms.',
-    'Calling a landlord to ask about renting an apartment.',
-    'Opening a bank account.',
-    'Small talk with a neighbor in the elevator.',
-    'Getting a haircut: explain the style you want.',
-    'Returning something at a store.',
-    'Asking for directions and taking the bus.',
-    'Chatting with a coworker at lunch about the weekend.',
-    'Grocery shopping and asking where to find things.',
-    'Calling customer service about a wrong charge on your bill.',
-    'Making a reservation at a restaurant and ordering.',
-  ],
-  conf: [
-    'Coffee break: introduce yourself and your research in one minute.',
-    'After your talk: answer questions from a professor in the audience.',
-    'Dinner with other PhD students: small talk about life and research.',
-    'Poster session: explain your main result to someone from another field.',
-    'Asking a famous professor a question after their talk.',
-  ],
-};
-
-export function englishPrompt(mode, topic, lastTime = '') {
-  return `You are my English speaking partner. I'm a Chinese PhD student (you know about my research from our past chats). My goals: live and work in the US someday, and talk comfortably with people at international conferences. I read English well, but my speaking and listening are weak. This is a voice conversation.
-
-Today's mode: ${EN_MODES[mode].en}
-Today's topic: ${topic}${lastTime ? `\nLast time you told me to focus on: ${lastTime} Notice whether I do better, and tell me in the summary.` : ''}
-
-Modes:
-- Chat: talk with me like a friend about my day, my life, my feelings and opinions. Ask me to tell stories and describe things in detail.
-- Life in the US: role-play a real situation (ordering at a café, seeing a doctor, renting an apartment, opening a bank account, small talk with a neighbor or coworker). You play the other person.
-- Conference: be a researcher I meet at a coffee break or after my talk. Mix small talk with questions about my work.
-
-Rules:
-- Use natural, casual American English, slightly slower than normal. Teach me common everyday phrases and idioms when they fit.
-- Keep your turns short (2–3 sentences) and usually end with a question. I should talk more than you.
-- Don't correct me during the conversation unless you can't understand me. If I say a Chinese word, give me the English and keep going.
-
-When I type "wrap up", give me a written summary in exactly this format:
-
-=== SUMMARY ===
-MISTAKES
-- I said: ... | Better: ... | Type: tense / article / preposition / word choice / grammar
-EXPRESSIONS
-- expression | 中文意思 | example sentence
-NEXT TIME
-- one thing to focus on
-=== END ===`;
-}
-
 // ---------- 鼓励的话 ----------
 // 首页每天一句（按日期轮换）。温和、具体，不喊口号。
 
@@ -192,7 +116,6 @@ export const CHEERS = [
   '把背挺直，带上一点笑，今天会是好的一天。',
   '你的价值不取决于今天的效率。',
   '一个人也可以把日子过得很好看。',
-  '每一次开口说英语，都是在为将来的自己铺路。',
   '读书、护肤、祷告，你在同时打理自己的里面和外面。',
   '你走的每一步，神都看见了。',
   '不完美也没关系，真实的你就很好。',
@@ -216,8 +139,6 @@ export const CHEER_ON = {
   pm: '晚上的护肤好了。晚安。',
   shower: '洗好了，舒舒服服。',
   sport: '动了一下，身体会记得。',
-  english: '又说了一次。',
-  englishCards: '复习好了。',
   prayer: '晚安，你被爱着。',
   morning: '今天交给神了。',
   read: '读了。',
@@ -243,8 +164,6 @@ export const MILESTONE_TEXT = {
   'pray-100': '祷告 100 个晚上了',
   'sport-10': '运动 10 次了',
   'sport-50': '运动 50 次了',
-  'english-10': '英语练了 10 次了',
-  'english-50': '英语练了 50 次了',
   'night-30': '写了 30 天的一句话',
 };
 

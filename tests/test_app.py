@@ -608,6 +608,8 @@ def _(c):
     assert "pao" not in c.data()["look"]["products"]["inv-1"]  # 默认 12 个月不存
     expect(p.locator(".prod-card", has_text="编的洗面奶")).to_contain_text("快到时间了")
     expect(p.locator("main")).not_to_contain_text("编的零食")  # 不是洗漱护肤类的不显示
+    expect(p.locator("main")).not_to_contain_text("编的热水壶")  # 洗漱护肤里的用具不算护肤品
+    expect(p.locator("main")).not_to_contain_text("编的电动剃须刀")
     # 快用完了 → 物品档案里标上（进购物清单）
     p.get_by_role("button", name="编的洗面奶").click()
     c.sheet().get_by_role("button", name="快用完了 → 放进购物清单").click()
@@ -615,20 +617,6 @@ def _(c):
     it = next(i for i in json.loads(INVENTORY.read("inventory.json"))["items"] if i["id"] == "inv-1")
     assert it.get("runningLow") == TODAY, it
     p.screenshot(path=ART / "look.png", full_page=True)
-
-
-@step("英语陪练：复制提示词、练完了记一次")
-def _(c):
-    p = c.page
-    c.go("#/english")
-    box = p.get_by_label("英语提示词").input_value()
-    assert "Today's mode: Chat" in box and "wrap up" in box, box[:200]
-    p.get_by_role("button", name="美国生活").click()
-    assert "Today's mode: Life in the US" in p.get_by_label("英语提示词").input_value()
-    p.get_by_role("button", name="复制").click()
-    p.get_by_role("button", name="只记练了一次").click()
-    c.wait(lambda d: events(d, "english") and events(d, "english")[0]["mode"] == "us", "英语")
-    expect(p.get_by_text("这周练了 1 次")).to_be_visible()
 
 
 @step("最近的记录：看以前某一天、补记")
@@ -794,42 +782,6 @@ def _(c):
     p.reload()
     expect(p.locator(".today-head .wx-note")).to_contain_text("比今天低 10°C")
     expect(p.locator(".alert-line", has_text="降温")).to_have_count(0)
-
-
-@step("英语：贴回总结存进错句本表达本、下次注意写进提示词、复习")
-def _(c):
-    p = c.page
-    c.go("#/english")
-    p.get_by_label("ChatGPT 的总结").fill("""=== SUMMARY ===
-MISTAKES
-- I said: I go there yesterday | Better: I went there yesterday | Type: tense
-- I said: He have a cat | Better: He has a cat | Type: grammar
-EXPRESSIONS
-- grab a coffee | 去喝杯咖啡 | Want to grab a coffee later?
-NEXT TIME
-- Use past tense for stories.
-=== END ===""")
-    p.get_by_role("button", name="存进本子").click()
-    c.wait(lambda d: len(d["english"]["cards"]) == 3 and d["english"]["next"] == "Use past tense for stories.", "存进本子")
-    assert events(c.data(), "english")[-1]["mistakes"] == 2
-    expect(p.get_by_text("上次 ChatGPT 说下次注意：Use past tense for stories.")).to_be_visible()
-    assert "Last time you told me to focus on: Use past tense for stories." in p.get_by_label("英语提示词").input_value()
-    # 明天才复习：改成今天到期
-    c.write(lambda d: [x.update(due=TODAY) for x in d["english"]["cards"]])
-    c.go("#/")
-    p.reload()
-    c.go("#/")
-    c.period("中午").locator(".it", has_text="英语复习").get_by_role("link").click()
-    p.get_by_role("button", name="看答案").click()
-    expect(p.locator(".card-back")).to_have_text("I went there yesterday")
-    p.get_by_role("button", name="记住了").click()
-    p.get_by_role("button", name="看答案").click()
-    p.get_by_role("button", name="还没记住").click()
-    p.get_by_role("button", name="看答案").click()
-    p.get_by_role("button", name="记住了").click()
-    expect(p.get_by_text("今天的复习做完了")).to_be_visible()
-    cards = c.data()["english"]["cards"]
-    assert sorted(x["level"] for x in cards) == [0, 1, 1] and all(x["due"] > TODAY for x in cards), cards
 
 
 @step("想去的地方：粘贴小红书、选类型和区、地图上点位置；去过了打分写话放照片；列表、地图、按区、足迹、周末去哪")
@@ -1377,6 +1329,8 @@ def inventory_seed():
         "items": [
             {"id": "inv-1", "name": "编的洗面奶", "location": "L1", "tags": ["洗漱护肤"], "quantity": 1, "archived": False},
             {"id": "inv-2", "name": "编的零食", "location": "L1", "tags": ["零食食品"], "quantity": 1, "archived": False},
+            {"id": "inv-k1", "name": "编的热水壶", "location": "L1", "tags": ["洗漱护肤"], "quantity": 1, "archived": False},
+            {"id": "inv-k2", "name": "编的电动剃须刀", "location": "L1", "tags": ["洗漱护肤"], "quantity": 1, "archived": False},
             {"id": "inv-m1", "name": "编的布洛芬片", "location": "L1", "tags": ["药品急救"], "quantity": 1, "archived": False, "fields": {"保质期": "2030-01"}},
             {"id": "inv-m2", "name": "编的感冒灵颗粒", "location": "L1", "tags": ["药品急救"], "quantity": 1, "archived": False},
             {"id": "inv-m3", "name": "编的感康片", "location": "L1", "tags": ["药品急救"], "quantity": 1, "archived": False},

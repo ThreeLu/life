@@ -18,7 +18,7 @@
   settings: { rhythmDays, checks, bibleVersion, bibleVersionEn?, sportKinds, drinkKinds, pin: { salt, iter, hash }, city?: { name, lat, lon, districts: [] } },
   days: { 日期: { mood 1–10, note, energy 1–5, stress 1–5, did, plan, planDone: yes|part|no,
                   sleep: { bed, wake, q }, fetch: { am|noon|eve: true|'skip' }（打水，老数据 { mid, eve }）, goals: { 习惯id: true }, affirm（默念了）, care: { 打卡项id: true }, noShower（今晚不洗）, clean: true|'skip'（打扫卫生）, prayer: { night: { at, mode, note, summary }, morning: { at } }, read, readBook } },
-  events: [{ id, day, at, type: shower|sport|drink|english|p|p2, kind?, minutes?, km?, level?, note?, mode?, topic?, mistakes?, exprs?, score?, flag?, checks?: { c1, c2, c3 } }],
+  events: [{ id, day, at, type: shower|sport|drink|english（老的，不再用）|p|p2, kind?, minutes?, km?, level?, note?, mode?, topic?, mistakes?, exprs?, score?, flag?, checks?: { c1, c2, c3 } }],
   look: { routine: [{ id, step?, name, when: am|pm|shower|week, times?, optional? }], products: { 物品档案id: { opened, verdict, note, pao? } }, hide: [物品档案id],
           老的 direction / steps / identity / moments 不再用 },
   periodic: [{ id, name, every, last }],
@@ -31,7 +31,7 @@
   sick: { current: null | { id, kind: cold|fever|gut|other, start, path?: [{ day, kind }]（换过种类才有）, temps: [{ at, t }], meds: [{ at, item, name }], water: { 日期: 杯 },
                             sym: { 日期: [症状] }, done: { 日期: { 做的事文字: true } }（老数据键是预案序号）, extra: [自己加的事], gut: { 日期: { d, v } }, suspects: [] },
           history: [同上 + end, helped: [觉得管用的], how], plans: { kind: [一行一件事] }, meds: { 物品档案id: { dose, gapHours, perDay } } },
-  english: { cards: [{ id, kind: mistake|expr, front, back, type?, cn?, at, due, level, seen }], next },
+  english（2026-10-15 英语功能去掉了，老数据留着不用）,
   milestones: { key: 日期, seen: { key: true } },
   places: [{ id, name, kind: spot|walk|shop|food|show|museum|other, district, address?, why, link, cost, season, want 1–3, lat, lng（高德坐标 GCJ-02）, at, visits: [{ id, day, score, with?: [人 id], note, photo? }] }],
   letters: { w周一 | m月份 | y年份: { at, text, research } },
@@ -43,7 +43,7 @@
 - **一天从凌晨 4 点开始**（`dayKey`）。周从周一开始，`weeks` 的键是周一。
 - 形象页外观（2026-10-15 用户选「安静的点点」）：这个月一个宋体大数字（护肤做完几天）+ 次数小胶囊 + 圆点月历（`dotMonth`，今天带圈）；护肤按早上 / 晚上 / 洗澡后 / 每周分组，每项最近 14 天一天一个点（`careDots`），不显示百分比；护肤品横着滑的小卡（`.prod-strip`），细条是开封过了多久，快到时间琥珀色。
 - 形象页（2026-10-06 用户要求大改）：**只放数据、不放口号、不涉及钱**（钱在账本看）。这个月（护肤做完几天 `lookMonth`、洗澡、洗澡后 / 每周的项各几次、月历：早晚都做完深紫、做一部分浅紫）、护肤（最近 30 天每一项做到多少 `careItemRates`、记满一周说最常忘的；「改打卡项」直接加 / 改 / 删 `look.routine`）、护肤品。已经删掉：路线图和每一步的说明、我的方向、我是这样的人和精致时刻、每周皮肤打分（首页周末提醒和分析里的图也删了）、我学到的、身材、衣服（在物品档案看）、形象页角落那句话。老数据里的 `steps`、`direction`、`identity`、`moments`、`notes` 留着不用。
-- 护肤品：读物品档案里「洗漱护肤」类的物品，开封日期、好不好用、开封后多久用完（`pao` 月，默认按名字 `paoMonths`：香水 36、睫毛膏 6、其他 12，默认值不存）存在 `look.products`；快到 / 过了标出来（`openedStatus`）。「快用完了」直接提交物品档案 inventory.json 的 `runningLow`（`updateInventoryItem`），会进那边的购物清单。
+- 护肤品：读物品档案里「洗漱护肤」类的物品（`isSkincare` 去掉热水壶、剃须刀、牙刷、毛巾这类用具，2026-10-15 用户说的），开封日期、好不好用、开封后多久用完（`pao` 月，默认按名字 `paoMonths`：香水 36、睫毛膏 6、其他 12，默认值不存）存在 `look.products`；快到 / 过了标出来（`openedStatus`）。「快用完了」直接提交物品档案 inventory.json 的 `runningLow`（`updateInventoryItem`），会进那边的购物清单。
 - 定期打理（`#/periodic`，入口在「生活」页，不在形象页）：做了从那天重新数；到期后每天出现在「今天」直到点「做了」（`periodicDue`），前一天出现「明天该……了」（`periodicTomorrow`），其余时候不出现，不推送（用户 2026-10-06 定）。擦鞋、修眉这类以后由用户自己在「改打卡项」或定期打理里加；`migrate` 会拿掉老的「擦鞋」定期项。
 - 祷告（2026-10-06 重做，同日又分成白天 / 晚上）：页面只有一个「开始祷告」（`prayView`：今天的经文 + 金色小十字 + 按钮 + 最近有祷告的那一天几点祷告了几次、写过的那句 + 读经 + 难受的时候）。**白天的祷告**（早上 / 下午 / 傍晚，`dayPrayName`）`#/pray/go?m=quick`：两种方式切换——「和 ChatGPT 说」（`quickPrayerPrompt`，两三分钟，**不读经文**、不讲道，只把现在的事交给神）或「写一句」（一句话 →「阿们」，存进 `times[].text`；提示「所有的事，都有神在帮助我」）。**晚上的祷告** `?m=night`（2026-10-14 改）：`prayerPrompt` 让 ChatGPT 当懂信仰的**长辈**，**聊天和开导**为主（问问题、理清想法、先理解再给具体看法），圣经合适的时候带一两句，不讲道、不替神传话；我说「差不多了」它为今天聊的事做简短祷告；回来「祷告完了」直接记下，**不念主祷文**（`LORDS_PRAYER` 留在 content.js 不用）。都不要 ChatGPT 写小结。记在 `days[日].prayer.times: [{ at, kind: quick|night, text? }]`，晚上那次同时写 `prayer.night`（统计、推送、圆满章都看它）。晚上 8 点后第一次默认是晚上那次，可以切换。晚上不让打字；不问「近了 / 远了」。阶段、晨祷、祷告事项、每周感恩、周日感恩推送都拿掉了，老数据留着。设计：彩窗透光的淡紫到暖金光晕、角落很淡的十字、经文宋体加金色「」、金色分隔线。
 - 每周的打卡项（面膜等 `when: 'week'`）：首页只在**周六晚上**出现（别的日子做过的那天也显示）。「明天要做」（2026-10-06）：睡前复盘单独一块，什么都能写；第二天早上那张清单顶上只提一句「今天要做：…」，不打勾、不算进度；做到没有只在第二天的睡前复盘问（`planDone`）。
@@ -57,8 +57,8 @@
 - 打扫卫生（2026-10-15）：中午那段一行，`days[日].clean = true | 'skip'`，「不弄了」就是今天不弄了。
 - 洗澡（2026-10-14 改）：不是每天，晚上那段有一行「洗澡」（不算进度）；点了（或「＋」、中午「记一下」）先弹「洗澡了吗」（`showerSheet`），顺便勾洗澡后的项，点「洗好了」才记，「取消」什么都不记，记了能撤销、也能在「今天记下的」里删。
 - 换季：`settings.city` 有经纬度时用 Open-Meteo 查天气（每天一次存 localStorage，`seasonWarning`），首页写在天气标签下面一句小字（`wx-note`，左边一条琥珀色细线，不是可点的提醒行；日子说今天 / 明天 / 后天），睡前推送也加一句。
-- 打开 ChatGPT（`chatgptButton`，祷告、英语、想做到的事）：链接 `https://chatgpt.com/?prompt=<提示词>`——ChatGPT 的通用链接里根路径只认带 `prompt` / `q` 参数的，这样 iPhone 上直接打开 App 并带上提示词；同时悄悄复制一份，没带上就粘贴。
-- 英语：贴回 ChatGPT「wrap up」总结（`parseSummary`）进错句本 / 表达本，`english.next` 写进下一次提示词；复习间隔 1/3/7/14/30/60 天（`reviewCard`）。
+- 打开 ChatGPT（`chatgptButton`，祷告、想做到的事）：链接 `https://chatgpt.com/?prompt=<提示词>`——ChatGPT 的通用链接里根路径只认带 `prompt` / `q` 参数的，这样 iPhone 上直接打开 App 并带上提示词；同时悄悄复制一份，没带上就粘贴。
+- 英语陪练（2026-10-15 用户说不要了）：页面、首页复习、统计、回顾、里程碑里的英语都去掉了，`english` 老数据留着。不要再加回来。
 - 想去的地方（`#/places`、`#/place/:id`，js/places.js）：新建时第一个框什么都能放（2026-10-06）：小红书 / 大众点评 / 美团 / 高德的分享、「店名 + 地址」、一句话；`parseShare` 只认小红书标题和别的 App 里括起来的店名，认不出就留空；「一键补全」（DeepSeek）（`findPlace(name, text)`，用户点了才问，链接不发）认出是哪里，给名字（名字是用户自己写的就不换）、类型、区、地址、高德坐标，有地址按地址定位。**不填人均、营业时间**（用户不要），`cleanCandidates` 只留已有的类型和区、离城市 80 公里以外的坐标不要；连锁店列出每一家，地图标号勾选，新建时勾几家就分开记几个；坐标是估计的，提示用户在地图上核对；地图是 Leaflet（`vendor/leaflet`，按需加载）+ 高德底图（不用密钥），坐标存高德坐标，手机定位用 `wgsToGcj` 转；按区（`settings.city.districts`）、足迹、去过可以打分写话放照片（压缩后存数据仓库 `photos/places/`）。周末去哪（`weekendPicks`）只从自己写的地方挑，周五到周日首页出现，周末下雨先推室内的，周五睡前推送也带上（python 里同样的规则 `weekend_picks`）。
 - 分析（`#/stats`，js/stats.js、js/charts.js）：什么在影响我（`influences`：做了 vs 没做，心情记满 21 天才给结论，天数少标「还不太可靠」；天气用 Open-Meteo 历史接口，花钱读账本），走势、作息、规律、护肤完成率、计划完成率、生病前一周。回顾 `#/report?k=week|month|year`：数字 + DeepSeek 写一段存 `letters`（月报加科研回顾）。问问我的记录 `#/ask`：DeepSeek 读最近 60 天，聊天只在内存。DeepSeek 密钥读物品档案仓库 `config/ai.json`。
 - 想做到的事（`#/goals`、`#/goal/:id`，入口在「生活」页，2026-10-06）：写一句心愿 → 复制 `goalPrompt`（content.js）和 ChatGPT **语音**聊，说「整理一下」写固定格式小结 → 贴回来 → DeepSeek（`goalPlan`）拆成 2–4 阶段、每阶段 2–5 件能勾掉的小事、每周习惯、要买的东西（`buy.query` 搜索词）→ `applyGoalPlan` 存（重新整理时同样文字的事保留「做了」）。DeepSeek 带上物品档案（`goalInventory`：衣服鞋子写风格季节穿的次数备注，看不了照片；其他东西只写名字类别）和账本里没买的心愿。要买的：小红书 / 淘宝搜索链接；「放进心愿单」确认名字价格后直接提交到账本仓库 finance.json 的 `wishes`（`addLedgerWish`，记 `wishId`）。首页每个在做的目标一行进度（`goalLines`），周报有一张卡（`goalWeekCard`），做到了 3 天内首页里程碑（`goal-<id>` 记在 `milestones.seen`）。不推送。

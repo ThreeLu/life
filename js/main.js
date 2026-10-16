@@ -8,12 +8,11 @@ import {
   sickActive, recoveryLeft, tempStats, medInfo, doseStatus, medConflicts, seasonWarning,
   sickDid, sickSymptoms, sickLessons, similarSick, planMissing, sickKinds,
   fetchRows, fetchState, solarTerm, lowLessons, goodDays, 
-  parseSummary, reviewCard, dueCards, mistakeTypes, REVIEW_STEPS,
-  goalProgress, goalLine, habitWeek, goalWeekDone, applyGoalPlan, lookMonth, careItemRates, careDots, paoMonths, openedStatus,
+  goalProgress, goalLine, habitWeek, goalWeekDone, applyGoalPlan, lookMonth, careItemRates, careDots, isSkincare, paoMonths, openedStatus,
 } from './life.js';
 import {
   VERSES, verseFor, prayerPrompt, quickPrayerPrompt,
-  EN_MODES, EN_CYCLE, EN_TOPICS, englishPrompt, goalPrompt,
+  goalPrompt,
   CHEER_ON, cheerNight, MILESTONE_TEXT, SICK_KINDS, SYMPTOMS, LOW_KINDS, LOW_VERSES, HOTLINES, SELF_LINES, RED_FLAGS, FEVER_FROM, BIBLE_BOOKS,
 } from './content.js';
 import { pushSupport, subscribe, currentSubscription, deviceName, PUSH_FILE } from './push.js';
@@ -33,7 +32,7 @@ import { nextBirthday, birthdayText, lunarName, holidayAround, holidayLine, GREE
 
 const SETTINGS_KEY = 'life-settings';
 const DEFAULT_REPO = 'ThreeLu/life-data';
-const EDITING_ROUTES = /^\/(night|pray\/go|p$|p\/s|english|place\/|ask|person\/new|person\/[^/]+\/edit)/;
+const EDITING_ROUTES = /^\/(night|pray\/go|p$|p\/s|place\/|ask|person\/new|person\/[^/]+\/edit)/;
 
 const readJson = (key) => { try { return JSON.parse(localStorage.getItem(key)) || {}; } catch { return {}; } };
 const writeJson = (key, v) => { try { localStorage.setItem(key, JSON.stringify(v)); } catch { /* 存不了就算了 */ } };
@@ -138,9 +137,6 @@ const routes = [
   [/^\/look$/, () => lookView()],
   [/^\/pray$/, () => prayView()],
   [/^\/pray\/go$/, (_, q) => prayGoView(q.m)],
-  [/^\/english$/, () => englishView()],
-  [/^\/english\/review$/, () => englishReviewView()],
-  [/^\/english\/cards$/, () => englishCardsView()],
   [/^\/sick$/, () => sickView()],
   [/^\/sick\/book$/, () => sickBookView()],
   [/^\/places$/, () => placesView()],
@@ -170,7 +166,7 @@ const NAV_GROUPS = {
   '/': [/^\/?$/, /^\/day\//, /^\/night/, /^\/sick$/],
   '/look': [/^\/look/],
   '/pray': [/^\/pray/, /^\/low/],
-  '/more': [/^\/more/, /^\/english/, /^\/history/, /^\/settings/, /^\/places?/, /^\/stats/, /^\/report/, /^\/ask/, /^\/sick\/book/, /^\/periodic/, /^\/goals?(\/|$)/, /^\/people/, /^\/person\//, /^\/greet\//],
+  '/more': [/^\/more/, /^\/history/, /^\/settings/, /^\/places?/, /^\/stats/, /^\/report/, /^\/ask/, /^\/sick\/book/, /^\/periodic/, /^\/goals?(\/|$)/, /^\/people/, /^\/person\//, /^\/greet\//],
 };
 
 function setupNav() {
@@ -485,8 +481,6 @@ function periodList(day, p) {
   if (p === 'noon') {
     waterItem(list, day, 'noon');
     cleanItem(list, day);
-    const n = dueCards(d, day).length;
-    if (n && day === dayKey()) item('english', false, '英语复习', `${n} 张卡`, { href: '#/english/review' });
     list.push({ key: 'record', count: false, node: h('div', { class: 'it plain' }, h('span', { class: 't' }, '记一下',
       h('div', { class: 'minis' },
         h('button', { type: 'button', class: 'mini', onclick: () => sportSheet(day) }, '运动'),
@@ -878,7 +872,7 @@ function careCardInline(day, when) {
 const LOOK_HELP = [
   ['这一页是什么', ['看你在形象上做了什么：这个月护肤做完几天、洗澡几次，每一项最近两周做了哪几天，用的护肤品开封多久了。']],
   ['护肤', ['月历：早晚都做完是实心的紫点，做了一部分是浅紫点，今天带一个圈。', '每一项后面是最近 14 天，一天一个点，最右边是今天。洗过澡的晚上，洗脸那天是一个小空心圈（洗澡时洗过了）。', '「改打卡项」可以加、改名、删掉每天的打卡项，比如加「防晒（早上）」「擦鞋（早上）」。']],
-  ['护肤品', ['从物品档案里读「洗漱护肤」类的东西，横着滑。点一下记开封日期、好不好用、开封后多久用完（一般 12 个月）。', '下面那条是开封以后过了多久，快到时间变成琥珀色。「快用完了」会放进物品档案的购物清单。']],
+  ['护肤品', ['从物品档案里读「洗漱护肤」类的东西，横着滑；热水壶、剃须刀、牙刷、毛巾这类用具不算。还有不是护肤品的，点开它选「这个不是护肤品」。点一下记开封日期、好不好用、开封后多久用完（一般 12 个月）。', '下面那条是开封以后过了多久，快到时间变成琥珀色。「快用完了」会放进物品档案的购物清单。']],
 ];
 
 function lookView() {
@@ -1003,7 +997,7 @@ async function loadProducts(force = false) {
   try {
     const data = JSON.parse(await inventoryGh().readText('inventory.json', 'main'));
     const locs = Object.fromEntries((data.locations || []).map((l) => [l.id, l.name]));
-    invCache.items = (data.items || []).filter((i) => !i.archived && (i.tags || []).includes('洗漱护肤'))
+    invCache.items = (data.items || []).filter((i) => !i.archived && (i.tags || []).includes('洗漱护肤') && isSkincare(i.name))
       .map((i) => ({ id: i.id, name: i.name, where: (locs[i.location] || '').split(' ')[0], qty: i.quantity, low: i.runningLow || '', out: Number(i.quantity) === 0 }));
     invCache.error = '';
   } catch (e) {
@@ -1297,130 +1291,6 @@ function prayGoView(mode) {
     h('h2', { class: 'pray-title' }, dayPrayName()),
     tabs, body,
     h('div', { class: 'pray-nav' }, back, done));
-}
-
-// ---------- 英语陪练 ----------
-// 错句本 / 表达本：english.cards = [{ id, kind: mistake|expr, front, back, type?, cn?, example?, at, due, level, seen }]，english.next = 上次 ChatGPT 说下次注意什么
-
-const EN_HELP = [
-  ['怎么练', [
-    '网页按「聊天 2 次、美国生活 2 次、会议 1 次」轮着给你今天的模式和话题，也可以自己换。',
-    '点「打开 ChatGPT」：会打开 App，提示词已经带过去，发送后点语音按钮聊 15 分钟。没带上的话粘贴（已经复制好了）。',
-    '聊完回到文字框打 wrap up，它会按固定格式列出你说错的句子和值得学的表达。',
-    '把那段总结整个复制，贴到这一页的「贴回来」里，点「存进本子」：说错的进错句本，表达进表达本，同时记一次练习。不想贴的话点「练完了」只记一次。',
-  ]],
-  ['每天复习', [
-    '首页会出现「英语复习 N 条」，每次最多 10 条，一两分钟。',
-    '错句：先看你说的，想想怎么改，再点开看正确的。表达：先看中文，想想英文怎么说。',
-    '「记住了」：隔 1、3、7、14、30、60 天再出现，越熟越少见。「还没记住」：明天再来。',
-  ]],
-  ['省事的办法', ['在 ChatGPT 里建一个「项目」（Projects），把提示词里不变的部分放进项目说明，以后只发今天的模式和话题。']],
-];
-const enState = { mode: null, topic: null };
-function englishView() {
-  const d = store.data;
-  const today = dayKey();
-  const sessions = d.events.filter((e) => e.type === 'english');
-  const autoMode = EN_CYCLE[sessions.length % EN_CYCLE.length];
-  const mode = enState.mode || autoMode;
-  const pool = EN_TOPICS[mode];
-  const seed = [...today].reduce((a, c) => a + c.charCodeAt(0), 0) + sessions.length;
-  const topic = enState.topic && pool.includes(enState.topic) ? enState.topic : pool[seed % pool.length];
-  const text = englishPrompt(mode, topic, d.english.next);
-  const mon = weekOf(today);
-  const thisWeek = sessions.filter((e) => e.day >= mon).length;
-  const box = h('textarea', { rows: 8, readonly: true, class: 'prompt-box', 'aria-label': '英语提示词' });
-  box.value = text;
-  const done = (extra = {}) => saveUndoable('英语练了一次', (data) => { data.events.push({ id: newId('e'), day: today, at: nowIso(), type: 'english', mode, topic, ...extra }); }, CHEER_ON.english)
-    .then(() => { enState.mode = null; enState.topic = null; render(); }).catch(() => {});
-  const paste = h('textarea', { rows: 5, placeholder: '把 ChatGPT「wrap up」以后写的总结整段贴在这里', 'aria-label': 'ChatGPT 的总结' });
-  const savePaste = () => {
-    const r = parseSummary(paste.value);
-    if (!r.mistakes.length && !r.expressions.length) { toast('没认出错句和表达。要贴 === SUMMARY === 那一整段', 'error'); return; }
-    const have = new Set(d.english.cards.map((c) => c.front.toLowerCase()));
-    const cards = [
-      ...r.mistakes.map((m) => ({ kind: 'mistake', front: m.said, back: m.better, type: m.type })),
-      ...r.expressions.map((x) => ({ kind: 'expr', front: x.expr, back: x.example, cn: x.cn })),
-    ].filter((c) => !have.has(c.front.toLowerCase())).map((c) => ({ id: newId('c'), ...c, at: today, due: addDays(today, 1), level: 0 }));
-    saveRender('英语：存进本子', (data) => {
-      data.english.cards.push(...cards);
-      if (r.next) data.english.next = r.next;
-      data.events.push({ id: newId('e'), day: today, at: nowIso(), type: 'english', mode, topic, mistakes: r.mistakes.length, exprs: r.expressions.length });
-    }).then((ok) => { if (ok) { enState.mode = null; enState.topic = null; toast(`存好了：${r.mistakes.length} 个错句、${r.expressions.length} 个表达。${CHEER_ON.english}`); } });
-  };
-  const due = dueCards(d, today);
-  const month = today.slice(0, 7);
-  const prevMonth = addDays(`${month}-01`, -1).slice(0, 7);
-  const types = mistakeTypes(d, month);
-  const prevTypes = mistakeTypes(d, prevMonth);
-  const TYPE_CN = { tense: '时态', article: '冠词', preposition: '介词', 'word': '用词', grammar: '语法', other: '其他' };
-  const counts = { mistake: d.english.cards.filter((c) => c.kind === 'mistake').length, expr: d.english.cards.filter((c) => c.kind === 'expr').length };
-  return h('div', {},
-    headerSub('英语陪练', `这周练了 ${thisWeek} 次 · 一共 ${sessions.length} 次`, helpButton('英语陪练怎么用', EN_HELP)),
-    due.length ? h('a', { class: 'card link-card', href: '#/english/review' }, h('b', {}, `今天复习 ${due.length} 条`), h('span', { class: 'muted small block' }, '一两分钟')) : null,
-    d.english.next ? h('div', { class: 'card soft' }, h('p', { class: 'small' }, `上次 ChatGPT 说下次注意：${d.english.next}`)) : null,
-    h('div', { class: 'card' },
-      h('h3', {}, '今天的模式'),
-      choiceRow('模式', Object.entries(EN_MODES).map(([k, v]) => [k, v.name]), mode, (v) => { enState.mode = v || autoMode; enState.topic = null; render(); }),
-      h('h3', {}, '话题'),
-      h('p', { class: 'topic' }, topic),
-      h('button', { class: 'link small', onclick: () => { enState.mode = mode; enState.topic = pool[(pool.indexOf(topic) + 1) % pool.length]; render(); } }, '换一个话题')),
-    h('div', { class: 'card' }, box, h('div', { class: 'actions' },
-      chatgptButton(text, 'button'),
-      h('button', { class: 'secondary', onclick: () => copyText(text) }, icon('copy'), '复制'))),
-    h('div', { class: 'card' },
-      h('h3', {}, '练完了：贴回来'),
-      paste,
-      h('div', { class: 'actions' }, h('button', { onclick: savePaste }, '存进本子'), h('button', { class: 'secondary', onclick: () => done() }, '只记练了一次'))),
-    h('div', { class: 'card' },
-      h('h3', {}, '我的本子'),
-      h('p', { class: 'small' }, `错句 ${counts.mistake} 个 · 表达 ${counts.expr} 个`),
-      Object.keys(types).length ? h('p', { class: 'small' }, '这个月常错的：', Object.entries(types).sort((a, b) => b[1] - a[1]).map(([t, n]) => `${TYPE_CN[t] || t} ${n}${prevTypes[t] !== undefined ? `（上个月 ${prevTypes[t]}）` : ''}`).join('、')) : null,
-      d.english.cards.length ? h('a', { class: 'small', href: '#/english/cards' }, '翻看全部 ›') : h('p', { class: 'muted small' }, '贴回第一次的总结，这里就有东西了。')));
-}
-
-
-const reviewState = { shown: false };
-function englishReviewView() {
-  const d = store.data;
-  const today = dayKey();
-  const due = dueCards(d, today);
-  if (!due.length) {
-    return h('div', {}, header('复习'), h('div', { class: 'card center' }, h('p', {}, '今天的复习做完了 ✓'), h('p', { class: 'muted small' }, CHEER_ON.englishCards), h('a', { class: 'button secondary', href: '#/english' }, '回到英语陪练')));
-  }
-  const c = due[0];
-  const answer = (ok) => {
-    reviewState.shown = false;
-    save('英语复习', (data) => {
-      const i = data.english.cards.findIndex((x) => x.id === c.id);
-      if (i >= 0) data.english.cards[i] = reviewCard(data.english.cards[i], ok, today);
-    }).then(() => { render(); if (due.length === 1) toast(CHEER_ON.englishCards); }).catch(() => {});
-  };
-  const front = c.kind === 'mistake'
-    ? [h('div', { class: 'label-sm first' }, '你说的（哪里不对？）'), h('p', { class: 'card-front' }, c.front)]
-    : [h('div', { class: 'label-sm first' }, '英文怎么说？'), h('p', { class: 'card-front' }, c.cn || c.front)];
-  const back = c.kind === 'mistake'
-    ? [h('div', { class: 'label-sm' }, '更好的说法'), h('p', { class: 'card-back' }, c.back), c.type ? h('span', { class: 'badge' }, c.type) : null]
-    : [h('p', { class: 'card-back' }, c.front), c.back ? h('p', { class: 'muted small' }, c.back) : null];
-  return h('div', {},
-    headerSub('复习', `还有 ${due.length} 条`),
-    h('div', { class: 'card flash' }, front, reviewState.shown ? back : null),
-    reviewState.shown
-      ? h('div', { class: 'actions' }, h('button', { class: 'grow', onclick: () => answer(true) }, '记住了'), h('button', { class: 'secondary grow', onclick: () => answer(false) }, '还没记住'))
-      : h('button', { class: 'wide', onclick: () => { reviewState.shown = true; render(); } }, '看答案'),
-    h('p', { class: 'muted small center' }, `记住了会隔 ${REVIEW_STEPS.slice(0, 4).join('、')}… 天再出现`));
-}
-
-function englishCardsView() {
-  const d = store.data;
-  const del = (c) => saveUndoable('英语：删一张', (data) => { data.english.cards = data.english.cards.filter((x) => x.id !== c.id); }, '删掉了').then(render).catch(() => {});
-  const list = (kind) => d.english.cards.filter((c) => c.kind === kind).slice().reverse().map((c) => h('div', { class: 'event-row' },
-    h('span', { class: 'grow small' }, kind === 'mistake' ? [h('s', { class: 'muted' }, c.front), h('span', { class: 'block' }, c.back)] : [h('b', {}, c.front), c.cn ? ` · ${c.cn}` : '', c.back ? h('span', { class: 'muted block' }, c.back) : null]),
-    h('button', { class: 'link small muted icon-del', 'aria-label': '删掉', onclick: () => del(c) }, icon('trash'))));
-  return h('div', {},
-    headerSub('我的本子', '错句和表达'),
-    h('div', { class: 'section-title' }, '表达本'), h('div', { class: 'card' }, list('expr')),
-    h('div', { class: 'section-title' }, '错句本'), h('div', { class: 'card' }, list('mistake')));
 }
 
 // ---------- 想去的地方 ----------
@@ -1940,7 +1810,7 @@ function statsView() {
   const stressS = series(d, today, n, (x) => d.days[x]?.stress ?? null);
   const slS = series(d, today, n, (x) => sleepHours(d.days[x]?.sleep));
   const sp = sleepPattern(d, today, 30);
-  const RH = { shower: ['洗澡', (e) => e.type === 'shower'], sport: ['运动', (e) => e.type === 'sport'], drink: ['咖啡奶茶茶', (e) => e.type === 'drink'], english: ['英语', (e) => e.type === 'english'] };
+  const RH = { shower: ['洗澡', (e) => e.type === 'shower'], sport: ['运动', (e) => e.type === 'sport'], drink: ['咖啡奶茶茶', (e) => e.type === 'drink'] };
   const rh = rhythm(d, today, RH[statsState.rhythm][1]);
   const care = careRates(d, today);
   const plans = planRates(d, today);
@@ -2031,7 +1901,7 @@ function reportView(q) {
   const tiles = [
     ['心情', fmt1(s.mood)], ['精力', fmt1(s.energy)], ['压力', fmt1(s.stress)], ['平均睡', s.sleep === null ? '—' : `${fmt1(s.sleep)} 小时`],
     ['护肤做完', `${s.careDays} 天`], ['洗澡', `${s.showers} 次`], ['运动', `${s.sports} 次${s.km ? ` · ${Math.round(s.km * 10) / 10} 公里` : ''}`], ['咖啡奶茶茶', `${s.drinks} 杯`],
-    ['祷告', `${s.prayers} 晚`], ['读经', `${s.reads} 次`], ['英语', `${s.english} 次`], ['去了', `${new Set(s.visits.map((v) => v.name)).size} 个地方`],
+    ['祷告', `${s.prayers} 晚`], ['读经', `${s.reads} 次`], ['去了', `${new Set(s.visits.map((v) => v.name)).size} 个地方`],
   ];
   const write = async () => {
     letterBusy[r.key] = true; render();
@@ -2073,7 +1943,7 @@ function goalWeekCard(mon) {
     active.map((g) => h('a', { class: 'small block', href: `#/goal/${g.id}` }, goalLine(g))),
     did.length ? [h('p', { class: 'small good-text' }, `这周做了 ${did.length} 件：`), did.map((x) => h('div', { class: 'small night-note' }, h('span', { class: 'muted' }, `${x.goal}　`), x.text))] : null);
 }
-const LETTER_SYSTEM = '你是一位温暖、真诚的朋友，帮一位博士生回顾他的一段生活。他在用心学着照顾自己：护肤、祷告（他是基督徒）、运动、练英语。'
+const LETTER_SYSTEM = '你是一位温暖、真诚的朋友，帮一位博士生回顾他的一段生活。他在用心学着照顾自己：护肤、祷告（他是基督徒）、运动。'
   + '用中文大白话写，160–260 字，分两三段。先说看到的好的地方（要具体，引用他的数字或他写的话），再温和地说一两个可以留意的规律，最后一句鼓励。'
   + '不说教，不评判，不用「你应该」，不夸张，不制造焦虑。没做到的事轻轻带过或者不提。只能说「常常一起出现」，不要下因果结论。';
 
@@ -2081,7 +1951,7 @@ function summaryText(s) {
   const f = (v) => (v === null ? '没记' : Math.round(v * 10) / 10);
   return [
     `记录了 ${s.recorded}/${s.days} 天。心情平均 ${f(s.mood)}（1–10），精力 ${f(s.energy)}（1–5），压力 ${f(s.stress)}（1–5），平均睡 ${f(s.sleep)} 小时。`,
-    `护肤都做完 ${s.careDays} 天，洗澡 ${s.showers} 次，运动 ${s.sports} 次（${s.sportMinutes} 分钟${s.km ? `，${Math.round(s.km * 10) / 10} 公里` : ''}），咖啡奶茶茶 ${s.drinks} 杯，祷告 ${s.prayers} 晚，读经 ${s.reads} 次，英语 ${s.english} 次，生病 ${s.sick} 次，新养成习惯 ${s.habits} 个。`,
+    `护肤都做完 ${s.careDays} 天，洗澡 ${s.showers} 次，运动 ${s.sports} 次（${s.sportMinutes} 分钟${s.km ? `，${Math.round(s.km * 10) / 10} 公里` : ''}），咖啡奶茶茶 ${s.drinks} 杯，祷告 ${s.prayers} 晚，读经 ${s.reads} 次，生病 ${s.sick} 次，新养成习惯 ${s.habits} 个。`,
     s.visits.length ? `去过：${s.visits.map((v) => `${v.name}${v.score ? `（${v.score} 分）` : ''}`).join('、')}。` : '',
     s.notes.length ? `每天的一句话：${s.notes.map((x) => `${x.day.slice(5)} ${x.mood || '-'}分 ${x.note}`).join('；')}` : '',
     s.did.length ? `科研：${s.did.map((x) => `${x.day.slice(5)} ${x.did}`).join('；')}` : '',
@@ -4526,7 +4396,6 @@ function moreView() {
       cell({ href: '#/goals', ic: 'sparkle', color: 'var(--accent)', title: '想做到的事', sub: '心愿 → 一步一步能做到的事' }),
       cell({ href: '#/places', ic: 'globe', color: 'var(--good)', title: '想去的地方', sub: '地图、周末去哪、足迹' }),
       cell({ href: '#/people', ic: 'people', color: 'var(--amber)', title: '身边的人', sub: '家人、亲戚、一路上认识的人' }),
-      cell({ href: '#/english', ic: 'globe', color: 'var(--blue)', title: '英语陪练', sub: '和 ChatGPT 语音聊' }),
       cell({ href: '#/sick/book', ic: 'shield', color: 'var(--danger)', title: '生病手册', sub: '我的经验、预案' })),
     h('div', { class: 'group' },
       cell({ href: '#/stats', ic: 'chart', color: 'var(--blue)', title: '分析和回顾', sub: '什么在影响我、作息、周报月报' }),

@@ -58,7 +58,6 @@ export function defaultData(today) {
     sick: { current: null, history: [], plans: structuredClone(DEFAULT_PLANS), meds: {}, clinic: {} },
     // 难受的时候：plans 每种难受的清单，notes 写给难受时的自己 { id, text, at }，log 每一次 { id, day, at, kind, before, after, did, helped, note }
     low: { plans: structuredClone(LOW_PLANS), notes: [], log: [] },
-    english: { cards: [], next: '' },
     milestones: {}, // { key: 达到的日期 }，seen: { key: true }
     places: [], // 想去的地方，见 places.js
     letters: {}, // DeepSeek 写的回顾：{ w周一 / m月份 / y年份: { at, text, research } }
@@ -98,7 +97,6 @@ export function migrate(data) {
   data.private = { ...d.private, ...(data.private || {}) };
   data.sick = { ...d.sick, ...(data.sick || {}) };
   data.sick.plans = { ...DEFAULT_PLANS, ...(data.sick.plans || {}) };
-  data.english = { ...d.english, ...(data.english || {}) };
   data.low = { ...d.low, ...(data.low || {}) };
   data.low.plans = { ...LOW_PLANS, ...(data.low.plans || {}) };
   data.milestones ||= {};
@@ -285,8 +283,6 @@ export function weekHighlights(data, today) {
   if (pray) out.push(`祷告 ${pray} 晚`);
   const notes = days.filter((x) => data.days[x]?.note || data.days[x]?.mood).length;
   if (notes) out.push(`记录了 ${notes} 天`);
-  const en = data.events.filter((e) => e.type === 'english' && inWeek(e)).length;
-  if (en) out.push(`英语 ${en} 次`);
   const read = days.filter((x) => data.days[x]?.read !== undefined).length;
   if (read) out.push(`读经 ${read} 次`);
   return out;
@@ -299,7 +295,6 @@ export function newMilestones(data) {
     care: allDays.filter((d) => careFullDay(data, d)).length,
     pray: allDays.filter((d) => data.days[d]?.prayer?.night).length,
     sport: data.events.filter((e) => e.type === 'sport').length,
-    english: data.events.filter((e) => e.type === 'english').length,
     night: allDays.filter((d) => data.days[d]?.note).length,
   };
   return Object.keys(MILESTONE_TEXT).filter((key) => {
@@ -440,54 +435,6 @@ export function seasonWarning(daily) {
   const swing = daily.slice(0, 3).find((x) => x.max - x.min >= 12);
   if (swing) return { kind: 'swing', date: swing.date, text: `${swing.date.slice(5).replace('-', '/')} 早晚温差 ${Math.round(swing.max - swing.min)}°C` };
   return null;
-}
-
-// ---------- 英语错句本 / 表达本 ----------
-
-// 解析 ChatGPT「wrap up」的总结。容忍全角竖线、少了 Type、多余的空行和 Markdown 符号
-export function parseSummary(text) {
-  const out = { mistakes: [], expressions: [], next: '' };
-  let part = '';
-  for (const raw of String(text || '').split(/\r?\n/)) {
-    const line = raw.replace(/\*\*/g, '').trim();
-    if (!line) continue;
-    if (/^=+\s*(SUMMARY|END)/i.test(line)) continue;
-    if (/^#*\s*MISTAKES?\b/i.test(line)) { part = 'm'; continue; }
-    if (/^#*\s*EXPRESSIONS?\b/i.test(line)) { part = 'e'; continue; }
-    if (/^#*\s*NEXT TIME\b/i.test(line)) { part = 'n'; continue; }
-    const body = line.replace(/^[-*•\d.)\s]+/, '');
-    const cols = body.split(/\s*[|｜]\s*/).map((x) => x.trim()).filter(Boolean);
-    if (part === 'm') {
-      const get = (re) => cols.map((c) => c.match(re)).find(Boolean)?.[1]?.trim().replace(/^["“]|["”]$/g, '') || '';
-      const said = get(/^I said:?\s*(.+)$/i) || cols[0] || '';
-      const better = get(/^Better:?\s*(.+)$/i) || cols[1] || '';
-      const type = get(/^Type:?\s*(.+)$/i);
-      if (said && better && said !== better) out.mistakes.push({ said, better, type: type.toLowerCase() });
-    } else if (part === 'e') {
-      if (cols[0]) out.expressions.push({ expr: cols[0], cn: cols[1] || '', example: cols[2] || '' });
-    } else if (part === 'n') {
-      out.next = out.next ? `${out.next} ${body}` : body;
-    }
-  }
-  return out;
-}
-
-export const REVIEW_STEPS = [1, 3, 7, 14, 30, 60]; // 记住了：隔几天再出现
-export function reviewCard(card, ok, today) {
-  const level = ok ? Math.min((card.level || 0) + 1, REVIEW_STEPS.length) : 0;
-  return { ...card, level, due: addDays(today, ok ? REVIEW_STEPS[level - 1] : 1), seen: (card.seen || 0) + 1 };
-}
-export const dueCards = (data, today, max = 10) => data.english.cards.filter((c) => c.due <= today).slice(0, max);
-
-// 这个月 / 上个月哪类错误多
-export function mistakeTypes(data, month) {
-  const out = {};
-  for (const c of data.english.cards) {
-    if (c.kind !== 'mistake' || !c.at.startsWith(month)) continue;
-    const t = (c.type || 'other').split(/[\s/,]+/)[0] || 'other';
-    out[t] = (out[t] || 0) + 1;
-  }
-  return out;
 }
 
 // ---------- 小记：按周解锁的任务 ----------
@@ -745,6 +692,9 @@ export function careDots(data, r, today, n = 14) {
     return careSkipped(data, x, r) ? 'skip' : 'miss';
   });
 }
+// 物品档案的「洗漱护肤」里也有电器和工具（热水壶、剃须刀、牙刷、毛巾……），形象页的护肤品不算它们
+const NOT_SKINCARE = /壶|剃须|刮胡|刀|牙刷|牙膏|牙线|冲牙|漱口|毛巾|浴巾|浴球|搓澡|梳|吹风|卷发|直发|杯|盆|桶|拖鞋|镜|指甲|镊|纸|棉签|收纳|置物|架|盒|袋|篮|挂钩|电池|充电|插|线$|海绵|晾/;
+export const isSkincare = (name) => !NOT_SKINCARE.test(name || '');
 export function openedStatus(opened, months, today) {
   const days = daysBetween(opened, today);
   const left = Math.round(months * 30.4) - days;
