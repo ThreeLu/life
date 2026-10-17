@@ -17,7 +17,7 @@
 { version, startDate,
   settings: { rhythmDays, checks, sportKinds, drinkKinds, pin: { salt, iter, hash }, city?: { name, lat, lon, districts: [] } },
   days: { 日期: { mood 1–10, note, energy 1–5, stress 1–5, did, plan, planDone: yes|part|no,
-                  sleep: { bed, wake, q }, fetch: { am|noon|eve: true|'skip' }（打水，老数据 { mid, eve }）, goals: { 习惯id: true }, affirm（默念了）, care: { 打卡项id: true }, noShower（今晚不洗）, clean: true|'skip'（打扫卫生）, soak（泡脚了）, photo（今天的一张照片的路径，photos/days/日期-xxx.jpg）, prayer: { night: { at, mode, note, summary }, morning: { at } } }（老的 read、readBook 不再用） },
+                  sleep: { bed, wake, q }, fetch: { am|noon|eve: true|'skip' }（打水，老数据 { mid, eve }）, goals: { 习惯id: true }, affirm（默念了）, care: { 打卡项id: true }, noShower（今晚不洗）, clean: true|'skip'（打扫卫生）, soak（泡脚了 true | 'skip' 今晚不泡）, photo（今天的一张照片的路径，photos/days/日期-xxx.jpg）, prayer: { night: { at, mode, note, summary }, morning: { at } } }（老的 read、readBook 不再用） },
   events: [{ id, day, at, type: shower|sport|drink|english（老的，不再用）|p|p2, kind?, minutes?, km?, level?, note?, mode?, topic?, mistakes?, exprs?, score?, flag?, checks?: { c1, c2, c3 } }],
   look: { routine: [{ id, step?, name, when: am|pm|shower|week, times?, optional? }], products: { 物品档案id: { opened, verdict, note, pao? } }, hide: [物品档案id],
           老的 direction / steps / identity / moments 不再用 },
@@ -55,7 +55,7 @@
 - 生病（`#/sick`、`#/sick/book`）：体温曲线（37.3 起问切发烧）、喝水 8 杯、预案打勾、什么时候去医院（`RED_FLAGS`，到了自动变红）、药从物品档案「药品急救」读（只读），`MED_KNOWLEDGE` 认成分：同成分 / 两种退烧药提醒、抗生素激素「医生判断」；用户自己抄说明书（`sick.meds`）算下次几点能吃。肠胃从账本读昨天今天吃的（只读）。好了进 `history`（勾哪些管用 → `helped`），之后 2 天恢复期。**只写常识，不替用户定剂量。** 攒经验（用户要的「记多了，下次同样情况就有预案」）：每天点症状（`SYMPTOMS`）、做了什么（预案 + `extra`），`sickLessons` 按种类算几天好、感冒几次转发烧第几天、常见症状、管用的（n/做过次数），`similarSick` 找症状最像的一次，`planMissing` 一键加进预案；生病页最上面「以前的经验」、手册「我的经验」。不要「看病去哪」（用户说不需要），只留急救 120。
 - 活出自己（用户想摆脱唯唯诺诺、老好人，「活出我自己、清晰明了的人生」；他明确说不要功能，只要话）：每页最下面角落一句 `SELF_LINES`（`whisper`，按日期 + 页面挑，同一天不变；小记、`/low/go`、`/pray/go`、设置不放）。标准放在「真的、对的、我在乎的」，不是换一套外面给的规矩；不说教。形象页也不放。
 - 难受的时候（`#/low`、`#/low/go`，用户说「很关键」，平时不占地方）：祷告页最下面一行，心情低时首页提醒一行；一步一页：呼吸（吸 4 呼 6，6 次）→ 有多难受 1–10（9 以上马上给热线 `HOTLINES`）→ 哪一种（`LOW_KINDS`）→ 预案清单（`LOW_PLANS`，可改；`lowLessons` 说以前什么最管用）→ 给你的话（先自己写的 `low.notes`，再是心情 8 分以上那天写的 `goodDays`、经文 `LOW_VERSES`）→ 现在呢 + 哪些有用 → 存进 `low.log`。心情 8 分以上且两周没写过，首页请他写一句给难受时的自己。不推送、不进「问问我的记录」。
-- 泡脚、每天一张照片（2026-10-16 用户要的）：晚上清单顺序 打水 → **泡脚**（每天泡，算进度，点一下 `soak`）→ 洗澡 → 护肤 → 睡前复盘 → 祷告。**今天的一张照片**不是清单里的一行，是睡前复盘页里的一块（`photoCard`，「明天要做」下面，用户 2026-10-16 说的）：`dayPhotoSheet` 选或拍一张，压到 1600 边 0.8 质量 + 400 边小图（`t-` 前缀），传到私有仓库 `photos/days/`，`days[日].photo`；选好就存，不用点「记好了」；不算进度。换 / 删会把原图和小图一起删。照片墙 `#/photos`（「生活」页「照片」）按月排。
+- 泡脚、每天一张照片（2026-10-16 用户要的）：晚上清单顺序 打水 → **泡脚**（每天泡，算进度，点一下 `soak: true`；右边「今晚不泡」= `'skip'`，也算做完了，和打扫卫生一样）→ 洗澡 → 护肤 → 睡前复盘 → 祷告。**今天的一张照片**不是清单里的一行，是睡前复盘页里的一块（`photoCard`，「明天要做」下面，用户 2026-10-16 说的）：`dayPhotoSheet` 选或拍一张，压到 1600 边 0.8 质量 + 400 边小图（`t-` 前缀），传到私有仓库 `photos/days/`，`days[日].photo`；选好就存，不用点「记好了」；不算进度。换 / 删会把原图和小图一起删。照片墙 `#/photos`（「生活」页「照片」）按月排。
 - 打水（2026-10-15 改）：一天一桶，**早上不打**。中午那段一直有一行「打水」（开水房 11–13）；中午点「不打了」或 13 点过了还没打，晚上那段再出一行（17–19），中午那行变成虚线「中午不打了，晚上打」（`waterItem`、`fetchRows`）。老数据的 `am` / `{ mid, eve }` 由 `fetchState`（python 里 `fetch_state`）换算，`am: true` 也算打了。推送 `fetch_message`：今天没打、这一回没点不打了，就在刚开（11:05 / 17:05）和快关（12:20 / 18:20）各提醒一次。
 - 打扫卫生（2026-10-15）：中午那段一行，`days[日].clean = true | 'skip'`，「不弄了」就是今天不弄了。
 - 洗澡（2026-10-14 改）：不是每天，晚上那段有一行「洗澡」（不算进度）；点了（或「＋」、中午「记一下」）先弹「洗澡了吗」（`showerSheet`），顺便勾洗澡后的项，点「洗好了」才记，「取消」什么都不记，记了能撤销、也能在「今天记下的」里删。

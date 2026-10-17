@@ -395,7 +395,7 @@ const TODAY_HELP = [
   ['几样小规矩', [
     '打水：一天一桶，中午打。中午点「不打了」，晚上会再出一行打水，17:00 也会提醒你。',
     '打扫卫生：中午做。点「不弄了」就是今天不弄了。',
-    '泡脚：晚上泡了就点一下，再点取消。',
+    '泡脚：晚上泡了就点一下，再点取消；今晚不泡就点右边的「今晚不泡」，点一下那行又能改回泡了。',
     '今天的一张照片：在睡前复盘那一页里，「明天要做」下面。选一张或现在拍一张，窗外、饭菜、桌面都行；选好就存了，不用点「记好了」。没拍的那天就空着。',
     '洗澡不用每天：洗了就点晚上的「洗澡」（或「＋」、中午的「记一下」），会先问一句，点「洗好了」才记，点错了点「取消」；记了也能撤销，或在「今天记下的」里删掉。不洗就点「今晚不洗」，后来又洗了，点这一行照样能记。洗过澡的晚上会多一行身体乳，晚上的洗脸自动划掉。',
     '最上面一行一行的是提醒：生病、降温、该打理了，有事才出现。',
@@ -501,9 +501,12 @@ function periodList(day, p) {
     else if (r.noShower) item('shower', 'skip', '洗澡', '今晚不洗了', { onclick: () => showerSheet(day), count: false });
     else item('shower', false, '洗澡', '洗了就点一下，不是每天都要', { onclick: () => showerSheet(day), count: false,
       right: h('button', { type: 'button', class: 'skip-btn', onclick: () => saveUndoable('洗澡：今晚不洗', (data) => { dayOf(data, day).noShower = true; }, '今晚不洗了').then(render).catch(() => {}) }, '今晚不洗') });
-    // 泡脚：先洗澡再泡脚，每天都泡，点一下就好
-    const soaked = Boolean(r.soak);
-    item('soak', soaked, '泡脚', soaked ? '泡了' : '每天泡', { onclick: () => saveRender(`泡脚${soaked ? '：没泡' : ''}`, (data) => { const x = dayOf(data, day); if (x.soak) delete x.soak; else x.soak = true; }) });
+    // 泡脚：先洗澡再泡脚，每天都泡，点一下就好；今晚不泡就点「今晚不泡」（soak: 'skip'）
+    const soakSet = (val) => (data) => { const x = dayOf(data, day); if (val === undefined) delete x.soak; else x.soak = val; };
+    if (r.soak === true) item('soak', true, '泡脚', '泡了', { onclick: () => saveRender('泡脚：没泡', soakSet(undefined)) });
+    else if (r.soak === 'skip') item('soak', 'skip', '泡脚', '今晚不泡了', { onclick: () => saveRender('泡脚', soakSet(true)) });
+    else item('soak', false, '泡脚', '每天泡', { onclick: () => saveRender('泡脚', soakSet(true)),
+      right: h('button', { type: 'button', class: 'skip-btn', onclick: () => saveUndoable('泡脚：今晚不泡', soakSet('skip'), '今晚不泡了').then(render).catch(() => {}) }, '今晚不泡') });
     careItem(list, day, 'pm', '晚上护肤');
     // 每周的（面膜等）只在周六晚上问；别的日子做了的，那天也显示
     if (parseDay(day).getDay() === 6 || routineOf(d, 'week').some((x) => r.care?.[x.id])) careItem(list, day, 'week', '这周', null, false);

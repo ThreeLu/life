@@ -619,6 +619,13 @@ def _(c):
     c.wait(lambda d: d["days"][TODAY].get("soak") is True, "泡脚了")
     eve.locator(".it", has_text="泡脚").locator(".it-main").click()
     c.wait(lambda d: not d["days"][TODAY].get("soak"), "取消泡脚")
+    eve.locator(".it", has_text="泡脚").get_by_role("button", name="今晚不泡").click()
+    c.wait(lambda d: d["days"][TODAY].get("soak") == "skip", "今晚不泡")
+    expect(eve.locator(".it.skipped", has_text="今晚不泡了")).to_be_visible()
+    eve.locator(".it", has_text="泡脚").locator(".it-main").click()  # 改主意又泡了
+    c.wait(lambda d: d["days"][TODAY].get("soak") is True, "又泡了")
+    eve.locator(".it", has_text="泡脚").locator(".it-main").click()
+    c.wait(lambda d: not d["days"][TODAY].get("soak"), "取消泡脚")
     c.go("#/night")
     c.page.get_by_role("button", name="选一张或拍一张").click()
     c.sheet().get_by_label("照片").set_input_files(str(ROOT / "icon-180.png"))
