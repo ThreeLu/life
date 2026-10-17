@@ -709,7 +709,7 @@ def _(c):
     c.go("#/history")
     p.get_by_role("link", name="昨天").first.click()
     expect(p.get_by_role("heading", name="昨天")).to_be_visible()
-    c.period("中午").get_by_role("button", name="洗澡").click()
+    c.period("晚上").locator(".it", has_text="洗澡").locator(".it-main").click()
     c.sheet().get_by_role("button", name="洗好了").click()
     c.wait(lambda d: any(e["day"] == YESTERDAY for e in events(d, "shower")), "补记昨天洗澡")
 

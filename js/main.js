@@ -397,7 +397,7 @@ const TODAY_HELP = [
     '打扫卫生：中午做。点「不弄了」就是今天不弄了。',
     '泡脚：晚上泡了就点一下，再点取消；今晚不泡就点右边的「今晚不泡」，点一下那行又能改回泡了。',
     '今天的一张照片：在睡前复盘那一页里，「明天要做」下面。选一张或现在拍一张，窗外、饭菜、桌面都行；选好就存了，不用点「记好了」。没拍的那天就空着。',
-    '洗澡不用每天：洗了就点晚上的「洗澡」（或「＋」、中午的「记一下」），会先问一句，点「洗好了」才记，点错了点「取消」；记了也能撤销，或在「今天记下的」里删掉。不洗就点「今晚不洗」，后来又洗了，点这一行照样能记。洗过澡的晚上会多一行身体乳，晚上的洗脸自动划掉。',
+    '洗澡不用每天：洗了就点晚上的「洗澡」（或底部中间的「＋」），会先问一句，点「洗好了」才记，点错了点「取消」；记了也能撤销，或在「今天记下的」里删掉。不洗就点「今晚不洗」，后来又洗了，点这一行照样能记。洗过澡的晚上会多一行身体乳，晚上的洗脸自动划掉。',
     '最上面一行一行的是提醒：生病、降温、该打理了，有事才出现。',
   ]],
   ['其他', ['看以前的某一天、这周的你、一年前的今天：「生活 → 最近的记录」。']],
@@ -488,11 +488,6 @@ function periodList(day, p) {
   if (p === 'noon') {
     waterItem(list, day, 'noon');
     cleanItem(list, day);
-    list.push({ key: 'record', count: false, node: h('div', { class: 'it plain' }, h('span', { class: 't' }, '记一下',
-      h('div', { class: 'minis' },
-        h('button', { type: 'button', class: 'mini', onclick: () => sportSheet(day) }, '运动'),
-        h('button', { type: 'button', class: 'mini', onclick: () => drinkSheet(day) }, '喝了一杯'),
-        h('button', { type: 'button', class: 'mini', onclick: () => showerSheet(day) }, '洗澡')))) });
   }
   if (p === 'pm') {
     waterItem(list, day, 'eve');
