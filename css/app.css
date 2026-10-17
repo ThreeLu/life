@@ -1053,3 +1053,5 @@ button.icon-del svg.i { width: 17px; height: 17px; }
 .photo-cell { position: relative; padding: 0; border: 0; border-radius: 10px; overflow: hidden; aspect-ratio: 1; background: var(--card, #fff); cursor: pointer; }
 .photo-img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .photo-cell span { position: absolute; left: 6px; bottom: 5px; font-size: 11px; color: #fff; text-shadow: 0 1px 3px rgba(0,0,0,.45); }
+.photo-line { display: flex; align-items: center; gap: 12px; padding: 0; border: 0; background: none; text-align: left; }
+.photo-line .day-thumb { margin: 0; width: 88px; height: 88px; }

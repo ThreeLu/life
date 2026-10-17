@@ -396,7 +396,7 @@ const TODAY_HELP = [
     '打水：一天一桶，中午打。中午点「不打了」，晚上会再出一行打水，17:00 也会提醒你。',
     '打扫卫生：中午做。点「不弄了」就是今天不弄了。',
     '泡脚：晚上泡了就点一下，再点取消。',
-    '今天的一张照片：晚上睡前复盘的下面。点开选一张或现在拍一张，窗外、饭菜、桌面都行；不算进度，没拍的那天就空着。',
+    '今天的一张照片：在睡前复盘那一页里，「明天要做」下面。选一张或现在拍一张，窗外、饭菜、桌面都行；选好就存了，不用点「记好了」。没拍的那天就空着。',
     '洗澡不用每天：洗了就点晚上的「洗澡」（或「＋」、中午的「记一下」），会先问一句，点「洗好了」才记，点错了点「取消」；记了也能撤销，或在「今天记下的」里删掉。不洗就点「今晚不洗」，后来又洗了，点这一行照样能记。洗过澡的晚上会多一行身体乳，晚上的洗脸自动划掉。',
     '最上面一行一行的是提醒：生病、降温、该打理了，有事才出现。',
   ]],
@@ -508,8 +508,6 @@ function periodList(day, p) {
     // 每周的（面膜等）只在周六晚上问；别的日子做了的，那天也显示
     if (parseDay(day).getDay() === 6 || routineOf(d, 'week').some((x) => r.care?.[x.id])) careItem(list, day, 'week', '这周', null, false);
     item('night', Boolean(r.mood || r.note), '睡前复盘', r.mood ? `心情 ${r.mood}${r.note ? ` · ${r.note}` : ''}` : '心情、一句话、科研、明天要做', { href: day === dayKey() ? '#/night' : `#/night?d=${day}` });
-    // 今天的一张照片：不算进度，没拍的那天就空着
-    item('photo', Boolean(r.photo), '今天的一张照片', r.photo ? '存了' : '随手拍什么都行', { onclick: () => dayPhotoSheet(day), count: false, below: r.photo ? dayThumb(r.photo) : null });
     if (day === dayKey()) item('prayer', Boolean(r.prayer?.night), '祷告', r.prayer?.night ? '祷告了' : '22:30', { href: '#/pray/go?m=night' });
   }
   return list;
@@ -898,11 +896,21 @@ function nightView(day) {
     h('div', { class: 'card' }, rows, h('div', { class: 'label-sm' }, '一句话'), note),
     h('div', { class: 'card' }, h('h3', {}, '科研'), h('div', { class: 'label-sm first' }, '今天做了'), did),
     h('div', { class: 'card' }, h('h3', {}, '明天要做'), plan),
+    photoCard(day),
     h('div', { class: 'actions' }, h('button', { class: 'grow', onclick: submit }, '记好了')),
     rec.mood || rec.note ? h('div', { class: 'card next-card' },
       h('h3', {}, '接下来'),
       pmItems.length ? [h('div', { class: 'small' }, '晚上的护肤：'), careCardInline(day, 'pm')] : null,
       isToday ? h('a', { class: 'button wide', href: '#/pray/go?m=night' }, icon('candle'), '去祷告') : null) : null);
+}
+
+// 睡前复盘里的「今天的一张照片」：选或拍一张就直接存，不用等「记好了」
+function photoCard(day) {
+  const p = store.data.days[day]?.photo;
+  return h('div', { class: 'card' }, h('h3', {}, day === dayKey() ? '今天的一张照片' : '这天的一张照片'),
+    p ? h('button', { type: 'button', class: 'photo-line', onclick: () => dayPhotoSheet(day) }, dayThumb(p), h('span', { class: 'small muted' }, '点一下换或删')) : null,
+    p ? null : h('p', { class: 'muted small' }, '窗外、饭菜、桌面，随手拍的都行；不拍也没关系。'),
+    p ? null : h('button', { type: 'button', class: 'secondary wide', onclick: () => dayPhotoSheet(day) }, icon('image'), '选一张或拍一张'));
 }
 
 function careCardInline(day, when) {
@@ -4549,7 +4557,7 @@ function photosView(month) {
     confirmText: '换或删', cancelText: '关闭', onConfirm: () => { setTimeout(() => dayPhotoSheet(day), 0); },
   });
   return h('div', {},
-    headerSub('照片', all ? `一共 ${all} 张，每天一张` : '每天一张', helpButton('照片怎么用', [['怎么用', ['每天晚上睡前复盘下面，点「今天的一张照片」存一张。这里按月排成一面墙。', '点一张看大图；要换或删，点「换或删」。', '忘了拍的那天空着就好。想补以前某一天的，在「最近的记录」里打开那一天，晚上那段同样有这一行。']]])),
+    headerSub('照片', all ? `一共 ${all} 张，每天一张` : '每天一张', helpButton('照片怎么用', [['怎么用', ['每天在睡前复盘那一页里存一张。这里按月排成一面墙。', '点一张看大图；要换或删，点「换或删」。', '忘了拍的那天空着就好。想补以前某一天的，在「最近的记录」里打开那一天，点它的睡前复盘，同样有这一块。']]])),
     h('div', { class: 'month-nav' },
       h('a', { class: 'link', href: `#/photos?m=${shift(-1)}` }, '‹'),
       h('b', {}, `${Number(m.slice(0, 4))}年${Number(m.slice(5))}月`),
