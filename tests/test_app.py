@@ -611,8 +611,9 @@ def _(c):
     c.go("#/")
     eve = c.period("晚上")
     names = eve.locator(".it .t").all_inner_texts()
-    order = [n for k in ("泡脚", "睡前复盘", "今天的一张照片", "祷告") for n in names if n.startswith(k)]
-    assert [n.split("\n")[0] for n in order] == ["泡脚", "睡前复盘", "今天的一张照片", "祷告"], names
+    heads = [n.split("\n")[0] for n in names]
+    at = lambda *ks: next(i for i, n in enumerate(heads) if n.startswith(ks))  # noqa: E731
+    assert at("洗澡", "身体乳") < at("泡脚") < at("晚上护肤") < at("睡前复盘") < at("今天的一张照片") < at("祷告"), heads  # 先洗澡再泡脚
     eve.locator(".it", has_text="泡脚").locator(".it-main").click()
     c.wait(lambda d: d["days"][TODAY].get("soak") is True, "泡脚了")
     eve.locator(".it", has_text="泡脚").locator(".it-main").click()
@@ -623,9 +624,17 @@ def _(c):
     c.sheet().get_by_role("button", name="存好").click()
     c.wait(lambda d: str(d["days"][TODAY].get("photo", "")).startswith("photos/days/"), "存了照片")
     path = c.data()["days"][TODAY]["photo"]
-    assert c.repo.read(path)
+    assert c.repo.read(path) and c.repo.read(path.replace("photos/days/", "photos/days/t-"))  # 原图和小图
     assert c.period("晚上").locator(".period-head .muted, .period-head .period-done").inner_text() == before  # 不算进度
     expect(c.period("晚上").locator(".day-thumb")).to_be_visible()
+    # 照片墙：这个月一张，点开能看大图
+    c.go("#/photos")
+    expect(c.page.locator(".photo-cell")).to_have_count(1)
+    expect(c.page.locator(".photo-cell img")).to_be_visible()
+    c.page.locator(".photo-cell").click()
+    expect(c.sheet().locator("img")).to_be_visible()
+    c.sheet().get_by_role("button", name="关闭").click()
+    c.go("#/")
     c.period("晚上").locator(".it", has_text="今天的一张照片").locator(".it-main").click()
     c.sheet().get_by_role("button", name="删掉这张").click()
     c.wait(lambda d: not d["days"][TODAY].get("photo"), "删掉照片")

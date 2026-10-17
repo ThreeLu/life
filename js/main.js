@@ -139,6 +139,7 @@ const routes = [
   [/^\/pray\/go$/, (_, q) => prayGoView(q.m)],
   [/^\/sick$/, () => sickView()],
   [/^\/sick\/book$/, () => sickBookView()],
+  [/^\/photos$/, (_, q) => photosView(q.m)],
   [/^\/places$/, () => placesView()],
   [/^\/place\/([^/]+)\/edit$/, (id) => placeEditView(id)],
   [/^\/place\/new$/, () => placeEditView('new')],
@@ -495,14 +496,14 @@ function periodList(day, p) {
   }
   if (p === 'pm') {
     waterItem(list, day, 'eve');
-    // 泡脚：每天都泡，点一下就好
-    const soaked = Boolean(r.soak);
-    item('soak', soaked, '泡脚', soaked ? '泡了' : '每天泡', { onclick: () => saveRender(`泡脚${soaked ? '：没泡' : ''}`, (data) => { const x = dayOf(data, day); if (x.soak) delete x.soak; else x.soak = true; }) });
     // 洗澡不是每天：没洗是一行「洗澡」（不算进度），洗了换成洗澡后要做的
     if (showeredOn(d, day)) careItem(list, day, 'shower', routineOf(d, 'shower').map((x) => x.name).join('、') || '洗澡后', '洗过澡了');
     else if (r.noShower) item('shower', 'skip', '洗澡', '今晚不洗了', { onclick: () => showerSheet(day), count: false });
     else item('shower', false, '洗澡', '洗了就点一下，不是每天都要', { onclick: () => showerSheet(day), count: false,
       right: h('button', { type: 'button', class: 'skip-btn', onclick: () => saveUndoable('洗澡：今晚不洗', (data) => { dayOf(data, day).noShower = true; }, '今晚不洗了').then(render).catch(() => {}) }, '今晚不洗') });
+    // 泡脚：先洗澡再泡脚，每天都泡，点一下就好
+    const soaked = Boolean(r.soak);
+    item('soak', soaked, '泡脚', soaked ? '泡了' : '每天泡', { onclick: () => saveRender(`泡脚${soaked ? '：没泡' : ''}`, (data) => { const x = dayOf(data, day); if (x.soak) delete x.soak; else x.soak = true; }) });
     careItem(list, day, 'pm', '晚上护肤');
     // 每周的（面膜等）只在周六晚上问；别的日子做了的，那天也显示
     if (parseDay(day).getDay() === 6 || routineOf(d, 'week').some((x) => r.care?.[x.id])) careItem(list, day, 'week', '这周', null, false);
@@ -514,11 +515,16 @@ function periodList(day, p) {
   return list;
 }
 // 今天的一张照片（2026-10-16）：存进 life-data 的 photos/days/，days[日].photo 是路径
-function dayThumb(path) {
-  const img = placePhoto(path);
-  img.className = 'day-thumb';
+const thumbOf = (path) => path.replace('photos/days/', 'photos/days/t-');
+// 小图读不到（比如老照片没有小图）就读原图
+function dayImg(path, cls) {
+  const img = h('img', { class: cls, alt: '照片', loading: 'lazy' });
+  const t = thumbOf(path);
+  const show = (key, p2) => (photoUrls[key] ? Promise.resolve(photoUrls[key]) : gh.readBlob(p2).then((b) => (photoUrls[key] = URL.createObjectURL(b))));
+  show(t, t).catch(() => show(path, path)).then((u) => { img.src = u; }).catch(() => img.remove());
   return img;
 }
+const dayThumb = (path) => dayImg(path, 'day-thumb');
 function dayPhotoSheet(day) {
   const old = store.data.days[day]?.photo || null;
   const file = h('input', { type: 'file', accept: 'image/*', 'aria-label': '照片' });
@@ -527,18 +533,18 @@ function dayPhotoSheet(day) {
     body: h('div', { class: 'form' },
       old ? placePhoto(old) : h('p', { class: 'muted small' }, '窗外、饭菜、桌面、路上，随手拍的都行。'),
       h('label', {}, old ? '换一张（可以不换）' : '选一张或现在拍一张', file),
-      old ? h('button', { class: 'danger small', onclick: () => { close(); save('删掉今天的照片', (data) => { delete dayOf(data, day).photo; }, { removes: [old] }).then(render).catch(() => {}); } }, '删掉这张') : null),
+      old ? h('button', { class: 'danger small', onclick: () => { close(); save('删掉今天的照片', (data) => { delete dayOf(data, day).photo; }, { removes: [old, thumbOf(old)] }).then(render).catch(() => {}); } }, '删掉这张') : null),
     confirmText: '存好',
     onConfirm: async () => {
       if (!file.files[0]) { toast('先选一张照片', 'error'); return false; }
-      let path; let base64;
+      let path; let base64; let thumb;
       try {
-        const blob = await compressImage(file.files[0], 1600, 0.8);
         path = `photos/days/${day}-${Date.now().toString(36)}.jpg`;
-        base64 = await blobToBase64(blob);
+        base64 = await blobToBase64(await compressImage(file.files[0], 1600, 0.8));
+        thumb = await blobToBase64(await compressImage(file.files[0], 400, 0.75));
       } catch (e) { toast(e.message, 'error'); return false; }
       try {
-        await save('今天的一张照片', (data) => { dayOf(data, day).photo = path; }, { uploads: [{ path, base64 }], removes: old ? [old] : [] });
+        await save('今天的一张照片', (data) => { dayOf(data, day).photo = path; }, { uploads: [{ path, base64 }, { path: thumbOf(path), base64: thumb }], removes: old ? [old, thumbOf(old)] : [] });
       } catch { return false; }
       render();
       toast('存好了。');
@@ -4529,6 +4535,31 @@ function peopleAlerts(today) {
   return out;
 }
 
+// 每天一张照片：按月排成一面墙，点一张看大图、换、删
+function photosView(month) {
+  const d = store.data;
+  const cur = dayKey().slice(0, 7);
+  const m = /^\d{4}-\d\d$/.test(month || '') ? month : cur;
+  const shift = (n) => { const x = parseDay(`${m}-01`); x.setMonth(x.getMonth() + n); return `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, '0')}`; };
+  const days = Object.keys(d.days).filter((k) => k.startsWith(m) && d.days[k].photo).sort();
+  const all = Object.keys(d.days).filter((k) => d.days[k].photo).length;
+  const open = (day) => openSheet({
+    title: dayLabel(day),
+    body: h('div', { class: 'form' }, placePhoto(d.days[day].photo), d.days[day].note ? h('p', { class: 'small muted' }, d.days[day].note) : null),
+    confirmText: '换或删', cancelText: '关闭', onConfirm: () => { setTimeout(() => dayPhotoSheet(day), 0); },
+  });
+  return h('div', {},
+    headerSub('照片', all ? `一共 ${all} 张，每天一张` : '每天一张', helpButton('照片怎么用', [['怎么用', ['每天晚上睡前复盘下面，点「今天的一张照片」存一张。这里按月排成一面墙。', '点一张看大图；要换或删，点「换或删」。', '忘了拍的那天空着就好。想补以前某一天的，在「最近的记录」里打开那一天，晚上那段同样有这一行。']]])),
+    h('div', { class: 'month-nav' },
+      h('a', { class: 'link', href: `#/photos?m=${shift(-1)}` }, '‹'),
+      h('b', {}, `${Number(m.slice(0, 4))}年${Number(m.slice(5))}月`),
+      m < cur ? h('a', { class: 'link', href: `#/photos?m=${shift(1)}` }, '›') : h('span', { class: 'link off' }, '›')),
+    days.length ? h('div', { class: 'photo-wall' }, days.map((day) => h('button', { type: 'button', class: 'photo-cell', 'aria-label': dayLabel(day), onclick: () => open(day) },
+      dayImg(d.days[day].photo, 'photo-img'), h('span', {}, `${Number(day.slice(8))}日`))))
+      : h('div', { class: 'card' }, h('p', { class: 'muted' }, m === cur ? '这个月还没有。晚上睡前复盘的下面，存今天的第一张。' : '这个月没有存照片。')),
+    h('a', { class: 'small', href: '#/more' }, '‹ 生活'));
+}
+
 // ---------- 更多 ----------
 
 function moreView() {
@@ -4537,6 +4568,7 @@ function moreView() {
     h('div', { class: 'group' },
       cell({ href: '#/goals', ic: 'sparkle', color: 'var(--accent)', title: '想做到的事', sub: '心愿 → 一步一步能做到的事' }),
       cell({ href: '#/places', ic: 'globe', color: 'var(--good)', title: '想去的地方', sub: '地图、周末去哪、足迹' }),
+      cell({ href: '#/photos', ic: 'image', color: 'var(--blue)', title: '照片', sub: '每天一张，按月排成一面墙' }),
       cell({ href: '#/people', ic: 'people', color: 'var(--amber)', title: '身边的人', sub: '家人、亲戚、一路上认识的人' }),
       cell({ href: '#/sick/book', ic: 'shield', color: 'var(--danger)', title: '生病手册', sub: '我的经验、预案' })),
     h('div', { class: 'group' },
