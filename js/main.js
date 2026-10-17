@@ -394,6 +394,8 @@ const TODAY_HELP = [
   ['几样小规矩', [
     '打水：一天一桶，中午打。中午点「不打了」，晚上会再出一行打水，17:00 也会提醒你。',
     '打扫卫生：中午做。点「不弄了」就是今天不弄了。',
+    '泡脚：晚上泡了就点一下，再点取消。',
+    '今天的一张照片：晚上睡前复盘的下面。点开选一张或现在拍一张，窗外、饭菜、桌面都行；不算进度，没拍的那天就空着。',
     '洗澡不用每天：洗了就点晚上的「洗澡」（或「＋」、中午的「记一下」），会先问一句，点「洗好了」才记，点错了点「取消」；记了也能撤销，或在「今天记下的」里删掉。不洗就点「今晚不洗」，后来又洗了，点这一行照样能记。洗过澡的晚上会多一行身体乳，晚上的洗脸自动划掉。',
     '最上面一行一行的是提醒：生病、降温、该打理了，有事才出现。',
   ]],
@@ -493,6 +495,9 @@ function periodList(day, p) {
   }
   if (p === 'pm') {
     waterItem(list, day, 'eve');
+    // 泡脚：每天都泡，点一下就好
+    const soaked = Boolean(r.soak);
+    item('soak', soaked, '泡脚', soaked ? '泡了' : '每天泡', { onclick: () => saveRender(`泡脚${soaked ? '：没泡' : ''}`, (data) => { const x = dayOf(data, day); if (x.soak) delete x.soak; else x.soak = true; }) });
     // 洗澡不是每天：没洗是一行「洗澡」（不算进度），洗了换成洗澡后要做的
     if (showeredOn(d, day)) careItem(list, day, 'shower', routineOf(d, 'shower').map((x) => x.name).join('、') || '洗澡后', '洗过澡了');
     else if (r.noShower) item('shower', 'skip', '洗澡', '今晚不洗了', { onclick: () => showerSheet(day), count: false });
@@ -502,9 +507,44 @@ function periodList(day, p) {
     // 每周的（面膜等）只在周六晚上问；别的日子做了的，那天也显示
     if (parseDay(day).getDay() === 6 || routineOf(d, 'week').some((x) => r.care?.[x.id])) careItem(list, day, 'week', '这周', null, false);
     item('night', Boolean(r.mood || r.note), '睡前复盘', r.mood ? `心情 ${r.mood}${r.note ? ` · ${r.note}` : ''}` : '心情、一句话、科研、明天要做', { href: day === dayKey() ? '#/night' : `#/night?d=${day}` });
+    // 今天的一张照片：不算进度，没拍的那天就空着
+    item('photo', Boolean(r.photo), '今天的一张照片', r.photo ? '存了' : '随手拍什么都行', { onclick: () => dayPhotoSheet(day), count: false, below: r.photo ? dayThumb(r.photo) : null });
     if (day === dayKey()) item('prayer', Boolean(r.prayer?.night), '祷告', r.prayer?.night ? '祷告了' : '22:30', { href: '#/pray/go?m=night' });
   }
   return list;
+}
+// 今天的一张照片（2026-10-16）：存进 life-data 的 photos/days/，days[日].photo 是路径
+function dayThumb(path) {
+  const img = placePhoto(path);
+  img.className = 'day-thumb';
+  return img;
+}
+function dayPhotoSheet(day) {
+  const old = store.data.days[day]?.photo || null;
+  const file = h('input', { type: 'file', accept: 'image/*', 'aria-label': '照片' });
+  const close = openSheet({
+    title: day === dayKey() ? '今天的一张照片' : `${relDay(day)}的一张照片`,
+    body: h('div', { class: 'form' },
+      old ? placePhoto(old) : h('p', { class: 'muted small' }, '窗外、饭菜、桌面、路上，随手拍的都行。'),
+      h('label', {}, old ? '换一张（可以不换）' : '选一张或现在拍一张', file),
+      old ? h('button', { class: 'danger small', onclick: () => { close(); save('删掉今天的照片', (data) => { delete dayOf(data, day).photo; }, { removes: [old] }).then(render).catch(() => {}); } }, '删掉这张') : null),
+    confirmText: '存好',
+    onConfirm: async () => {
+      if (!file.files[0]) { toast('先选一张照片', 'error'); return false; }
+      let path; let base64;
+      try {
+        const blob = await compressImage(file.files[0], 1600, 0.8);
+        path = `photos/days/${day}-${Date.now().toString(36)}.jpg`;
+        base64 = await blobToBase64(blob);
+      } catch (e) { toast(e.message, 'error'); return false; }
+      try {
+        await save('今天的一张照片', (data) => { dayOf(data, day).photo = path; }, { uploads: [{ path, base64 }], removes: old ? [old] : [] });
+      } catch { return false; }
+      render();
+      toast('存好了。');
+      return true;
+    },
+  });
 }
 function periodCount(day, p) {
   const l = periodList(day, p).filter((x) => x.count);

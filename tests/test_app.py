@@ -606,6 +606,31 @@ def _(c):
     c.wait(lambda d: d["days"][TODAY].get("clean") is True, "打扫好了")
 
 
+@step("晚上：泡脚点一下算进度；睡前复盘后面有「今天的一张照片」，选一张存进仓库，不算进度，能换能删")
+def _(c):
+    c.go("#/")
+    eve = c.period("晚上")
+    names = eve.locator(".it .t").all_inner_texts()
+    order = [n for k in ("泡脚", "睡前复盘", "今天的一张照片", "祷告") for n in names if n.startswith(k)]
+    assert [n.split("\n")[0] for n in order] == ["泡脚", "睡前复盘", "今天的一张照片", "祷告"], names
+    eve.locator(".it", has_text="泡脚").locator(".it-main").click()
+    c.wait(lambda d: d["days"][TODAY].get("soak") is True, "泡脚了")
+    eve.locator(".it", has_text="泡脚").locator(".it-main").click()
+    c.wait(lambda d: not d["days"][TODAY].get("soak"), "取消泡脚")
+    before = c.period("晚上").locator(".period-head .muted, .period-head .period-done").inner_text()
+    eve.locator(".it", has_text="今天的一张照片").locator(".it-main").click()
+    c.sheet().get_by_label("照片").set_input_files(str(ROOT / "icon-180.png"))
+    c.sheet().get_by_role("button", name="存好").click()
+    c.wait(lambda d: str(d["days"][TODAY].get("photo", "")).startswith("photos/days/"), "存了照片")
+    path = c.data()["days"][TODAY]["photo"]
+    assert c.repo.read(path)
+    assert c.period("晚上").locator(".period-head .muted, .period-head .period-done").inner_text() == before  # 不算进度
+    expect(c.period("晚上").locator(".day-thumb")).to_be_visible()
+    c.period("晚上").locator(".it", has_text="今天的一张照片").locator(".it-main").click()
+    c.sheet().get_by_role("button", name="删掉这张").click()
+    c.wait(lambda d: not d["days"][TODAY].get("photo"), "删掉照片")
+
+
 @step("定期打理：到日子出现在今天，点做了；前一天预告；入口在「生活」")
 def _(c):
     p = c.page

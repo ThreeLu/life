@@ -582,6 +582,7 @@ svg.i.big-icon { width: 36px; height: 36px; color: var(--accent); align-self: ce
 .weekend p { margin: 4px 0 0; }
 .visit p { margin: 6px 0 0; }
 .visit-photo { width: 100%; border-radius: 12px; margin-top: 8px; display: block; }
+.day-thumb { width: 64px; height: 64px; object-fit: cover; border-radius: 10px; margin-top: 6px; display: block; }
 .inf-row { display: flex; gap: 10px; align-items: flex-start; padding: 8px 0; border-bottom: 0.5px solid var(--line); }
 .inf-dot { width: 10px; height: 10px; border-radius: 5px; margin-top: 6px; flex: none; background: var(--muted); }
 .inf-dot.good { background: var(--good); }
