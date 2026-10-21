@@ -52,8 +52,8 @@ export function defaultData(today) {
     periodic: DEFAULT_PERIODIC.map((p) => ({ ...p, last: null })),
     weeks: {}, // { 周一的日期: { skin: { score, tags, note }, thanks } }
     prayer: { stage: 1, since: today, items: [], next: 0 },
-    // 小记：ui 是这一页上的文字（名字、按钮、说明），program 是按周解锁的任务，都只在私有仓库里
-    private: { supplies: [], ui: {}, program: null, sessions: [], media: [], limits: [], custom: [], minutes: 60, latest: '23:30', perWeek: 1 },
+    // 小记：ui 是这一页上的文字（名字、按钮、说明），只在私有仓库里
+    private: { supplies: [], ui: {} },
     sick: { current: null, history: [], plans: structuredClone(DEFAULT_PLANS), meds: {}, clinic: {} },
     // 难受的时候：plans 每种难受的清单，notes 写给难受时的自己 { id, text, at }，log 每一次 { id, day, at, kind, before, after, did, helped, note }
     low: { plans: structuredClone(LOW_PLANS), notes: [], log: [] },
@@ -395,70 +395,6 @@ export function seasonWarning(daily) {
   if (swing) return { kind: 'swing', date: swing.date, text: `${swing.date.slice(5).replace('-', '/')} 早晚温差 ${Math.round(swing.max - swing.min)}°C` };
   return null;
 }
-
-// ---------- 小记：按周解锁的任务 ----------
-// private.program = { start: 第一周的周一, weeks: [{ title, intro, tasks: [{ id, track, text, level, note? }], buy?: { name, price } }] }
-// 超过最后一周以后：一直是最后一周的任务 + 自己写的（private.custom）
-
-export function programWeek(data, today) {
-  const pg = data.private.program;
-  if (!pg?.weeks?.length) return null;
-  const n = Math.floor(daysBetween(pg.start, today) / 7);
-  if (n < 0) return { n: -1, week: null, total: pg.weeks.length, startsIn: -daysBetween(pg.start, today) };
-  const i = Math.min(n, pg.weeks.length - 1);
-  return { n, i, week: pg.weeks[i], total: pg.weeks.length, after: n >= pg.weeks.length };
-}
-
-// 这周的任务：本周的 + 从任务池里抽的几张（program.draw 张，同一周抽到的一样）+ 超过最后一周时自己写的
-export function weekTasks(data, today) {
-  const w = programWeek(data, today);
-  if (!w?.week) return [];
-  const pg = data.private.program;
-  const fixed = new Set(w.week.tasks.map((t) => t.id));
-  const pool = (pg.pool || []).filter((t) => (t.from || 1) <= w.n + 1 && !fixed.has(t.id));
-  const drawn = [];
-  let seed = [...`${pg.start}-${w.n}`].reduce((a, c) => (a * 31 + c.charCodeAt(0)) >>> 0, 17);
-  const left = pool.slice();
-  for (let k = 0; k < (pg.draw || 0) && left.length; k++) {
-    seed = (seed * 1103515245 + 12345) >>> 0;
-    drawn.push(left.splice(seed % left.length, 1)[0]);
-  }
-  // 抽到的放在最后一张之前（最后一张通常是收尾的规矩）
-  const tasks = w.week.tasks.slice();
-  tasks.splice(Math.max(1, tasks.length - 1), 0, ...drawn);
-  return [...tasks, ...(w.after ? data.private.custom : [])];
-}
-
-// 不影响生活：这周次数超过自己定的、最近几次结束后心情低
-export function privateNote(data, today) {
-  const ss = data.private.sessions;
-  const mon = weekOf(today);
-  const thisWeek = ss.filter((s) => s.day >= mon).length;
-  const per = data.private.perWeek || 1;
-  if (thisWeek > per) return `这周已经是第 ${thisWeek} 次了，你给自己定的是一周 ${per} 次。`;
-  const last = ss.slice(-3);
-  if (last.length === 3 && last.every((s) => s.after && s.after <= 2)) return '最近几次结束后心情都不太好。可以缓一缓，或者换轻一点的任务；不舒服的话随时可以停。';
-  const long = ss.slice(-3).filter((s) => s.minutes > (data.private.minutes || 60) + 20).length;
-  if (long >= 2) return '最近几次都超时了不少，注意别占了睡觉的时间。';
-  return null;
-}
-
-// 让任务有点变化：{3-6} → 3 到 6 之间随机一个整数；{跪好|趴好} → 随机选一个。同一个 seed 结果一样（一次时间里不会变）
-export function seeded(seed) {
-  let x = (typeof seed === 'number' ? seed : [...String(seed)].reduce((a, c) => (a * 31 + c.charCodeAt(0)) >>> 0, 7)) >>> 0 || 1;
-  return () => { x = (x * 1103515245 + 12345) >>> 0; return x / 4294967296; };
-}
-export function fillText(text, seed) {
-  const rnd = seeded(seed);
-  return String(text || '').replace(/\{(\d+)-(\d+)\}|\{([^{}]*\|[^{}]*)\}/g, (m, a, b, opts) => {
-    if (opts) { const list = opts.split('|'); return list[Math.floor(rnd() * list.length)]; }
-    const lo = Number(a); const hi = Number(b);
-    return String(lo + Math.floor(rnd() * (hi - lo + 1)));
-  });
-}
-export const pickOne = (list, seed) => (list?.length ? list[Math.floor(seeded(seed)() * list.length)] : null);
-// 得分：做到的任务按强度算（1 级 10 分，2 级 20 分，3 级 30 分）
-export const sessionPoints = (results, tasks) => tasks.reduce((a, t) => a + (results[t.id] === 'done' ? (t.level || 1) * 10 : 0), 0);
 
 // ---------- 打水 ----------
 // 一天打一桶。早上不打；中午 11–13 打，中午「不打了」就晚上 17–19 打（17:00 推送提醒）。

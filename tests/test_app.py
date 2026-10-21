@@ -445,137 +445,6 @@ def _(c):
     c.wait(lambda d: d["private"]["supplies"][0]["name"] == "编的用品", "用品")
 
 
-@step("小记：按周解锁的任务、开始一段时间（安全提醒、一张一张做或跳过、绝对不要的不出现、收尾）、音频记录、超过一周一次轻轻提")
-def _(c):
-    p = c.page
-    mon = (datetime.fromisoformat(TODAY) - timedelta(days=datetime.fromisoformat(TODAY).weekday())).date().isoformat()
-    def seed(d):
-        d["private"]["program"] = {"start": mon, "weeks": [
-            {"title": "编的第一周", "intro": "编的介绍", "buy": {"name": "编的东西", "price": "¥10"}, "tasks": [
-                {"id": "t1", "track": "a", "text": "编的任务一 {3-3} 次，{只有这个}", "level": 1},
-                {"id": "t2", "track": "b", "text": "编的任务二（含忌讳词）", "level": 2},
-                {"id": "t3", "track": "b", "text": "编的任务三", "level": 1, "note": "编的安全提示"}]},
-            {"title": "编的第二周", "tasks": [{"id": "t4", "track": "a", "text": "编的任务四"}]}],
-            "pool": [{"id": "p1", "track": "b", "text": "编的池子任务", "from": 1}, {"id": "p2", "track": "b", "text": "编的以后才有", "from": 5}], "draw": 1,
-            "scenes": ["编的情景 {甲|甲}"], "rewards": ["编的奖励"], "penalties": ["编的惩罚"]}
-        d["private"]["limits"] = ["忌讳词"]
-        d["private"]["ui"].update(sessionStart="编的开始", safety=["编的安全一"], aftercare=["编的收尾一", "编的收尾二"])
-    c.write(seed)
-    c.go("#/p")
-    p.reload()
-    p.get_by_label("密码").fill("123456")
-    expect(p.locator(".program")).to_contain_text("第 1 周 / 2")
-    expect(p.locator(".program")).to_contain_text("编的第一周")
-    expect(p.locator(".program")).to_contain_text("这周可以买：编的东西")
-    expect(p.locator("main")).not_to_contain_text("编的任务一")  # 开始以后才出现
-    p.get_by_role("link", name="编的开始").click()
-    expect(p.get_by_text("编的安全一")).to_be_visible()
-    expect(p.get_by_text("忌讳词")).to_be_visible()
-    p.get_by_role("button", name="准备好了").click()
-    expect(p.locator(".task-text")).to_have_text("编的情景 甲")
-    p.get_by_role("button", name="开始", exact=True).click()
-    expect(p.locator(".task-text")).to_have_text("编的任务一 3 次，{只有这个}")
-    p.get_by_role("button", name="做到了").click()
-    expect(p.locator(".task-text")).to_have_text("编的池子任务")  # 从任务池抽的（第 5 周以后的不会抽到），含「绝对不要」的跳过了
-    p.get_by_role("button", name="做到了").click()
-    expect(p.locator(".task-text")).to_have_text("编的任务三")
-    expect(p.get_by_text("编的安全提示")).to_be_visible()
-    p.get_by_role("button", name="跳过").click()
-    expect(p.get_by_text("收尾", exact=True)).to_be_visible()
-    expect(p.locator(".big-num")).to_have_text("20")  # 做到的两张，各 1 级
-    expect(p.get_by_text("编的奖励")).to_have_count(0)  # 有跳过就没有奖励
-    expect(p.get_by_text("编的惩罚")).to_have_count(0)  # 只跳过一张，没有惩罚
-    p.get_by_role("button", name="编的收尾一").click()
-    p.get_by_role("group", name="结束后的心情").get_by_role("button", name="不错").click()
-    p.get_by_role("checkbox").check()
-    p.get_by_role("button", name="结束").click()
-    c.wait(lambda d: d["private"]["sessions"], "一段时间")
-    ss = c.data()["private"]["sessions"][0]
-    assert ss["tasks"] == {"t1": "done", "p1": "done", "t3": "skip"} and ss["after"] == 4 and ss["week"] == 1 and ss["points"] == 20 and ss["scene"] == "编的情景 甲", ss
-    assert any(e.get("session") == ss["id"] for e in c.data()["events"]), "也记一次"
-    expect(p.locator(".card", has_text="（最近）")).to_contain_text("任务 2/3")
-    # 音频
-    p.get_by_role("button", name="＋ 记一个").click()
-    c.sheet().get_by_label("名字").fill("编的音频")
-    c.sheet().get_by_label("多少分钟").fill("20")
-    c.sheet().get_by_role("button", name="不错").click()
-    c.sheet().get_by_role("button", name="记好了").click()
-    c.wait(lambda d: d["private"]["media"] and d["private"]["media"][0]["minutes"] == 20, "音频")
-    # 这周第二次：轻轻提
-    c.write(lambda d: d["private"]["sessions"].append({**d["private"]["sessions"][0], "id": "ss2"}))
-    p.reload()
-    p.get_by_label("密码").fill("123456")
-    expect(p.get_by_text("这周已经是第 2 次了")).to_be_visible()
-    # 别的地方都看不到
-    c.go("#/stats")
-    expect(p.locator("main")).not_to_contain_text("编的")
-
-
-@step("小记：语音和计时、规矩手册（做到了加规矩）、突击检查、称呼、等级、黑暗模式")
-def _(c):
-    p = c.page
-    mon = (datetime.fromisoformat(TODAY) - timedelta(days=datetime.fromisoformat(TODAY).weekday())).date().isoformat()
-    def seed(d):
-        d["private"]["program"] = {"start": mon, "weeks": [{"title": "编的周", "tasks": [
-            {"id": "k1", "track": "c", "text": "{称呼}，保持 2 秒，{求}", "level": 1, "rule": "编的规矩甲"},
-            {"id": "k2", "track": "b", "text": "编的第二张", "level": 2}]}],
-            "checks": ["编的突击命令"], "checkEvery": [0.1, 0.1],
-            "levels": [{"name": "编的一级", "min": 0}, {"name": "编的二级", "min": 30, "text": "编的升级仪式"}],
-            "rewards": [{"text": "编的奖励撤规矩", "unrule": True}]}
-        d["private"]["callNames"] = ["编的称呼"]
-        d["private"]["begs"] = ["编的求"]
-        d["private"]["sessions"] = []
-        d["private"]["ui"]["trackC"] = "编的宠物"
-    c.write(seed)
-    c.go("#/p")
-    p.reload()
-    # 有时候还开着锁（同一个标签页里），有密码框才填
-    lock = p.get_by_label("密码")
-    p.locator(".card", has_text="规矩手册").or_(lock).first.wait_for()
-    if lock.count():
-        lock.fill("123456")
-    expect(p.locator(".card", has_text="规矩手册")).to_contain_text("编的一级 · 0 分")
-    p.get_by_role("link", name="编的开始").click()
-    p.get_by_role("checkbox", name="黑暗模式（关灯，只听口令）").check()
-    p.get_by_role("button", name="准备好了").click()
-    expect(p.locator("body.dark-session")).to_have_count(1)
-    # 突击检查（测试里间隔设成 6 秒）
-    expect(p.locator(".check-card")).to_contain_text("编的突击命令", timeout=12000)
-    p.get_by_role("button", name="做到了").click()
-    expect(p.locator(".task-text")).to_have_text("编的称呼，保持 2 秒，编的求")
-    expect(p.locator(".task-card")).to_contain_text("编的宠物")
-    expect(p.get_by_text("这条会加进规矩手册：编的规矩甲")).to_be_visible()
-    p.get_by_role("button", name="开始计时").click()
-    expect(p.get_by_role("button", name="停", exact=True)).to_be_visible()
-    expect(p.get_by_role("button", name="开始计时")).to_be_visible(timeout=4000)  # 2 秒到了，计时器回到开始
-    p.get_by_role("button", name="做到了").click()
-    c.wait(lambda d: d["private"].get("rules") and d["private"]["rules"][0]["text"] == "编的规矩甲", "加规矩")
-    for _ in range(6):  # 剩下的任务和随时可能来的突击检查
-        if p.get_by_text("收尾", exact=True).count():
-            break
-        p.get_by_role("button", name="做到了").click()
-        p.wait_for_timeout(300)
-    expect(p.get_by_text("收尾", exact=True)).to_be_visible()
-    expect(p.get_by_text("升级了")).to_be_visible()
-    expect(p.get_by_text("编的升级仪式")).to_be_visible()
-    expect(p.get_by_text("编的奖励撤规矩")).to_be_visible()
-    p.get_by_role("button", name="撤销一条规矩").click()
-    c.sheet().get_by_role("button", name="编的规矩甲").click()
-    c.wait(lambda d: not d["private"]["rules"], "撤销规矩")
-    p.get_by_role("button", name="结束").click()
-    c.wait(lambda d: d["private"]["sessions"] and d["private"]["sessions"][0]["checks"] >= 1, "突击检查记下来")
-    expect(p.locator("body.dark-session")).to_have_count(0)
-    # 称呼可以自己加、删
-    p.get_by_label("新的称呼").fill("编的第二个称呼")
-    p.get_by_label("新的称呼").locator("..").get_by_role("button", name="加", exact=True).click()
-    c.wait(lambda d: d["private"]["callNames"] == ["编的称呼", "编的第二个称呼"], "称呼")
-    # 语音设置：语速音调存在这台设备上
-    p.get_by_label("语速").fill("0.8")
-    p.get_by_label("语速").dispatch_event("change")
-    p.get_by_role("button", name="试听").click()
-    assert p.evaluate("JSON.parse(localStorage.getItem('life-voice')).rate") == 0.8
-
-
 @step("打水：中午一行，中午不打了晚上再出一行；打扫卫生中午做，可以不弄")
 def _(c):
     p = c.page
@@ -627,10 +496,21 @@ def _(c):
     eve.locator(".it", has_text="泡脚").locator(".it-main").click()
     c.wait(lambda d: not d["days"][TODAY].get("soak"), "取消泡脚")
     c.go("#/night")
+    # 先填了还没点「记好了」，存照片以后填的还在
+    c.page.get_by_role("group", name="心情").get_by_role("button", name="3", exact=True).click()
+    c.page.get_by_role("group", name="压力").get_by_role("button", name="很大").click()
+    c.page.get_by_label("今天的一句话").fill("还没存的一句")
     c.page.get_by_role("button", name="选一张或拍一张").click()
     c.sheet().get_by_label("照片").set_input_files(str(ROOT / "icon-180.png"))
     c.sheet().get_by_role("button", name="存好").click()
     c.wait(lambda d: str(d["days"][TODAY].get("photo", "")).startswith("photos/days/"), "存了照片")
+    expect(c.page.get_by_role("group", name="心情").get_by_role("button", name="3", exact=True)).to_have_attribute("aria-pressed", "true")
+    expect(c.page.get_by_role("group", name="压力").get_by_role("button", name="很大")).to_have_attribute("aria-pressed", "true")
+    expect(c.page.get_by_label("今天的一句话")).to_have_value("还没存的一句")
+    c.page.get_by_role("group", name="心情").get_by_role("button", name="7", exact=True).click()  # 改回原来的，后面分析要用
+    c.page.get_by_role("group", name="压力").get_by_role("button", name="有点大").click()
+    c.page.get_by_role("button", name="记好了").click()
+    c.wait(lambda d: d["days"][TODAY].get("note") == "还没存的一句" and d["days"][TODAY].get("stress") == 4, "照片后点记好了")
     path = c.data()["days"][TODAY]["photo"]
     assert c.repo.read(path) and c.repo.read(path.replace("photos/days/", "photos/days/t-"))  # 原图和小图
     expect(c.page.locator(".photo-line .day-thumb")).to_be_visible()  # 睡前复盘页里带小图

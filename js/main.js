@@ -3,7 +3,7 @@ import { Store, newId, diff, apply as applyPatch } from './store.js';
 import {
   defaultData, dayKey, addDays, daysBetween, weekOf, weekLabel, hm, parseDay, WHEN, routineOf, careDone, weekCount,
   periodicDue, periodicTomorrow, eventsOn, privateStats,
-  prayedOn, programWeek, weekTasks, privateNote, fillText, pickOne, sessionPoints,
+  prayedOn,
   dailyCheer, weekHighlights, newMilestones, careFullDay, showeredOn, careSkipped,
   sickActive, recoveryLeft, tempStats, medInfo, doseStatus, medConflicts, seasonWarning,
   sickDid, sickSymptoms, sickLessons, similarSick, planMissing, sickKinds,
@@ -106,7 +106,7 @@ function boot() {
   window.addEventListener('online', () => store?.sync());
   window.addEventListener('hashchange', () => {
     for (const el of document.querySelectorAll('.sheet-overlay, .overlay')) el.remove();
-    if (currentPath() !== '/p/s') { document.body.classList.remove('dark-session'); try { speechSynthesis.cancel(); } catch { /* 无 */ } }
+    nightDraft = null;
     render();
     window.scrollTo(0, 0);
   });
@@ -148,7 +148,6 @@ const routes = [
   [/^\/report$/, (_, q) => reportView(q)],
   [/^\/ask$/, () => askView()],
   [/^\/p$/, () => privateView()],
-  [/^\/p\/s$/, () => sessionView()],
   [/^\/periodic$/, () => periodicView()],
   [/^\/chats$/, () => chatsView()],
   [/^\/chat\/new$/, (_, q) => chatEditView('new', q)],
@@ -865,14 +864,19 @@ const NIGHT_HELP = [
   ['分数怎么打', ['心情 1–10：5 是平常，越高越好。', '精力 1–5：今天有没有精神。', '压力 1–5：越高压力越大。']],
 ];
 
+// 还没点「记好了」的内容：存照片会重画这一页，不能把已经填的清掉。离开这一页就不要了
+let nightDraft = null;
+
 function nightView(day) {
   const d = store.data;
   const rec = d.days[day] || {};
-  const st = { mood: rec.mood || null, energy: rec.energy || null, stress: rec.stress || null, planDone: rec.planDone || null };
+  const draft = nightDraft?.day === day ? nightDraft : null;
+  const st = draft?.st || { mood: rec.mood || null, energy: rec.energy || null, stress: rec.stress || null, planDone: rec.planDone || null };
   const note = h('textarea', { rows: 2, placeholder: '今天怎么样，一句话', 'aria-label': '今天的一句话' });
-  note.value = rec.note || '';
-  const did = h('input', { value: rec.did || '', placeholder: '今天科研做了什么', 'aria-label': '今天科研做了什么' });
-  const plan = h('input', { value: rec.plan || '', placeholder: '明天要做什么', 'aria-label': '明天要做什么' });
+  note.value = draft ? draft.note.value : rec.note || '';
+  const did = h('input', { value: draft ? draft.did.value : rec.did || '', placeholder: '今天科研做了什么', 'aria-label': '今天科研做了什么' });
+  const plan = h('input', { value: draft ? draft.plan.value : rec.plan || '', placeholder: '明天要做什么', 'aria-label': '明天要做什么' });
+  nightDraft = { day, st, note, did, plan };
   const prevPlan = d.days[addDays(day, -1)]?.plan;
   const rows = h('div', {});
   const draw = () => rows.replaceChildren(...[
@@ -886,7 +890,7 @@ function nightView(day) {
     const r = dayOf(data, day);
     for (const k of ['mood', 'energy', 'stress', 'planDone']) { if (st[k]) r[k] = st[k]; else delete r[k]; }
     for (const [k, el] of [['note', note], ['did', did], ['plan', plan]]) { const v = el.value.trim(); if (v) r[k] = v; else delete r[k]; }
-  }).then(() => { toast(cheerNight(st.mood)); render(); }).catch(() => {});
+  }).then(() => { nightDraft = null; toast(cheerNight(st.mood)); render(); }).catch(() => {});
   const isToday = day === dayKey();
   const pmItems = routineOf(d, 'pm');
   return h('div', { class: 'form' },
@@ -2939,8 +2943,6 @@ function privateView() {
   const slotMax = Math.max(1, ...Object.values(s.slot));
   return h('div', {},
     header(ui.title, h('button', { class: 'icon-btn', 'aria-label': '锁上', onclick: () => { lockPrivate(); go('#/'); } }, icon('lock')), helpButton(ui.title, ui.help)),
-    privateNote(d, dayKey()) ? h('div', { class: 'card soft' }, h('p', { class: 'small' }, privateNote(d, dayKey()))) : null,
-    programCard(dayKey()),
     h('div', { class: 'card center' },
       h('div', { class: 'big-num' }, sinceText),
       s.since !== null && s.since >= rhythm ? h('p', { class: 'small muted' }, `已经超过你设的 ${rhythm} 天节奏了，可以安排一下。`) : h('p', { class: 'small muted' }, `你的节奏：${rhythm} 天一次`),
@@ -2960,14 +2962,7 @@ function privateView() {
         h('span', { class: 'grow' }, `${e.day.slice(5).replace('-', '/')} ${hm(e.at)}`,
           h('span', { class: 'muted small' }, [e.score ? `${ui.score} ${e.score}` : '', e.flag ? ui.flagStat : '', e.checks ? checksText(e.checks, ui) : ''].filter(Boolean).map((x) => ` · ${x}`).join(''))),
         icon('chev', 'i chev')))) : null,
-    rulesCard(),
-    sessionsCard(dayKey()),
-    callNamesCard(),
-    begsCard(),
-    voiceCard(),
-    mediaCard(),
-    suppliesCard(ui),
-    limitsCard());
+    suppliesCard(ui));
 }
 const stat = (k, v) => h('div', { class: 'stat' }, h('span', { class: 'muted small' }, k), h('b', {}, v));
 const CHECK_KEYS = ['c1', 'c2', 'c3'];
@@ -3034,408 +3029,6 @@ function checksSheet(id) {
       if (x) x.checks = Object.fromEntries(CHECK_KEYS.map((k) => [k, Boolean(picked[k])]));
     }),
   });
-}
-
-// 按周的任务、一段计时的「时间」、音频记录、绝对不要的清单。文字都从 private.ui 读，这里只有中性默认值。
-const P_PROGRAM_DEFAULT = {
-  programTitle: '这一周', sessionStart: '开始', sessionTitle: '时间', trackA: 'A', trackB: 'B',
-  safety: ['任何一张都可以跳过。', '不舒服就停。'], aftercare: ['收拾好东西', '喝一杯水'],
-  afterLabel: '结束后的心情', alsoCount: '这次也记一次', mediaTitle: '音频', limitsTitle: '绝对不要', customTitle: '自己写的',
-  sceneTitle: '今天的情景', rewardTitle: '奖励', penaltyTitle: '惩罚', pointsLabel: '得分',
-  trackC: 'C', checkTitle: '突击检查', rulesTitle: '规矩手册', levelLabel: '等级', callTitle: '称呼',
-};
-const pp = () => ({ ...P_PROGRAM_DEFAULT, ...pui() });
-
-function programCard(today) {
-  const d = store.data;
-  const ui = pp();
-  const w = programWeek(d, today);
-  if (!w) return null;
-  if (!w.week) return h('div', { class: 'card' }, h('h3', {}, ui.programTitle), h('p', { class: 'small muted' }, `${w.startsIn} 天后开始。`));
-  const tasks = weekTasks(d, today);
-  const mon = weekOf(today);
-  const done = d.private.sessions.filter((s) => s.day >= mon);
-  return h('div', { class: 'card program' },
-    h('div', { class: 'rec-top' }, h('h3', {}, `${ui.programTitle} · 第 ${w.n + 1} 周${w.after ? '（之后）' : ` / ${w.total}`}`), done.length ? h('span', { class: 'good-text small' }, `这周做过 ${done.length} 次`) : null),
-    h('b', { class: 'block' }, w.week.title),
-    w.week.intro ? h('p', { class: 'small' }, w.week.intro) : null,
-    h('p', { class: 'muted small' }, `${tasks.length} 张任务，开始以后一张一张出现。`),
-    w.week.buy ? h('p', { class: 'small' }, `这周可以买：${w.week.buy.name}${w.week.buy.price ? `（${w.week.buy.price}）` : ''}。不买也行。`) : null,
-    h('a', { class: 'button wide', href: '#/p/s' }, ui.sessionStart));
-}
-
-// 一段计时的时间：安全提醒（+ 现在生效的规矩）→ 情景 → 任务一张一张（语音念、带计时）→ 收尾（得分、等级、奖励 / 惩罚）
-// 语音用浏览器自带的中文朗读（建议戴耳机）；突击检查：随机时刻响一声、念一条 program.checks；黑暗模式：全黑的大按钮界面。
-const sess = { step: 'safety', i: 0, start: null, results: {}, key: '', seed: 0, scene: null, voice: true, dark: false, nextCheck: 0, check: null, checksDone: 0, checksSkip: 0, timer: null, beforePoints: 0 };
-let sessTicker = null;
-
-// 语音：浏览器自带的朗读（iPhone 上就是系统的中文声音）。用哪个声音、语速、音调存在这台设备上（每台设备的声音不一样）
-const VOICE_KEY = 'life-voice';
-const FEMALE = /tingting|婷婷|lili|meijia|美佳|xiaoxiao|晓晓|xiaoyi|晓伊|yaoyao|huihui|sinji|female|女/i;
-function zhVoices() {
-  try { return speechSynthesis.getVoices().filter((x) => /^zh/i.test(x.lang)); } catch { return []; }
-}
-function pickVoice() {
-  const pref = readJson(VOICE_KEY);
-  const list = zhVoices();
-  return list.find((x) => x.name === pref.name) || list.find((x) => /zh[-_]CN/i.test(x.lang) && FEMALE.test(x.name)) || list.find((x) => /zh[-_]CN/i.test(x.lang)) || list[0] || null;
-}
-// wrap：任务和突击检查前后随机加一句（private.voiceLines.before / after，让语气更像在命令你）
-function speak(text, wrap = false, force = false) {
-  if ((!sess.voice && !force) || !('speechSynthesis' in window)) return;
-  try {
-    let line = String(text);
-    const vl = store.data.private.voiceLines;
-    if (wrap && vl) {
-      const seed = Date.now();
-      const pre = Math.random() < 0.6 ? pickOne(vl.before, seed) : '';
-      const post = Math.random() < 0.5 ? pickOne(vl.after, seed + 1) : '';
-      line = `${pre ? `${callName(pre, seed)} ` : ''}${line}${post ? ` ${callName(post, seed + 2)}` : ''}`;
-    }
-    speechSynthesis.cancel();
-    const u = new SpeechSynthesisUtterance(line.replace(/[「」]/g, ''));
-    u.lang = 'zh-CN';
-    const v = pickVoice();
-    if (v) u.voice = v;
-    const pref = readJson(VOICE_KEY);
-    u.rate = pref.rate || 0.9;
-    u.pitch = pref.pitch || 0.9;
-    speechSynthesis.speak(u);
-  } catch { /* 不支持就不念 */ }
-}
-function voiceCard() {
-  const pref = readJson(VOICE_KEY);
-  const sel = h('select', { 'aria-label': '声音' });
-  const fill = () => {
-    const list = zhVoices();
-    const cur = pickVoice();
-    sel.replaceChildren(...(list.length ? list.map((v) => h('option', { value: v.name, selected: cur?.name === v.name }, `${v.name}${FEMALE.test(v.name) ? '（女声）' : ''}`)) : [h('option', { value: '' }, '这台设备没有中文声音')]));
-  };
-  fill();
-  try { speechSynthesis.onvoiceschanged = fill; } catch { /* 无 */ }
-  const rate = h('input', { type: 'range', min: '0.6', max: '1.3', step: '0.05', value: pref.rate || 0.9, 'aria-label': '语速' });
-  const pitch = h('input', { type: 'range', min: '0.5', max: '1.5', step: '0.05', value: pref.pitch || 0.9, 'aria-label': '音调' });
-  const store_ = () => writeJson(VOICE_KEY, { name: sel.value, rate: Number(rate.value), pitch: Number(pitch.value) });
-  for (const el of [sel, rate, pitch]) el.addEventListener('change', store_);
-  const sample = () => { store_(); speak(callName('{称呼}，跪好。别让我说第二遍。', Date.now()), false, true); };
-  return h('div', { class: 'card form' },
-    h('h3', {}, '语音'),
-    h('label', {}, '声音', sel),
-    h('label', {}, '语速（慢一点更有压迫感）', rate),
-    h('label', {}, '音调（低一点更冷）', pitch),
-    h('button', { class: 'small secondary', onclick: sample }, '试听'),
-    h('p', { class: 'muted small' }, 'iPhone 上想要更好听的女声：设置 → 辅助功能 → 朗读内容 → 声音 → 中文，下载「增强版」或「高级版」的女声，回来在这里选。设置只存在这台手机上。'));
-}
-function beep() {
-  try {
-    const ctx = new (window.AudioContext || window.webkitAudioContext)();
-    const o = ctx.createOscillator(); const g = ctx.createGain();
-    o.frequency.value = 880; g.gain.value = 0.15;
-    o.connect(g); g.connect(ctx.destination); o.start(); o.stop(ctx.currentTime + 0.35);
-  } catch { /* 没声音就算了 */ }
-}
-// 称呼：{称呼} 换成用户自己定的称呼里随机一个
-function callName(text, seed) {
-  const names = store.data.private.callNames || [];
-  const begs = store.data.private.begs || [];
-  let k = 0;
-  return String(text)
-    .replace(/\{称呼\}/g, () => pickOne(names.length ? names : [''], `${seed}-${k++}`) || '')
-    .replace(/\{求\}/g, () => pickOne(begs.length ? begs : ['求求你，允许我'], `${seed}-b${k++}`));
-}
-const taskText = (t) => fillText(callName(t.text, `${sess.seed}-${t.id}`), `${sess.seed}-${t.id}`);
-// 任务里的第一个时长：「3 分钟」「30 秒」→ 秒数
-function durationOf(text) {
-  const m = String(text).match(/(\d+)\s*(分钟|秒)/);
-  return m ? Number(m[1]) * (m[2] === '分钟' ? 60 : 1) : 0;
-}
-function totalPoints(d) { return d.private.sessions.reduce((a, s) => a + (s.points || 0), 0); }
-function levelOf(d, points) {
-  const levels = (d.private.program?.levels || []).slice().sort((a, b) => a.min - b.min);
-  let cur = null; let next = null;
-  for (const l of levels) { if (points >= l.min) cur = l; else { next = l; break; } }
-  return { cur, next };
-}
-
-function startTicker() {
-  clearInterval(sessTicker);
-  sessTicker = setInterval(() => {
-    if (currentPath() !== '/p/s' || !sess.start) { clearInterval(sessTicker); sessTicker = null; document.body.classList.remove('dark-session'); return; }
-    const d = store.data;
-    // 计时器
-    if (sess.timer) {
-      const left = Math.ceil((sess.timer.end - Date.now()) / 1000);
-      const el = document.querySelector('.count-down');
-      if (el) el.textContent = left > 0 ? `${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')}` : '时间到';
-      if (left === 10) speak('还剩十秒');
-      if (left <= 0) { sess.timer = null; beep(); speak('时间到'); render(); }
-    }
-    const top = document.querySelector('.session-timer');
-    if (top) top.textContent = timerLine(d);
-    // 突击检查
-    const checks = d.private.program?.checks || [];
-    if (checks.length && !sess.check && sess.step === 'task' && sess.nextCheck && Date.now() >= sess.nextCheck) {
-      sess.check = taskText({ id: `c${Date.now()}`, text: pickOne(checks, Date.now()) });
-      beep();
-      setTimeout(() => speak(`突击检查。${sess.check}`, true), 400);
-      render();
-    }
-  }, 1000);
-}
-function timerLine(d) {
-  const mins = Math.floor((Date.now() - sess.start) / 60000);
-  const limit = d.private.minutes || 60;
-  return mins >= limit ? `${mins} 分钟了，时间到了，开始收尾吧。` : `${mins} / ${limit} 分钟 · 最晚 ${d.private.latest || '23:30'} 收尾`;
-}
-function scheduleCheck() {
-  // 下一次突击检查：program.checkEvery = [最少, 最多] 分钟以后（默认 4–10）
-  const [lo, hi] = store.data.private.program?.checkEvery || [4, 10];
-  sess.nextCheck = Date.now() + (lo + Math.random() * (hi - lo)) * 60000;
-}
-
-function sessionView() {
-  const gate = lockGate();
-  if (gate) return gate;
-  const d = store.data;
-  const ui = pp();
-  const today = dayKey();
-  const limits = d.private.limits.map((x) => x.trim()).filter(Boolean);
-  const tasks = weekTasks(d, today).filter((t) => !limits.some((l) => t.text.includes(l)));
-  if (sess.key !== today) Object.assign(sess, { step: 'safety', i: 0, start: null, results: {}, key: today, check: null, checksDone: 0, checksSkip: 0, timer: null });
-  document.body.classList.toggle('dark-session', Boolean(sess.dark && sess.start));
-  const top = sess.start ? h('div', { class: `session-timer${Math.floor((Date.now() - sess.start) / 60000) >= (d.private.minutes || 60) ? ' over' : ''}` }, timerLine(d)) : null;
-  const rules = d.private.rules || [];
-  const stopBtn = sess.start ? h('button', { class: 'link small center block stop-btn', onclick: () => { sess.timer = null; sess.check = null; sess.step = 'end'; speachStop(); render(); } }, '叫停，直接收尾') : null;
-
-  if (sess.step === 'safety') {
-    return h('div', { class: 'session' },
-      header(ui.sessionTitle, helpButton(ui.title, ui.help)),
-      h('div', { class: 'card' }, h('h3', {}, '开始之前'), h('ul', { class: 'small flags' }, ui.safety.map((x) => h('li', {}, x))),
-        limits.length ? [h('h3', {}, ui.limitsTitle), h('p', { class: 'small' }, limits.join('、'))] : null),
-      rules.length ? h('div', { class: 'card' }, h('h3', {}, ui.rulesTitle || '现在生效的规矩'), h('ol', { class: 'small' }, rules.map((r) => h('li', {}, r.text)))) : null,
-      h('div', { class: 'card' },
-        h('label', { class: 'switch-row' }, h('input', { type: 'checkbox', checked: sess.voice, onchange: (e) => { sess.voice = e.target.checked; } }), '语音念命令（戴上耳机）'),
-        h('label', { class: 'switch-row', style: 'margin-top:10px !important' }, h('input', { type: 'checkbox', checked: sess.dark, onchange: (e) => { sess.dark = e.target.checked; } }), '黑暗模式（关灯，只听口令）')),
-      h('button', { class: 'wide', onclick: () => {
-        sess.seed = Date.now();
-        sess.scene = pickOne(d.private.program?.scenes, sess.seed);
-        sess.step = sess.scene ? 'scene' : 'task'; sess.start = Date.now();
-        sess.beforePoints = totalPoints(d);
-        scheduleCheck(); startTicker();
-        if (sess.scene) speak(`今天的情景。${fillText(callName(sess.scene, sess.seed), sess.seed)}`);
-        else if (tasks[0]) speak(taskText(tasks[0]), true);
-        render();
-      } }, '准备好了'),
-      h('a', { class: 'link small center block', href: '#/p' }, '先不了'));
-  }
-  if (sess.check) {
-    const finish = (ok) => { if (ok) sess.checksDone++; else sess.checksSkip++; sess.check = null; sess.timer = null; scheduleCheck(); render(); };
-    const secs = durationOf(sess.check);
-    return h('div', { class: 'session' }, top,
-      h('div', { class: 'card task-card check-card' }, h('span', { class: 'badge warn' }, ui.checkTitle || '突击检查'), h('p', { class: 'task-text' }, sess.check),
-        secs ? timerBox(secs) : null),
-      h('div', { class: 'actions' }, h('button', { class: 'grow big-btn', onclick: () => finish(true) }, '做到了'), h('button', { class: 'secondary big-btn', onclick: () => finish(false) }, '跳过')));
-  }
-  if (sess.step === 'scene') {
-    return h('div', { class: 'session' }, top,
-      h('div', { class: 'card task-card scene' }, h('span', { class: 'badge accent' }, ui.sceneTitle), h('p', { class: 'task-text' }, fillText(callName(sess.scene, sess.seed), sess.seed))),
-      h('button', { class: 'wide big-btn', onclick: () => { sess.step = 'task'; if (tasks[0]) speak(taskText(tasks[0]), true); render(); } }, '开始'),
-      stopBtn);
-  }
-  if (sess.step === 'task' && sess.i < tasks.length) {
-    const t = tasks[sess.i];
-    const text = taskText(t);
-    const mark = (r) => {
-      sess.results[t.id] = r;
-      sess.timer = null;
-      if (r === 'done' && t.rule) save('小记：新规矩', (data) => { const rs = (data.private.rules ||= []); if (!rs.some((x) => x.text === t.rule)) rs.push({ id: newId('rl'), text: t.rule, at: dayKey() }); }).catch(() => {});
-      sess.i++;
-      if (sess.i >= tasks.length) { sess.step = 'end'; speak('任务做完了。开始收尾。'); } else speak(taskText(tasks[sess.i]), true);
-      render(); window.scrollTo(0, 0);
-    };
-    const secs = durationOf(text);
-    const badge = { a: ui.trackA, b: ui.trackB, c: ui.trackC || ui.trackB }[t.track] || ui.trackB;
-    return h('div', { class: 'session' },
-      top,
-      h('div', { class: 'pray-progress' }, tasks.map((_, k) => h('span', { class: k <= sess.i ? 'on' : '' }))),
-      h('div', { class: `card task-card ${t.track || ''}` },
-        h('div', { class: 'rec-top' }, h('span', { class: 'badge accent' }, badge), t.level ? h('span', { class: 'muted small' }, '●'.repeat(t.level)) : null),
-        h('p', { class: 'task-text' }, text),
-        secs ? timerBox(secs) : null,
-        t.rule ? h('p', { class: 'small' }, `做到了，这条会加进规矩手册：${t.rule}`) : null,
-        t.note ? h('p', { class: 'small muted' }, t.note) : null),
-      h('div', { class: 'actions' }, h('button', { class: 'grow big-btn', onclick: () => mark('done') }, '做到了'), h('button', { class: 'secondary big-btn', onclick: () => mark('skip') }, '跳过')),
-      h('button', { class: 'link small center block', onclick: () => speak(text, true, true) }, '再念一遍'),
-      stopBtn);
-  }
-  return sessionEnd(d, ui, tasks, top);
-}
-function speachStop() { try { speechSynthesis.cancel(); } catch { /* 无 */ } }
-
-// 计时：点一下开始倒数，到了响一声、念「时间到」
-function timerBox(secs) {
-  const running = sess.timer && sess.timer.secs === secs;
-  return h('div', { class: 'timer-box' },
-    h('span', { class: 'count-down' }, running ? '' : `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, '0')}`),
-    running ? h('button', { class: 'small secondary', onclick: () => { sess.timer = null; render(); } }, '停')
-      : h('button', { class: 'small', onclick: () => { sess.timer = { secs, end: Date.now() + secs * 1000 }; speak('开始'); render(); } }, '开始计时'));
-}
-
-function sessionEnd(d, ui, tasks, top) {
-  // 收尾：得分（突击检查做到的每次 10 分）；等级；全做到抽奖励，跳过两张以上抽惩罚（可以不做）
-  speachStop();
-  const pg = d.private.program || {};
-  const points = sessionPoints(sess.results, tasks) + sess.checksDone * 10;
-  const skips = Object.values(sess.results).filter((x) => x === 'skip').length + sess.checksSkip;
-  const doneAll = tasks.length > 0 && tasks.every((t) => sess.results[t.id] === 'done') && !sess.checksSkip;
-  const reward = doneAll ? pickOne(pg.rewards, `${sess.seed}-r`) : null;
-  const penalty = skips >= 2 ? pickOne(pg.penalties, `${sess.seed}-p`) : null;
-  const before = levelOf(d, sess.beforePoints);
-  const after_ = levelOf(d, sess.beforePoints + points);
-  const levelUp = after_.cur && after_.cur !== before.cur;
-  const care = new Set();
-  let score = null; let after = null;
-  const rows = h('div', {});
-  const draw = () => rows.replaceChildren(
-    h('div', { class: 'label-sm' }, ui.score), scoreRow(ui.score, 5, score, (v) => { score = v; draw(); }),
-    h('div', { class: 'label-sm' }, ui.afterLabel), scoreRow(ui.afterLabel, 5, after, (v) => { after = v; draw(); }, ['很差', '不太好', '一般', '不错', '很好']));
-  draw();
-  const note = h('textarea', { rows: 2, placeholder: '想写的写一句（可以不写）', 'aria-label': '备注' });
-  const count = h('input', { type: 'checkbox', 'aria-label': ui.alsoCount });
-  const unrule = () => {
-    const rs = d.private.rules || [];
-    if (!rs.length) { toast('现在没有规矩可以撤销'); return; }
-    const close = openSheet({ title: '撤销一条规矩', body: h('div', { class: 'group' }, rs.map((r) => cell({ title: r.text, onclick: () => { close(); saveRender('小记：撤销规矩', (data) => { data.private.rules = data.private.rules.filter((x) => x.id !== r.id); }); } }))), confirmText: null, cancelText: '先不撤' });
-  };
-  const finish = async () => {
-    const end = new Date();
-    const start = new Date(sess.start || end);
-    const id = newId('ss');
-    try {
-      await save('小记：一段时间', (data) => {
-        data.private.sessions.push({
-          id, day: dayKey(start), start: start.toISOString(), end: end.toISOString(), minutes: Math.round((end - start) / 60000),
-          week: (programWeek(data, dayKey(start))?.n ?? -1) + 1, tasks: { ...sess.results },
-          ...(score ? { score } : {}), ...(after ? { after } : {}), ...(note.value.trim() ? { note: note.value.trim() } : {}),
-          points, ...(sess.checksDone || sess.checksSkip ? { checks: sess.checksDone, checksSkip: sess.checksSkip } : {}),
-          ...(sess.scene ? { scene: fillText(sess.scene, sess.seed).slice(0, 80) } : {}), ...(reward ? { reward: true } : {}), ...(penalty ? { penalty: true } : {}),
-        });
-        if (count.checked) data.events.push({ id: newId('e'), day: dayKey(end), at: end.toISOString(), type: 'p', ...(score ? { score } : {}), flag: false, session: id });
-      });
-    } catch { return; }
-    Object.assign(sess, { step: 'safety', i: 0, start: null, results: {}, key: '', check: null, checksDone: 0, checksSkip: 0, timer: null });
-    document.body.classList.remove('dark-session');
-    toast(ui.doneToast || '收好了。');
-    go('#/p');
-  };
-  return h('div', { class: 'session' },
-    top,
-    h('div', { class: 'card center' }, h('span', { class: 'muted small' }, ui.pointsLabel), h('div', { class: 'big-num' }, String(points)),
-      h('span', { class: 'muted small' }, `做到 ${Object.values(sess.results).filter((x) => x === 'done').length + sess.checksDone} 张，跳过 ${skips} 张`),
-      after_.cur ? h('p', { class: 'small' }, `${ui.levelLabel || '等级'}：${after_.cur.name}${after_.next ? `（再 ${after_.next.min - sess.beforePoints - points} 分升到「${after_.next.name}」）` : ''}`) : null),
-    levelUp ? h('div', { class: 'card task-card reward' }, h('span', { class: 'badge good' }, '升级了'), h('p', { class: 'task-text' }, `${after_.cur.name}`), after_.cur.text ? h('p', { class: 'small' }, fillText(callName(after_.cur.text, sess.seed), sess.seed)) : null) : null,
-    reward ? h('div', { class: 'card task-card reward' }, h('span', { class: 'badge good' }, ui.rewardTitle), h('p', { class: 'task-text' }, fillText(callName(reward.text || reward, sess.seed), sess.seed)),
-      reward.unrule ? h('button', { class: 'small secondary', onclick: unrule }, '撤销一条规矩') : null) : null,
-    penalty ? h('div', { class: 'card task-card penalty' }, h('span', { class: 'badge warn' }, ui.penaltyTitle), h('p', { class: 'task-text' }, fillText(callName(penalty, sess.seed), sess.seed)), h('p', { class: 'small muted' }, '惩罚也可以不做。')) : null,
-    h('div', { class: 'card' }, h('h3', {}, '收尾'), h('p', { class: 'small muted' }, '一样一样做，做完点一下。'),
-      h('div', { class: 'chips' }, ui.aftercare.map((x, i) => {
-        const b = h('button', { type: 'button', class: 'chip check', onclick: () => { if (care.has(i)) care.delete(i); else care.add(i); b.classList.toggle('on', care.has(i)); } }, x);
-        return b;
-      }))),
-    h('div', { class: 'card' }, rows, note, h('label', { class: 'switch-row', style: 'margin-top:10px !important' }, count, ui.alsoCount)),
-    h('button', { class: 'wide', onclick: finish }, '结束'));
-}
-
-// 规矩手册：现在生效的规矩，可以自己加、删
-function rulesCard() {
-  const d = store.data;
-  const ui = pp();
-  const rs = d.private.rules || [];
-  const input = h('input', { placeholder: '加一条规矩', 'aria-label': '新的规矩' });
-  const add = () => { const v = input.value.trim(); if (v) saveRender('小记：加规矩', (data) => { (data.private.rules ||= []).push({ id: newId('rl'), text: v, at: dayKey() }); }); };
-  const pts = totalPoints(d);
-  const lv = levelOf(d, pts);
-  return h('div', { class: 'card' },
-    h('div', { class: 'rec-top' }, h('h3', {}, ui.rulesTitle || '规矩手册'), lv.cur ? h('span', { class: 'small' }, `${lv.cur.name} · ${pts} 分`) : null),
-    rs.length ? h('ol', { class: 'small rules' }, rs.map((r) => h('li', {}, r.text, ' ', h('button', { class: 'link small muted icon-del', 'aria-label': '删掉', onclick: () => saveUndoable('小记：删规矩', (data) => { data.private.rules = data.private.rules.filter((x) => x.id !== r.id); }, '删掉了').then(render).catch(() => {}) }, icon('trash'))))) : h('p', { class: 'muted small' }, '还没有。任务做到了会往这里加，奖励可以撤销。'),
-    h('div', { class: 'inline-add' }, input, h('button', { class: 'small', onclick: add }, '加')));
-}
-
-// 一组自己写的词：称呼（{称呼}）、求的话（{求}），任务和语音里随机用一个
-function wordsCard(key, title, hint, placeholder) {
-  const list = store.data.private[key] || [];
-  const input = h('input', { placeholder, 'aria-label': placeholder });
-  const add = () => { const v = input.value.trim(); if (v) saveRender(`小记：${title}`, (data) => { (data.private[key] ||= []).push(v); }); };
-  return h('div', { class: 'card' },
-    h('h3', {}, title), h('p', { class: 'muted small' }, hint),
-    h('div', { class: 'chips' }, list.map((x, i) => h('button', { type: 'button', class: 'chip', onclick: () => saveRender(`小记：删${title}`, (data) => { data.private[key].splice(i, 1); }) }, `${x} ×`))),
-    h('div', { class: 'inline-add' }, input, h('button', { class: 'small', onclick: add }, '加')));
-}
-const callNamesCard = () => wordsCard('callNames', pp().callTitle || '称呼', '任务和语音里会从这些里面随机叫你。点一个可以删掉。', '新的称呼');
-const begsCard = () => wordsCard('begs', pp().begTitle || '求的话', '任务里要「求」的时候，从这里随机挑一句。你自己写。', '新的一句');
-
-function sessionsCard(today) {
-  const d = store.data;
-  const ui = pp();
-  const list = d.private.sessions.slice(-8).reverse();
-  if (!list.length) return null;
-  return h('div', { class: 'card' }, h('h3', {}, `${ui.sessionTitle}（最近）`),
-    list.map((s) => {
-      const done = Object.values(s.tasks || {}).filter((x) => x === 'done').length;
-      const all = Object.keys(s.tasks || {}).length;
-      return h('div', { class: 'event-row' },
-        h('span', { class: 'grow small' }, `${s.day.slice(5).replace('-', '/')} · ${s.minutes} 分钟 · 任务 ${done}/${all}${s.points ? ` · ${s.points} 分` : ''}`,
-          h('span', { class: 'muted' }, [s.score ? ` · ${ui.score} ${s.score}` : '', s.after ? ` · 心情 ${s.after}` : ''].join(''))),
-        h('button', { class: 'link small muted icon-del', 'aria-label': '删掉', onclick: () => saveUndoable('小记：删一段', (data) => { data.private.sessions = data.private.sessions.filter((x) => x.id !== s.id); }, '删掉了').then(render).catch(() => {}) }, icon('trash')));
-    }));
-}
-
-function mediaCard() {
-  const d = store.data;
-  const ui = pp();
-  const add = (m = null) => {
-    const title = h('input', { value: m?.title || '', placeholder: '名字', 'aria-label': '名字' });
-    const link = h('input', { value: m?.link || '', placeholder: '链接（可以不填）', 'aria-label': '链接' });
-    const minutes = h('input', { inputmode: 'numeric', value: m?.minutes || '', placeholder: '多少分钟', 'aria-label': '多少分钟' });
-    const note = h('input', { value: m?.note || '', placeholder: '听完怎么样（可以不填）', 'aria-label': '感受' });
-    let after = m?.after || null;
-    const r = h('div', {});
-    const draw = () => r.replaceChildren(scoreRow('听完的感觉', 5, after, (v) => { after = v; draw(); }, ['很差', '不太好', '一般', '不错', '很好']));
-    draw();
-    openSheet({
-      title: ui.mediaTitle, body: h('div', { class: 'form' }, title, link, minutes, h('div', { class: 'label-sm' }, '听完的感觉'), r, note), confirmText: '记好了',
-      onConfirm: () => {
-        if (!title.value.trim()) { toast('写个名字', 'error'); return false; }
-        const x = { id: m?.id || newId('md'), day: m?.day || dayKey(), title: title.value.trim(), ...(link.value.trim() ? { link: link.value.trim() } : {}), ...(Number(minutes.value) ? { minutes: Number(minutes.value) } : {}), ...(after ? { after } : {}), ...(note.value.trim() ? { note: note.value.trim() } : {}) };
-        return saveRender('小记：音频', (data) => { const i = data.private.media.findIndex((y) => y.id === x.id); if (i >= 0) data.private.media[i] = x; else data.private.media.push(x); });
-      },
-    });
-  };
-  const list = d.private.media.slice().reverse().slice(0, 10);
-  return h('div', { class: 'card' },
-    h('div', { class: 'rec-top' }, h('h3', {}, ui.mediaTitle), h('button', { class: 'link small', onclick: () => add() }, '＋ 记一个')),
-    list.length ? list.map((m) => h('button', { class: 'event-row product-row', onclick: () => add(m) },
-      h('span', { class: 'grow small' }, m.title, h('span', { class: 'muted block' }, [m.day.slice(5).replace('-', '/'), m.minutes ? `${m.minutes} 分钟` : '', m.after ? `听完 ${['很差', '不太好', '一般', '不错', '很好'][m.after - 1]}` : '', m.note || ''].filter(Boolean).join(' · '))),
-      icon('chev', 'i chev'))) : h('p', { class: 'muted small' }, '还没有。'));
-}
-
-function limitsCard() {
-  const d = store.data;
-  const ui = pp();
-  const input = h('input', { placeholder: '写几个字，含这几个字的任务不会出现', 'aria-label': '新的绝对不要' });
-  const add = () => { const v = input.value.trim(); if (v) saveRender('小记：绝对不要', (data) => { data.private.limits.push(v); }); };
-  const custom = h('input', { placeholder: '自己写一张任务', 'aria-label': '自己写的任务' });
-  const addCustom = () => { const v = custom.value.trim(); if (v) saveRender('小记：自己写的', (data) => { data.private.custom.push({ id: newId('ct'), track: 'b', text: v, level: 1 }); }); };
-  return [
-    h('div', { class: 'card' }, h('h3', {}, ui.limitsTitle),
-      d.private.limits.map((x, i) => h('div', { class: 'event-row' }, h('span', { class: 'grow small' }, x),
-        h('button', { class: 'link small muted icon-del', 'aria-label': '删掉', onclick: () => saveRender('小记：删绝对不要', (data) => { data.private.limits.splice(i, 1); }) }, icon('trash')))),
-      h('div', { class: 'inline-add' }, input, h('button', { class: 'small', onclick: add }, '加'))),
-    h('div', { class: 'card' }, h('h3', {}, ui.customTitle), h('p', { class: 'muted small' }, '路线走完以后，这些会和最后一周的任务一起出现。'),
-      d.private.custom.map((x) => h('div', { class: 'event-row' }, h('span', { class: 'grow small' }, x.text),
-        h('button', { class: 'link small muted icon-del', 'aria-label': '删掉', onclick: () => saveRender('小记：删自己写的', (data) => { data.private.custom = data.private.custom.filter((y) => y.id !== x.id); }) }, icon('trash')))),
-      h('div', { class: 'inline-add' }, custom, h('button', { class: 'small', onclick: addCustom }, '加'))),
-  ];
 }
 
 function recordOther() {
