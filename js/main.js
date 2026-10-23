@@ -106,7 +106,6 @@ function boot() {
   window.addEventListener('online', () => store?.sync());
   window.addEventListener('hashchange', () => {
     for (const el of document.querySelectorAll('.sheet-overlay, .overlay')) el.remove();
-    nightDraft = null;
     render();
     window.scrollTo(0, 0);
   });
@@ -864,33 +863,35 @@ const NIGHT_HELP = [
   ['分数怎么打', ['心情 1–10：5 是平常，越高越好。', '精力 1–5：今天有没有精神。', '压力 1–5：越高压力越大。']],
 ];
 
-// 还没点「记好了」的内容：存照片会重画这一页，不能把已经填的清掉。离开这一页就不要了
-let nightDraft = null;
+// 还没点「记好了」的内容存在这台手机上：iPhone 拍照、选照片时常常把网页整个重新打开，只放在内存里会丢。点了「记好了」才清掉
+const NIGHT_DRAFT_KEY = 'life-night-draft';
 
 function nightView(day) {
   const d = store.data;
   const rec = d.days[day] || {};
-  const draft = nightDraft?.day === day ? nightDraft : null;
+  const saved = readJson(NIGHT_DRAFT_KEY);
+  const draft = saved.day === day ? saved : null;
   const st = draft?.st || { mood: rec.mood || null, energy: rec.energy || null, stress: rec.stress || null, planDone: rec.planDone || null };
   const note = h('textarea', { rows: 2, placeholder: '今天怎么样，一句话', 'aria-label': '今天的一句话' });
-  note.value = draft ? draft.note.value : rec.note || '';
-  const did = h('input', { value: draft ? draft.did.value : rec.did || '', placeholder: '今天科研做了什么', 'aria-label': '今天科研做了什么' });
-  const plan = h('input', { value: draft ? draft.plan.value : rec.plan || '', placeholder: '明天要做什么', 'aria-label': '明天要做什么' });
-  nightDraft = { day, st, note, did, plan };
+  note.value = draft ? draft.note : rec.note || '';
+  const did = h('input', { value: draft ? draft.did : rec.did || '', placeholder: '今天科研做了什么', 'aria-label': '今天科研做了什么' });
+  const plan = h('input', { value: draft ? draft.plan : rec.plan || '', placeholder: '明天要做什么', 'aria-label': '明天要做什么' });
+  const keep = () => writeJson(NIGHT_DRAFT_KEY, { day, st, note: note.value, did: did.value, plan: plan.value });
+  for (const el of [note, did, plan]) el.addEventListener('input', keep);
   const prevPlan = d.days[addDays(day, -1)]?.plan;
   const rows = h('div', {});
   const draw = () => rows.replaceChildren(...[
-    h('div', { class: 'label-sm' }, '心情（1–10）'), scoreRow('心情', 10, st.mood, (v) => { st.mood = v; draw(); }),
-    h('div', { class: 'label-sm' }, '精力'), scoreRow('精力', 5, st.energy, (v) => { st.energy = v; draw(); }, ['没劲', '有点累', '一般', '不错', '满满']),
-    h('div', { class: 'label-sm' }, '压力'), scoreRow('压力', 5, st.stress, (v) => { st.stress = v; draw(); }, ['很轻松', '轻松', '一般', '有点大', '很大']),
-    prevPlan ? [h('div', { class: 'label-sm' }, `今天要做：${prevPlan}`), choiceRow('做到了吗', [['yes', '做到了'], ['part', '做了一部分'], ['no', '没做']], st.planDone, (v) => { st.planDone = v; draw(); })] : null,
+    h('div', { class: 'label-sm' }, '心情（1–10）'), scoreRow('心情', 10, st.mood, (v) => { st.mood = v; keep(); draw(); }),
+    h('div', { class: 'label-sm' }, '精力'), scoreRow('精力', 5, st.energy, (v) => { st.energy = v; keep(); draw(); }, ['没劲', '有点累', '一般', '不错', '满满']),
+    h('div', { class: 'label-sm' }, '压力'), scoreRow('压力', 5, st.stress, (v) => { st.stress = v; keep(); draw(); }, ['很轻松', '轻松', '一般', '有点大', '很大']),
+    prevPlan ? [h('div', { class: 'label-sm' }, `今天要做：${prevPlan}`), choiceRow('做到了吗', [['yes', '做到了'], ['part', '做了一部分'], ['no', '没做']], st.planDone, (v) => { st.planDone = v; keep(); draw(); })] : null,
   ].flat().filter(Boolean));
   draw();
   const submit = () => save('睡前复盘', (data) => {
     const r = dayOf(data, day);
     for (const k of ['mood', 'energy', 'stress', 'planDone']) { if (st[k]) r[k] = st[k]; else delete r[k]; }
     for (const [k, el] of [['note', note], ['did', did], ['plan', plan]]) { const v = el.value.trim(); if (v) r[k] = v; else delete r[k]; }
-  }).then(() => { nightDraft = null; toast(cheerNight(st.mood)); render(); }).catch(() => {});
+  }).then(() => { try { localStorage.removeItem(NIGHT_DRAFT_KEY); } catch { /* 无 */ } toast(cheerNight(st.mood)); render(); }).catch(() => {});
   const isToday = day === dayKey();
   const pmItems = routineOf(d, 'pm');
   return h('div', { class: 'form' },

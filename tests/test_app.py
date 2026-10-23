@@ -507,6 +507,13 @@ def _(c):
     expect(c.page.get_by_role("group", name="心情").get_by_role("button", name="3", exact=True)).to_have_attribute("aria-pressed", "true")
     expect(c.page.get_by_role("group", name="压力").get_by_role("button", name="很大")).to_have_attribute("aria-pressed", "true")
     expect(c.page.get_by_label("今天的一句话")).to_have_value("还没存的一句")
+    # iPhone 拍照时常把网页整个重新打开：重新打开以后填的也还在
+    c.page.get_by_label("明天要做什么").fill("还没存的明天")
+    c.page.reload()
+    expect(c.page.get_by_role("group", name="心情").get_by_role("button", name="3", exact=True)).to_have_attribute("aria-pressed", "true")
+    expect(c.page.get_by_label("今天的一句话")).to_have_value("还没存的一句")
+    expect(c.page.get_by_label("明天要做什么")).to_have_value("还没存的明天")
+    c.page.get_by_label("明天要做什么").fill("")
     c.page.get_by_role("group", name="心情").get_by_role("button", name="7", exact=True).click()  # 改回原来的，后面分析要用
     c.page.get_by_role("group", name="压力").get_by_role("button", name="有点大").click()
     c.page.get_by_role("button", name="记好了").click()
