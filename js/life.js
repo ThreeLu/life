@@ -167,7 +167,7 @@ export function lastEvent(data, type) {
 }
 
 // ---------- 小记 ----------
-// 事件 type 'p'（主要的一种，带 score 1–5、flag 是否、checks 三项勾选）和 'p2'（另一种，只记时间）。
+// 事件 type 'p'（主要的一种，带 score 1–5、flag / flag2 两个是否、checks 三项勾选）和 'p2'（另一种，只记时间）。
 
 export function privateStats(data, now = new Date()) {
   const list = data.events.filter((e) => e.type === 'p').sort((a, b) => a.at.localeCompare(b.at));
@@ -192,6 +192,7 @@ export function privateStats(data, now = new Date()) {
     avgGap: gaps.length ? gaps.reduce((a, b) => a + b, 0) / gaps.length : null,
     avgScore: scores.length ? scores.reduce((a, b) => a + b, 0) / scores.length : null,
     flag: recent.length ? recent.filter((e) => e.flag).length / recent.length : null,
+    flag2: recent.length ? recent.filter((e) => e.flag2).length / recent.length : null,
     slot,
     other: data.events.filter((e) => e.type === 'p2' && daysBetween(e.day, today) < 30).length,
   };

@@ -402,14 +402,15 @@ def _(c):
     d = c.data()
     assert d["settings"]["pin"]["hash"] and "123456" not in json.dumps(d), d["settings"]
     # 这一页的文字在私有数据里（这里用编的）
-    c.write(lambda d: d["private"].update(ui={"title": "编的标题", "main": "编的按钮", "alt": "编的另一种", "checks": {"c1": "勾甲", "c2": "勾乙", "c3": "勾丙"}, "checksTitle": "编的勾选"}))
+    c.write(lambda d: d["private"].update(ui={"title": "编的标题", "main": "编的按钮", "alt": "编的另一种", "flag": "编的标记", "flag2": "编的标记二", "flag2Stat": "编的二", "checks": {"c1": "勾甲", "c2": "勾乙", "c3": "勾丙"}, "checksTitle": "编的勾选"}))
     p.reload()
     p.get_by_label("密码").fill("123456")
     expect(p.get_by_role("heading", name="编的标题")).to_be_visible()
     expect(p.get_by_text("还没有记录")).to_be_visible()
     p.get_by_role("button", name="编的按钮").click()
     c.sheet().get_by_role("group", name="评分").get_by_role("button", name="4").click()
-    c.sheet().get_by_role("button", name="是", exact=True).click()
+    c.sheet().get_by_role("group", name="编的标记", exact=True).get_by_role("button", name="是").click()
+    c.sheet().get_by_role("group", name="编的标记二").get_by_role("button", name="否").click()
     c.sheet().get_by_role("button", name="记好了").click()
     expect(c.sheet().get_by_role("heading", name="编的勾选")).to_be_visible()
     for k in ["勾甲", "勾乙", "勾丙"]:
@@ -417,7 +418,7 @@ def _(c):
     c.sheet().get_by_role("button", name="好了").click()
     c.wait(lambda d: events(d, "p") and events(d, "p")[0].get("checks", {}).get("c3"), "小记 + 勾选")
     e = events(c.data(), "p")[0]
-    assert e["score"] == 4 and e["flag"] is True and e["checks"] == {"c1": True, "c2": True, "c3": True}, e
+    assert e["score"] == 4 and e["flag"] is True and e["flag2"] is False and e["checks"] == {"c1": True, "c2": True, "c3": True}, e
     expect(p.get_by_text("距离上次 1 小时")).to_be_visible()
     expect(p.get_by_text("编的勾选 ✓")).to_be_visible()
     p.get_by_role("button", name="编的另一种").click()

@@ -2326,9 +2326,10 @@ function lowGoView() {
 const P_DEFAULT = {
   title: '小记', main: '记一次', alt: '另记一种', altStat: '另一种',
   score: '评分', flag: '标记', flagYes: '是', flagNo: '否', flagStat: '标记了',
+  flag2: '另一个标记', flag2Stat: '另一个标记了',
   checksTitle: '之后', checksHint: '做了的点一下。', checks: { c1: '第一项', c2: '第二项', c3: '第三项' },
   suppliesTitle: '用品', suppliesHint: '只记在这里。', suppliesPlaceholder: '用品名字',
-  help: [['怎么用', ['「记一次」：时间默认现在，可以改；评分、标记点一下；备注不用写。记完弹出三项勾选。', '上面显示距离上次多久。过了你设的节奏（设置里改），只在这一页提一句，不推送。', '这一页单独有 6 位密码，离开网站就锁上。']]],
+  help: [['怎么用', ['「记一次」：时间默认现在，可以改；评分、两个标记点一下；备注不用写。记完弹出三项勾选。', '上面显示距离上次多久。过了你设的节奏（设置里改），只在这一页提一句，不推送。', '这一页单独有 6 位密码，离开网站就锁上。']]],
 };
 function pui() {
   const ui = store.data.private.ui || {};
@@ -2416,13 +2417,14 @@ function privateView() {
       h('div', { class: 'stat-grid' },
         stat('这个月', `${s.month} 次`), stat('最近 30 天', `${s.recent} 次`),
         stat('平均隔', s.avgGap === null ? '—' : `${s.avgGap.toFixed(1)} 天`), stat(ui.score, s.avgScore === null ? '—' : s.avgScore.toFixed(1)),
-        stat(ui.flagStat, s.flag === null ? '—' : `${Math.round(s.flag * 100)}%`), stat(ui.altStat, `${s.other} 次`)),
+        stat(ui.flagStat, s.flag === null ? '—' : `${Math.round(s.flag * 100)}%`), stat(ui.flag2Stat, s.flag2 === null ? '—' : `${Math.round(s.flag2 * 100)}%`),
+        stat(ui.altStat, `${s.other} 次`)),
       s.recent ? h('div', { class: 'slot-bars' }, Object.entries(s.slot).map(([k, v]) => h('div', { class: 'slot' },
         h('span', { class: 'small' }, k), h('span', { class: 'bar-track' }, h('span', { class: 'bar', style: `width:${(v / slotMax) * 100}%;background:var(--accent)` })), h('span', { class: 'small muted' }, String(v))))) : null),
     s.list.length ? h('div', { class: 'card' }, h('h3', {}, '最近'),
       s.list.slice(-15).reverse().map((e) => h('button', { class: 'event-row product-row', onclick: () => privateSheet(e) },
         h('span', { class: 'grow' }, `${e.day.slice(5).replace('-', '/')} ${hm(e.at)}`,
-          h('span', { class: 'muted small' }, [e.score ? `${ui.score} ${e.score}` : '', e.flag ? ui.flagStat : '', e.checks ? checksText(e.checks, ui) : ''].filter(Boolean).map((x) => ` · ${x}`).join(''))),
+          h('span', { class: 'muted small' }, [e.score ? `${ui.score} ${e.score}` : '', e.flag ? ui.flagStat : '', e.flag2 ? ui.flag2Stat : '', e.checks ? checksText(e.checks, ui) : ''].filter(Boolean).map((x) => ` · ${x}`).join(''))),
         icon('chev', 'i chev')))) : null,
     suppliesCard(ui));
 }
@@ -2442,10 +2444,12 @@ function privateSheet(e = null) {
   const note = h('input', { value: e?.note || '', placeholder: '备注（可以不填）', 'aria-label': '备注' });
   let score = e?.score || null;
   let flag = e ? Boolean(e.flag) : null;
+  let flag2 = e ? Boolean(e.flag2) : null;
   const rows = h('div', {});
   const draw = () => rows.replaceChildren(
     h('div', { class: 'label-sm' }, ui.score), scoreRow(ui.score, 5, score, (v) => { score = v; draw(); }),
-    h('div', { class: 'label-sm' }, ui.flag), choiceRow(ui.flag, [[true, ui.flagYes], [false, ui.flagNo]], flag, (v) => { flag = v; draw(); }));
+    h('div', { class: 'label-sm' }, ui.flag), choiceRow(ui.flag, [[true, ui.flagYes], [false, ui.flagNo]], flag, (v) => { flag = v; draw(); }),
+    h('div', { class: 'label-sm' }, ui.flag2), choiceRow(ui.flag2, [[true, ui.flagYes], [false, ui.flagNo]], flag2, (v) => { flag2 = v; draw(); }));
   draw();
   const close = openSheet({
     title: e ? '这一次' : ui.main,
@@ -2462,6 +2466,7 @@ function privateSheet(e = null) {
           const x = { ...(e || {}), id, type: 'p', at: at.toISOString(), day: dayKey(at) };
           if (score) x.score = score; else delete x.score;
           x.flag = Boolean(flag);
+          x.flag2 = Boolean(flag2);
           if (note.value.trim()) x.note = note.value.trim(); else delete x.note;
           const i = data.events.findIndex((y) => y.id === id);
           if (i >= 0) data.events[i] = x; else data.events.push(x);
