@@ -2326,7 +2326,7 @@ function lowGoView() {
 const P_DEFAULT = {
   title: '小记', main: '记一次', alt: '另记一种', altStat: '另一种',
   score: '评分', flag: '标记', flagYes: '是', flagNo: '否', flagStat: '标记了',
-  flag2: '另一个标记', flag2Stat: '另一个标记了',
+  flag2: '另一个标记', flag2Yes: '是', flag2No: '否', flag2Stat: '另一个标记了',
   checksTitle: '之后', checksHint: '做了的点一下。', checks: { c1: '第一项', c2: '第二项', c3: '第三项' },
   suppliesTitle: '用品', suppliesHint: '只记在这里。', suppliesPlaceholder: '用品名字',
   help: [['怎么用', ['「记一次」：时间默认现在，可以改；评分、两个标记点一下；备注不用写。记完弹出三项勾选。', '上面显示距离上次多久。过了你设的节奏（设置里改），只在这一页提一句，不推送。', '这一页单独有 6 位密码，离开网站就锁上。']]],
@@ -2449,7 +2449,7 @@ function privateSheet(e = null) {
   const draw = () => rows.replaceChildren(
     h('div', { class: 'label-sm' }, ui.score), scoreRow(ui.score, 5, score, (v) => { score = v; draw(); }),
     h('div', { class: 'label-sm' }, ui.flag), choiceRow(ui.flag, [[true, ui.flagYes], [false, ui.flagNo]], flag, (v) => { flag = v; draw(); }),
-    h('div', { class: 'label-sm' }, ui.flag2), choiceRow(ui.flag2, [[true, ui.flagYes], [false, ui.flagNo]], flag2, (v) => { flag2 = v; draw(); }));
+    h('div', { class: 'label-sm' }, ui.flag2), choiceRow(ui.flag2, [[true, ui.flag2Yes], [false, ui.flag2No]], flag2, (v) => { flag2 = v; draw(); }));
   draw();
   const close = openSheet({
     title: e ? '这一次' : ui.main,
