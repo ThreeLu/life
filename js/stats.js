@@ -1,7 +1,7 @@
 // 分析：纯计算（不碰 DOM）。只用记下来的数，数据不够就说「还需要几天」，不硬下结论。
 // 只能看出「两件事常常一起出现」，看不出谁导致谁——页面上要这样写。
 
-import { addDays, daysBetween, parseDay, weekOf, careFullDay } from './life.js';
+import { addDays, daysBetween, parseDay, careFullDay } from './life.js';
 
 export const MIN_DAYS = 21; // 心情记满这么多天，「什么在影响我」才开始给结论
 
@@ -37,7 +37,6 @@ export function influences(data, today, { weather = {}, spend = {} } = {}) {
   const days = Object.keys(data.days).filter((d) => d <= today).sort();
   const D = (d) => data.days[d] || {};
   const sport = evDays(data, (e) => e.type === 'sport');
-  const lateDrink = evDays(data, (e) => e.type === 'drink' && new Date(e.at).getHours() >= 15);
   const out = [];
   // 因素（某天的真假） → 结果（某天的数）
   const factor = (key, name, has, result, target, unit, valid = () => true) => {
@@ -59,7 +58,6 @@ export function influences(data, today, { weather = {}, spend = {} } = {}) {
   factor('sleep7e', '睡够 7 小时', (d) => sleepHours(D(d).sleep) >= 7, energy, '当天精力', '分', (d) => sleepHours(D(d).sleep) !== null);
   factor('sport', '运动了', (d) => sport.has(d), mood, '当天心情', '分');
   factor('sportE', '运动了', (d) => sport.has(d), next(energy), '第二天精力', '分');
-  factor('drink', '下午 3 点后喝了咖啡奶茶茶', (d) => lateDrink.has(d), (d) => bedMinutes(D(addDays(d, 1)).sleep), '当晚几点睡', '分钟晚');
   factor('pray', '前一晚祷告了', (d) => Boolean(D(addDays(d, -1)).prayer?.night), mood, '当天心情', '分');
   factor('care', '护肤都做完', (d) => careFullDay(data, d), mood, '当天心情', '分');
   factor('planYes', '前一天的计划做到了', (d) => D(d).planDone === 'yes', mood, '当天心情', '分', (d) => Boolean(D(d).planDone));
@@ -72,16 +70,15 @@ export function influences(data, today, { weather = {}, spend = {} } = {}) {
   }
   return out.sort((a, b) => Math.abs(normalize(b)) - Math.abs(normalize(a)));
 }
-// 不同单位放一起排：心情按 10 分，精力按 5 分，睡觉按 60 分钟，花钱按 50 元算「一档」
+// 不同单位放一起排：心情按 10 分，精力按 5 分，花钱按 50 元算「一档」
 function normalize(x) {
-  const scale = x.key === 'drink' ? 60 : x.key === 'spend' ? 50 : x.target.includes('精力') ? 1 : 2;
+  const scale = x.key === 'spend' ? 50 : x.target.includes('精力') ? 1 : 2;
   return x.diff / scale;
 }
 
 // 一句话描述一个因素
 export function influenceText(x) {
   const n = (v) => (Math.abs(v) >= 10 ? Math.round(v) : Math.round(v * 10) / 10);
-  if (x.key === 'drink') return `${x.name}的晚上，平均晚睡 ${n(x.diff)} 分钟`;
   if (x.key === 'spend') return `${x.name}的日子，平均花 ${n(x.with)} 元；其他日子 ${n(x.without)} 元`;
   const dir = x.diff >= 0 ? '高' : '低';
   return `${x.name}的日子，${x.target}平均 ${n(x.with)}，其他日子 ${n(x.without)}（${dir} ${n(Math.abs(x.diff))}）`;
@@ -114,7 +111,7 @@ export function sleepPattern(data, today, n = 30) {
   return { rows, all: part(() => true), weekday: part((d) => !weekend(d)), weekend: part(weekend) };
 }
 
-// 一件事的规律（洗澡、运动、喝的）
+// 一件事的规律（洗澡、运动）
 export function rhythm(data, today, test) {
   const list = data.events.filter(test).sort((a, b) => a.at.localeCompare(b.at));
   const days = [...new Set(list.map((e) => e.day))];
@@ -140,40 +137,17 @@ export function rhythm(data, today, test) {
   };
 }
 
-// 护肤：每一项最近 30 天做了几天
-export function careRates(data, today, n = 30) {
-  const days = rangeDays(addDays(today, -(n - 1)), today).filter((d) => d >= data.startDate);
-  return data.look.routine.filter((r) => r.when !== 'week').map((r) => ({
-    r, done: days.filter((d) => data.days[d]?.care?.[r.id]).length, total: days.length,
-  }));
-}
-
-// 计划完成率：做到 1、一部分 0.5、没做 0；按周
-export function planRates(data, today, weeks = 8) {
-  const out = [];
-  for (let i = weeks - 1; i >= 0; i--) {
-    const mon = addDays(weekOf(today), -7 * i);
-    const vals = rangeDays(mon, addDays(mon, 6)).map((d) => data.days[d]?.planDone).filter(Boolean);
-    out.push({ mon, n: vals.length, rate: vals.length ? avg(vals.map((v) => ({ yes: 1, part: 0.5, no: 0 }[v]))) : null });
+// 一周里哪天状态好：最近 n 天，星期一到星期日各自的平均心情、精力。一个星期几记得少于 2 次就不算
+export function weekdayMood(data, today, n = 90) {
+  const out = Array.from({ length: 7 }, () => ({ mood: [], energy: [] }));
+  for (const d of rangeDays(addDays(today, -(n - 1)), today)) {
+    const r = data.days[d];
+    if (!r) continue;
+    const w = out[(parseDay(d).getDay() + 6) % 7];
+    if (r.mood) w.mood.push(r.mood);
+    if (r.energy) w.energy.push(r.energy);
   }
-  return out;
-}
-
-// 生病前一周：睡眠、压力和平时比
-export function beforeSick(data) {
-  const eps = data.sick?.history || [];
-  if (!eps.length) return null;
-  const pre = new Set();
-  for (const ep of eps) for (let i = 1; i <= 7; i++) pre.add(addDays(ep.start, -i));
-  const all = Object.keys(data.days);
-  const pick = (set, f) => avg(all.filter((d) => set(d)).map(f).filter((v) => v !== null && v !== undefined));
-  const sl = (d) => sleepHours(data.days[d]?.sleep);
-  const st = (d) => data.days[d]?.stress ?? null;
-  return {
-    n: eps.length,
-    sleepBefore: pick((d) => pre.has(d), sl), sleepUsual: pick((d) => !pre.has(d), sl),
-    stressBefore: pick((d) => pre.has(d), st), stressUsual: pick((d) => !pre.has(d), st),
-  };
+  return out.map((w) => ({ n: w.mood.length, mood: w.mood.length >= 2 ? avg(w.mood) : null, energy: w.energy.length >= 2 ? avg(w.energy) : null }));
 }
 
 // 最近几天状态不对：连续 3 天心情 ≤4，或连续 3 晚睡不到 6 小时。只说看到的情况
@@ -205,12 +179,9 @@ export function periodSummary(data, from, to) {
     careDays: days.filter((d) => careFullDay(data, d)).length,
     showers: ev('shower').length,
     sports: sports.length, sportMinutes: sports.reduce((a, e) => a + (e.minutes || 0), 0), km: sports.reduce((a, e) => a + (e.km || 0), 0),
-    drinks: ev('drink').length,
     prayers: days.filter((d) => data.days[d]?.prayer?.night).length,
-    did: days.map((d) => ({ day: d, did: data.days[d]?.did })).filter((x) => x.did),
     notes: days.map((d) => ({ day: d, note: data.days[d]?.note, mood: data.days[d]?.mood })).filter((x) => x.note),
     sick: (data.sick?.history || []).filter((x) => x.start <= to && x.end >= from).length,
-    habits: Object.values(data.look.steps).filter((x) => x.status === 'habit' && x.habitAt >= from && x.habitAt <= to).length,
     visits: (data.places || []).flatMap((p) => (p.visits || []).filter((v) => v.day >= from && v.day <= to).map((v) => ({ name: p.name, ...v }))),
   };
 }

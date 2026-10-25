@@ -43,15 +43,14 @@ export function defaultData(today) {
       rhythmDays: 2, // 小记：几天一次的节奏，只在那一页上提
       checks: true, // 小记：记完弹出三项勾选
       sportKinds: ['跑步', '走路', '爬山', '健身', '球类', '其他'],
-      drinkKinds: ['咖啡', '奶茶', '茶'],
     },
     days: {}, // { 日期: { mood, note, energy, stress, did, plan, planDone, sleep: { bed, wake, q }, care: { 打卡项 id: true }, prayer: { night, morning }, noShower } }
-    events: [], // 洗澡、运动、喝的、小记……：{ id, day, at, type, ... }
+    events: [], // 洗澡、运动、小记……：{ id, day, at, type, ... }
     look: { direction: [], steps: {}, routine: [], products: {}, hide: [], identity: null, moments: [] }, // identity：「我是这样的人」自己改过的句子；moments：精致时刻 { id, day, text }
     notes: [], // 我学到的：{ id, title, text, track, link, at }
     periodic: DEFAULT_PERIODIC.map((p) => ({ ...p, last: null })),
     weeks: {}, // { 周一的日期: { skin: { score, tags, note }, thanks } }
-    prayer: { stage: 1, since: today, items: [], next: 0 },
+    prayer: { stage: 1, since: today, items: [] },
     // 小记：ui 是这一页上的文字（名字、按钮、说明），只在私有仓库里
     private: { supplies: [], ui: {} },
     sick: { current: null, history: [], plans: structuredClone(DEFAULT_PLANS), meds: {}, clinic: {} },
@@ -106,6 +105,14 @@ export function migrate(data) {
   data.chats ||= [];
   data.people ||= [];
   data.greeted ||= {};
+  // 2026-10-24 用户说咖啡奶茶茶、英语、读经的老数据都不要了
+  delete data.settings.drinkKinds;
+  delete data.english;
+  data.events = data.events.filter((e) => !['drink', 'english'].includes(e.type));
+  for (const r of Object.values(data.days)) { delete r.read; delete r.readBook; }
+  for (const k of ['book', 'pos', 'next']) delete data.prayer[k];
+  for (const k of Object.keys(data.milestones)) if (k.startsWith('english-')) delete data.milestones[k];
+  if (data.milestones.seen) for (const k of Object.keys(data.milestones.seen)) if (k.startsWith('english-')) delete data.milestones.seen[k];
   return data;
 }
 

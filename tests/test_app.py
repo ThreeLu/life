@@ -210,17 +210,11 @@ def _(c):
     e = events(c.data(), "sport")[0]
     assert e["minutes"] == 30 and e["level"] == "mid" and e["kind"] == "跑步", e
     expect(p.get_by_text("跑步 · 30 分钟 · 3.5 公里 · 适中")).to_be_visible()
+    # 咖啡奶茶茶去掉了
     p.get_by_role("button", name="记一下").click()
-    c.sheet().get_by_role("button", name="喝了一杯").click()
-    c.sheet().get_by_role("button", name="咖啡").click()
-    c.wait(lambda d: len(events(d, "drink")) == 1, "咖啡")
-    p.get_by_role("button", name="撤销").click()
-    c.wait(lambda d: len(events(d, "drink")) == 0, "撤销咖啡")
-    # 中间的「＋」
-    p.get_by_role("button", name="记一下").click()
-    c.sheet().get_by_role("button", name="喝了一杯").click()
-    c.sheet().get_by_role("button", name="茶", exact=True).click()
-    c.wait(lambda d: events(d, "drink") and events(d, "drink")[0]["kind"] == "茶", "茶")
+    expect(c.sheet().get_by_role("button", name="睡眠")).to_be_visible()
+    expect(c.sheet().get_by_role("button", name="喝了一杯")).to_have_count(0)
+    c.sheet().get_by_role("button", name="关闭").click()
 
 
 @step("睡眠：用「＋」记几点睡几点起")
@@ -607,9 +601,10 @@ def _(c):
     c.go("#/")
     c.write(lambda d: d["notes"].append({"id": "n-other", "title": "别的设备记的", "text": "", "track": None, "link": "", "at": TODAY}))
     p.get_by_role("button", name="记一下").click()
-    c.sheet().get_by_role("button", name="喝了一杯").click()
-    c.sheet().get_by_role("button", name="奶茶").click()
-    c.wait(lambda d: any(e.get("kind") == "奶茶" for e in d["events"]) and any(n["id"] == "n-other" for n in d["notes"]), "合并")
+    c.sheet().get_by_role("button", name="运动").click()
+    c.sheet().get_by_role("button", name="健身").click()
+    c.sheet().get_by_role("button", name="记好了").click()
+    c.wait(lambda d: any(e.get("kind") == "健身" for e in d["events"]) and any(n["id"] == "n-other" for n in d["notes"]), "合并")
 
 
 @step("做完一句短话、第一次做完一天护肤有里程碑（一行提醒）、圆满章")
@@ -864,48 +859,88 @@ def _(c):
     c.wait(lambda d: d["places"][0].get("cost") == 50 and d["places"][0]["visits"], "改地方")
 
 
-@step("分析：什么在影响我（攒够天数）、走势、作息、规律、护肤、计划")
+@step("分析：形象页顶上切换进来；心情月历、走势、作息、一周里哪天、规律（洗澡运动）、什么在影响我；没有科研、护肤、咖啡")
 def _(c):
     p = c.page
-    c.go("#/stats")
+    c.go("#/look")
+    p.get_by_role("group", name="形象").get_by_role("link", name="分析").click()
+    expect(p).to_have_url(re.compile(r"#/stats$"))
+    expect(p.locator("#nav a.active")).to_have_text("形象")
     expect(p.get_by_text("就开始有结论了")).to_be_visible()
-    # 编 30 天：运动的日子心情 8、不运动 5；睡够 7 小时精力高
+    # 编 30 天：运动的日子心情 8、不运动 5；睡够 7 小时精力高。顺便放一些老数据（咖啡、英语、读经），之后存一次就清掉
     def seed(d):
         for i in range(1, 31):
             day = (datetime.fromisoformat(TODAY) - timedelta(days=i)).date().isoformat()
             sport = i % 2 == 0
             r = d["days"].setdefault(day, {})
             r.update(mood=8 if sport else 5, energy=4 if i % 3 else 2, note=f"编的第{i}天", did=f"编的科研{i}", planDone="yes" if i % 2 else "part",
-                     sleep={"bed": "23:30" if i % 3 else "01:30", "wake": "07:30"})
+                     sleep={"bed": "23:30" if i % 3 else "01:30", "wake": "07:30"}, read=True)
             if sport:
                 d["events"].append({"id": f"s{i}", "day": day, "at": f"{day}T10:00:00Z", "type": "sport", "kind": "跑步", "minutes": 30})
             d["events"].append({"id": f"w{i}", "day": day, "at": f"{day}T12:00:00Z", "type": "shower"})
+        d["events"].append({"id": "old-drink", "day": YESTERDAY, "at": f"{YESTERDAY}T08:00:00Z", "type": "drink", "kind": "咖啡"})
+        d["events"].append({"id": "old-en", "day": YESTERDAY, "at": f"{YESTERDAY}T09:00:00Z", "type": "english", "minutes": 10})
+        d["english"] = {"cards": [{"id": "x"}], "next": ""}
+        d["prayer"]["book"] = "PSA"
+        d["prayer"]["pos"] = {"JHN": 3}
+        d["milestones"]["english-10"] = TODAY
     c.write(seed)
     p.reload()
     expect(p.locator(".inf-row", has_text="运动了的日子，当天心情平均 7.9，其他日子 5")).to_be_visible()
     expect(p.locator(".inf-row", has_text="睡够 7 小时")).to_have_count(2)
+    expect(p.locator(".inf-row", has_text="咖啡")).to_have_count(0)
+    expect(p.locator("[aria-label='心情月历'] .md.mood")).not_to_have_count(0)
+    expect(p.locator("[aria-label='心情月历'] .md.m4")).not_to_have_count(0)  # 8 分
     expect(p.locator("svg[aria-label='心情']")).to_be_visible()
     expect(p.locator("svg[aria-label='每天几点睡几点起']")).to_be_visible()
+    expect(p.locator("svg[aria-label='星期几的心情']")).to_be_visible()
+    expect(p.locator("svg[aria-label='星期几的精力']")).to_be_visible()
+    expect(p.get_by_role("button", name="咖啡奶茶茶")).to_have_count(0)
+    p.screenshot(path=ART / "stats.png", full_page=True)
     p.get_by_role("button", name="运动", exact=True).click()
     expect(p.locator("svg[aria-label='星期几']")).to_be_visible()
-    expect(p.locator("svg[aria-label='每周计划完成率']")).to_be_visible()
+    for gone in ["每周计划完成率", "科研", "护肤（最近 30 天", "生病前一周"]:
+        expect(p.get_by_text(gone)).to_have_count(0)
+    # 上个月的心情
+    p.get_by_role("button", name="上个月").click()
+    expect(p.locator(".period-nav h3")).to_contain_text("月的心情")
+    p.get_by_role("button", name="下个月").click()
+    # 「生活」页不再有分析的入口；形象页切回来
+    c.go("#/more")
+    expect(p.get_by_text("分析和回顾")).to_have_count(0)
+    c.go("#/stats")
+    p.get_by_role("group", name="形象").get_by_role("link", name="这个月").click()
+    expect(p.locator(".look-month")).to_be_visible()
 
 
-@step("回顾：周报月报（DeepSeek 写一段、存下来、月报有科研回顾）、年报")
+@step("回顾：周报月报（DeepSeek 写一段、存下来、不再有科研回顾）、年报；老的咖啡、英语、读经数据清掉")
 def _(c):
     p = c.page
+    c.go("#/stats")
+    p.get_by_role("link", name="这个月的回顾").click()
     c.go(f"#/report?k=month&d={YESTERDAY}")
     p.get_by_role("button", name="请 DeepSeek 写一段").click()
     expect(p.get_by_text("编的回顾正文")).to_be_visible()
-    expect(p.get_by_text("编的科研回顾")).to_be_visible()
+    expect(p.get_by_text("编的科研回顾")).to_have_count(0)
+    expect(p.get_by_text("科研")).to_have_count(0)
     key = f"m{YESTERDAY[:7]}"
     c.wait(lambda d: d["letters"][key]["text"] == "编的回顾正文", "月报存下来")
     sent = LAST_AI[-1]
-    assert "编的科研" in sent and "科研回顾" in sent, sent[:500]
+    assert "编的科研" not in sent and "科研回顾" not in sent and "咖啡奶茶茶" not in sent, sent[:500]
+    d = c.data()
+    assert not any(e["type"] in ("drink", "english") for e in d["events"]), "老的咖啡、英语清掉"
+    assert "english" not in d and "book" not in d["prayer"] and "pos" not in d["prayer"], d["prayer"]
+    assert not any("read" in r for r in d["days"].values()), "读经清掉"
+    assert "english-10" not in d["milestones"]
+    assert any(r.get("did") for r in d["days"].values()), "科研那格照记"
+    expect(p.locator("#nav a.active")).to_have_text("形象")
     p.get_by_role("link", name="周", exact=True).click()
     expect(p.locator(".period-nav")).to_contain_text("这周（")
     p.get_by_role("link", name="年", exact=True).click()
     expect(p.locator(".stat-grid")).to_contain_text("运动")
+    expect(p.locator(".stat-grid")).not_to_contain_text("咖啡")
+    p.get_by_role("link", name="‹ 分析").click()
+    expect(p).to_have_url(re.compile(r"#/stats$"))
 
 
 @step("问问我的记录：带着最近的记录问 DeepSeek；状态不对首页轻轻提一句")
@@ -1371,7 +1406,7 @@ def fake_externals(page):
         elif "问题" in body or "answer" in body:
             content = {"answer": "编的回答"}
         else:
-            content = {"letter": "编的回顾正文", "research": "编的科研回顾"}
+            content = {"letter": "编的回顾正文"}
         route.fulfill(status=200, content_type="application/json", headers={"Access-Control-Allow-Origin": "*"},
                       body=json.dumps({"choices": [{"finish_reason": "stop", "message": {"content": json.dumps(content, ensure_ascii=False)}}]}))
     page.route("https://api.deepseek.com/**", ai)

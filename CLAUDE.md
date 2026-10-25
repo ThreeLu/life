@@ -15,24 +15,23 @@
 
 ```
 { version, startDate,
-  settings: { rhythmDays, checks, sportKinds, drinkKinds, pin: { salt, iter, hash }, city?: { name, lat, lon, districts: [] } },
+  settings: { rhythmDays, checks, sportKinds, pin: { salt, iter, hash }, city?: { name, lat, lon, districts: [] } },
   days: { 日期: { mood 1–10, note, energy 1–5, stress 1–5, did, plan, planDone: yes|part|no,
-                  sleep: { bed, wake, q }, fetch: { am|noon|eve: true|'skip' }（打水，老数据 { mid, eve }）, goals: { 习惯id: true }, affirm（默念了）, care: { 打卡项id: true }, noShower（今晚不洗）, clean: true|'skip'（打扫卫生）, soak（泡脚了 true | 'skip' 今晚不泡）, photo（今天的一张照片的路径，photos/days/日期-xxx.jpg）, prayer: { night: { at, mode, note, summary }, morning: { at } } }（老的 read、readBook 不再用） },
-  events: [{ id, day, at, type: shower|sport|drink|english（老的，不再用）|p|p2, kind?, minutes?, km?, level?, note?, mode?, topic?, mistakes?, exprs?, score?, flag?, checks?: { c1, c2, c3 } }],
+                  sleep: { bed, wake, q }, fetch: { am|noon|eve: true|'skip' }（打水，老数据 { mid, eve }）, goals: { 习惯id: true }, affirm（默念了）, care: { 打卡项id: true }, noShower（今晚不洗）, clean: true|'skip'（打扫卫生）, soak（泡脚了 true | 'skip' 今晚不泡）, photo（今天的一张照片的路径，photos/days/日期-xxx.jpg）, prayer: { night: { at, mode, note, summary }, morning: { at } } } },
+  events: [{ id, day, at, type: shower|sport|p|p2, kind?, minutes?, km?, level?, note?, mode?, topic?, mistakes?, exprs?, score?, flag?, checks?: { c1, c2, c3 } }],
   look: { routine: [{ id, step?, name, when: am|pm|shower|week, times?, optional? }], products: { 物品档案id: { opened, verdict, note, pao? } }, hide: [物品档案id],
           老的 direction / steps / identity / moments 不再用 },
   periodic: [{ id, name, every, last }],
   weeks: { 周一日期: { thanks } }（老的 skin 不再用）,
-  prayer: { stage: 1|2|3, since, about（ChatGPT 祷告提示词里的自我介绍）, items: [{ id, text, at, answered?, answerNote? }], 老的 next、book、pos（读经）不再用 },
+  prayer: { stage: 1|2|3, since, about（ChatGPT 祷告提示词里的自我介绍）, items: [{ id, text, at, answered?, answerNote? }] },
   private: { supplies: [{ id, name, low? }], ui: { title, main, alt, score, flag, checks: { c1, c2, c3 }, checksTitle, help, … }（2026-10-21 按周的任务、一段时间那一套删掉了，数据仓库里的老数据也清掉了） },
   low: { plans: { down|anxious|lonely|hurt|tired|unclear: [一行一件事] }, notes: [{ id, text, at }]（写给难受时的自己）, log: [{ id, day, at, kind, before 1–10, after, did: [], helped: [], note }] },
   sick: { current: null | { id, kind: cold|fever|gut|other, start, path?: [{ day, kind }]（换过种类才有）, temps: [{ at, t }], meds: [{ at, item, name }], water: { 日期: 杯 },
                             sym: { 日期: [症状] }, done: { 日期: { 做的事文字: true } }（老数据键是预案序号）, extra: [自己加的事], gut: { 日期: { d, v } }, suspects: [] },
           history: [同上 + end, helped: [觉得管用的], how], plans: { kind: [一行一件事] }, meds: { 物品档案id: { dose, gapHours, perDay } } },
-  english（2026-10-15 英语功能去掉了，老数据留着不用）,
   milestones: { key: 日期, seen: { key: true } },
   places: [{ id, name, kind: spot|walk|shop|food|show|museum|other, district, address?, why, link, cost, season, want 1–3, lat, lng（高德坐标 GCJ-02）, at, visits: [{ id, day, score, with?: [人 id], note, photo? }] }],
-  letters: { w周一 | m月份 | y年份: { at, text, research } },
+  letters: { w周一 | m月份 | y年份: { at, text, research?（老的月报科研回顾，不再写、不显示） } },
   people: [{ id（和账本 people 同一个）, name, sex: m|f, groups: [主要的档, …]（family|relative|primary|middle|high|college|grad）, rel, how, birthday?: { cal: solar|lunar, m, d, y? }, likes, note, tone, greet: [节 key], dates: [{ id, day, title, gift?, yearly? }], stages: [{ id, title, from, to?, text }], log: [{ id, day, text, favor?, gift?: out|in }], at, archived?, archiveNote? }],
   greeted: { '年-节': { 人id: 日期 } },
   goals: [{ id, wish, title, status: talking|active|done|dropped, at, chat, why, key, note, stages: [{ id, title, tasks: [{ id, text, done: 日期|null, buy?: { name, price, query }, wishId? }] }], habits: [{ id, text, perWeek }], doneAt?, droppedAt? }],
@@ -46,7 +45,7 @@
 - 定期打理（`#/periodic`，入口在「生活」页，不在形象页）：做了从那天重新数；到期后每天出现在「今天」直到点「做了」（`periodicDue`），前一天出现「明天该……了」（`periodicTomorrow`），其余时候不出现，不推送（用户 2026-10-06 定）。擦鞋、修眉这类以后由用户自己在「改打卡项」或定期打理里加；`migrate` 会拿掉老的「擦鞋」定期项。
 - 祷告（2026-10-06 重做，同日又分成白天 / 晚上）：页面只有一个「开始祷告」（`prayView`：今天的经文 + 金色小十字 + 按钮 + 最近有祷告的那一天几点祷告了几次、写过的那句 + 和 ChatGPT 聊过的 + 难受的时候）。**白天的祷告**（早上 / 下午 / 傍晚，`dayPrayName`）`#/pray/go?m=quick`：两种方式切换——「和 ChatGPT 说」（`quickPrayerPrompt`，两三分钟，**不读经文**、不讲道，只把现在的事交给神）或「写一句」（一句话 →「阿们」，存进 `times[].text`；提示「所有的事，都有神在帮助我」）。**晚上的祷告** `?m=night`（2026-10-14 改）：`prayerPrompt` 让 ChatGPT 当懂信仰的**长辈**，**聊天和开导**为主（问问题、理清想法、先理解再给具体看法），圣经合适的时候带一两句，不讲道、不替神传话；我说「差不多了」它为今天聊的事做简短祷告；回来「祷告完了」直接记下，**不念主祷文**（`LORDS_PRAYER` 留在 content.js 不用）。都不要 ChatGPT 写小结。记在 `days[日].prayer.times: [{ at, kind: quick|night, text? }]`，晚上那次同时写 `prayer.night`（统计、推送、圆满章都看它）。晚上 8 点后第一次默认是晚上那次，可以切换。晚上不让打字；不问「近了 / 远了」。阶段、晨祷、祷告事项、每周感恩、周日感恩推送都拿掉了，老数据留着。设计：彩窗透光的淡紫到暖金光晕、角落很淡的十字、经文宋体加金色「」、金色分隔线。
 - 每周的打卡项（面膜等 `when: 'week'`）：首页只在**周六晚上**出现（别的日子做过的那天也显示）。「明天要做」（2026-10-06）：睡前复盘单独一块，什么都能写；第二天早上那张清单顶上只提一句「今天要做：…」，不打勾、不算进度；做到没有只在第二天的睡前复盘问（`planDone`）。
-- 读经（2026-10-15 用户说删掉）：读经卡、换一卷、统计 / 回顾 / 分析里的读经都去掉了，老数据留着。不要再加回来。
+- 读经（2026-10-15 用户说删掉）：读经卡、换一卷、统计 / 回顾 / 分析里的读经都去掉了；2026-10-24 老数据也删了（`migrate` 去掉 `days[].read/readBook`、`prayer.book/pos/next`）。不要再加回来。
 - 和 ChatGPT 聊过的（2026-10-15，用户烦躁、心情有波动时会和 ChatGPT 聊，想留下来）：祷告页「难受的时候」上面一块（`chatsCard`：最近两段 + 记一段），`#/chats` 按月列、按心情挑、能搜，`#/chat/new` 先给一段 `CHAT_RECORD_PROMPT`（复制后回那次聊天发送，让 ChatGPT 把聊的整理成文字），长按复制贴回来；心情 `CHAT_MOODS` 可不选，「聊了什么」可不写。晚上祷告点「祷告完了」后弹一句「把今晚聊的记下来？」（`askRecordChat`，「不用了」就算了），记一段进 `#/chat/new?from=pray`，存 `from: 'pray'`，列表和详情标「晚上祷告」。`#/chat/:id` 看、复制、改、删（能撤销）。只存不分析：不进统计、回顾、「问问我的记录」，不发给 DeepSeek。
 - 鼓励（用户要求「让我感到自信、有激励」）：首页每天一句（`CHEERS` / `CHEER_VERSES`）、做完一件事一句（`CHEER_ON`、`cheerNight` 按心情）、「这周的你」只数做到的（`weekHighlights`）、里程碑（`MILESTONE_TEXT`，首页祝贺 3 天）、状态不对轻轻提一句（`gentleNote`）。温和具体，不喊口号、不说教。
 - 小记（`#/p`，首页右上角叶子图标）：单独 6 位密码，PBKDF2 哈希存 `settings.pin`，离开网站就锁。**这一页的文字（名字、按钮、勾选项、说明）都在 `private.ui`，公开代码里只有中性默认值（`P_DEFAULT`），不要把具体用途写进代码、提交说明或这份文件。** 只做中性记录和统计，不要「减少 / 坚持天数」之类；节奏只在这一页提，不推送；别的页面不出现（「问问我的记录」只在这一页开着锁时才带上它的数字）。忘了密码：在数据仓库里删掉 `settings.pin` 让用户重设。按周的任务、计时的一段时间和跟它相关的一切（2026-10-21 用户说全部删掉）都去掉了，不要再加回来。
@@ -59,9 +58,10 @@
 - 洗澡（2026-10-14 改）：不是每天，晚上那段有一行「洗澡」（不算进度）；点了（或底部「＋」）先弹「洗澡了吗」（`showerSheet`），顺便勾洗澡后的项，点「洗好了」才记，「取消」什么都不记，记了能撤销、也能在「今天记下的」里删。
 - 换季：`settings.city` 有经纬度时用 Open-Meteo 查天气（每天一次存 localStorage，`seasonWarning`），首页写在天气标签下面一句小字（`wx-note`，左边一条琥珀色细线，不是可点的提醒行；日子说今天 / 明天 / 后天），睡前推送也加一句。
 - 打开 ChatGPT（`chatgptButton`，祷告、想做到的事）：链接 `https://chatgpt.com/?prompt=<提示词>`——ChatGPT 的通用链接里根路径只认带 `prompt` / `q` 参数的，这样 iPhone 上直接打开 App 并带上提示词；同时悄悄复制一份，没带上就粘贴。
-- 英语陪练（2026-10-15 用户说不要了）：页面、首页复习、统计、回顾、里程碑里的英语都去掉了，`english` 老数据留着。不要再加回来。
+- 英语陪练（2026-10-15 用户说不要了）：页面、首页复习、统计、回顾、里程碑里的英语都去掉了；2026-10-24 老数据也删了（`english`、`english` 事件、`english-*` 里程碑）。不要再加回来。
+- 咖啡奶茶茶（2026-10-24 用户说全部删掉）：「＋」里的「喝了一杯」、分析、回顾、问问我的记录里都去掉了，`migrate` 删掉 `drink` 事件和 `settings.drinkKinds`。不要再加回来。
 - 想去的地方（`#/places`、`#/place/:id`，js/places.js）：新建时第一个框什么都能放（2026-10-06）：小红书 / 大众点评 / 美团 / 高德的分享、「店名 + 地址」、一句话；`parseShare` 只认小红书标题和别的 App 里括起来的店名，认不出就留空；「一键补全」（DeepSeek）（`findPlace(name, text)`，用户点了才问，链接不发）认出是哪里，给名字（名字是用户自己写的就不换）、类型、区、地址、高德坐标，有地址按地址定位。**不填人均、营业时间**（用户不要），`cleanCandidates` 只留已有的类型和区、离城市 80 公里以外的坐标不要；连锁店列出每一家，地图标号勾选，新建时勾几家就分开记几个；坐标是估计的，提示用户在地图上核对；地图是 Leaflet（`vendor/leaflet`，按需加载）+ 高德底图（不用密钥），坐标存高德坐标，手机定位用 `wgsToGcj` 转；按区（`settings.city.districts`）、足迹、去过可以打分写话放照片（压缩后存数据仓库 `photos/places/`）。周末去哪（`weekendPicks`）只从自己写的地方挑，周五到周日首页出现，周末下雨先推室内的，周五睡前推送也带上（python 里同样的规则 `weekend_picks`）。
-- 分析（`#/stats`，js/stats.js、js/charts.js）：什么在影响我（`influences`：做了 vs 没做，心情记满 21 天才给结论，天数少标「还不太可靠」；天气用 Open-Meteo 历史接口，花钱读账本），走势、作息、规律、护肤完成率、计划完成率、生病前一周。回顾 `#/report?k=week|month|year`：数字 + DeepSeek 写一段存 `letters`（月报加科研回顾）。问问我的记录 `#/ask`：DeepSeek 读最近 60 天，聊天只在内存。DeepSeek 密钥读物品档案仓库 `config/ai.json`。
+- 分析（`#/stats`，js/stats.js、js/charts.js；2026-10-24 改版）：**是形象的副页**——形象页和分析页顶上都有「这个月 | 分析」切换（`lookTabs`），底栏亮「形象」（`/stats`、`/report`、`/ask` 都算形象），「生活」页不再有入口。从上到下：心情月历（`moodMonthCard`，越好越深 `m1`–`m5`，可以翻月）、走势（用户喜欢，别动）、作息（用户喜欢，别动）、一周里哪天状态好（`weekdayMood`，最近 90 天，某个星期几不到 2 次就空着）、规律（只有洗澡、运动）、什么在影响我（`influences`：做了 vs 没做，心情记满 21 天才给结论，天数少标「还不太可靠」；天气用 Open-Meteo 历史接口，花钱读账本）、最下面回顾和问问我的记录。去掉了：护肤完成率（和形象页重复）、计划完成率、生病前一周、咖啡奶茶茶。**科研不展示**：睡前复盘里科研那格照记（`did`），但分析、回顾里都不出现，回顾也不发给 DeepSeek（问问我的记录还带着）。回顾 `#/report?k=week|month|year`：数字 + DeepSeek 写一段存 `letters`，最下面「‹ 分析」。问问我的记录 `#/ask`：DeepSeek 读最近 60 天，聊天只在内存。DeepSeek 密钥读物品档案仓库 `config/ai.json`。
 - 想做到的事（`#/goals`、`#/goal/:id`，入口在「生活」页，2026-10-06）：写一句心愿 → 复制 `goalPrompt`（content.js）和 ChatGPT **语音**聊，说「整理一下」写固定格式小结 → 贴回来 → DeepSeek（`goalPlan`）拆成 2–4 阶段、每阶段 2–5 件能勾掉的小事、每周习惯、要买的东西（`buy.query` 搜索词）→ `applyGoalPlan` 存（重新整理时同样文字的事保留「做了」）。DeepSeek 带上物品档案（`goalInventory`：衣服鞋子写风格季节穿的次数备注，看不了照片；其他东西只写名字类别）和账本里没买的心愿。要买的：小红书 / 淘宝搜索链接；「放进心愿单」确认名字价格后直接提交到账本仓库 finance.json 的 `wishes`（`addLedgerWish`，记 `wishId`）。首页每个在做的目标一行进度（`goalLines`），周报有一张卡（`goalWeekCard`），做到了 3 天内首页里程碑（`goal-<id>` 记在 `milestones.seen`）。不推送。
 - 身边的人（`#/people`、`#/person/:id`、`/new`、`/edit`，js/people.js，入口在「生活」页，2026-10-06）：只记名字（不记昵称、手机号、微信）；男 / 女必选（`sex`，页面上的他 / 她跟着变，`ta()`）；分组（`PEOPLE_GROUPS`）家人、亲戚、小学、初中、高中、本科、研究生，一个人可以在几档、第一个是主要的；关系 `rel`（家人亲戚写具体称呼，研究生写导师 / 师兄师姐 / 同门 / 同事……，`relChoices`）；生日公历或农历（`js/cal.js`，和账本同一份），年份可空，前一天和当天「今天」里一行；新建时写一段话「一键补全」（`personFromText`，DeepSeek 只填说到的）；来往时间线（`timeline`：自己记的 `log`、想去的地方里 `with` 他的、账本里的人情和钱）；「记成人情」/「记一个人情」直接提交账本 `favors`；「想想送什么」（`giftIdeas`）→ 小红书 / 淘宝搜索、放进账本心愿单（`kind: gift`，`targetDate` 下一次生日）；不再来往的归档不删（`archived`，列表最下面），因为以后聊天会提到。**不要**远近圈、关系打分、关系图、很久没联系提醒、周回顾里的来往（用户说的）。列表是头像墙（2026-10-06 用户选的，嫌一行一个太占地方、太呆）：圆里是名字最后一个字、按主要的档上色，下面写**全名**（不要简称），一行 5 个；上面一排切换全部 / 各档 / 还没分组 / 不再来往，人多了有「找人」；「全部」按主要的档分块（家人、亲戚、研究生、本科、高中、初中、小学），不再来往的淡淡放最后；7 天内过生日或有重要日子的头像上有小红点；辈分（`rankOf`：`rank` 没选过就按关系 `guessRank` 猜）导师 mentor / 领导 · 师长 leader / 长辈 elder / 同辈 peer / 晚辈 junior（老数据的 senior 按关系换成 leader 或 elder），「全部」最上面「导师」单独一块，每块里按辈分分行（只有一种辈分不写小标题），DeepSeek 也拿到辈分；更亲近的 `close` 头像多一圈金边、排在那一行前面（用户 2026-10-06 要的，不是打分，只有是 / 否）；不再来往在「全部」里收成一行（一叠小灰圆 + 人数），点了切到那一档。资料里先问「知道生日吗」，知道才展开（不知道记 `noBirthday`）。
 - 选人（两个网站所有填人名的地方，`js/picker.js` 两边同一份）：输入一个字出补全（名字、`hint`「本科 · 舍友」都能搜），空着时出「最近」5 个，没有就「＋ 新加」；不要一大排人名按钮。`hint` 由 `syncPeople` 写进账本 people。和账本名单：`syncPeople` 打开时把账本里新加的人搬过来（还没分组，同名的认成同一个），名字和归档写到账本（`ledgerSync`）；账本那边不改名字。节假日人情（`peopleAlerts`）：放假前一天到假期结束，「今天」里问欠的人情这次还不还（写账本 `favors` 的 `plan` / `skip`，规则和账本 `holidayFavors` 一样）。改账本统一用 `updateLedger`；读账本缓存 5 分钟 `ledgerSnap`。
@@ -84,6 +84,6 @@
 
 1. ✅ 骨架、今天、形象、祷告、小记、英语提示词、22:30 推送。
 2. ✅ 鼓励的话和里程碑、生病模式、换季提醒、英语错句本表达本和复习、读经换卷（英语、读经后来都去掉了）。
-3. ✅ 想去的地方（地图、按区、足迹、周末去哪）、分析（什么在影响我、走势、作息、规律、回顾、问问我的记录）。
+3. ✅ 想去的地方（地图、按区、足迹、周末去哪）、分析（什么在影响我、走势、作息、规律、回顾、问问我的记录）；2026-10-24 分析挪到形象的副页并改版。
 4. 爱好：2026-10-06 聊过，用户决定不做。
 - 首页提醒（2026-10-07）：`alertRows` 的几条合在一张卡里（`.alerts` 分组列表，行间细线），不再一条一张卡；问候语一行写完（`clamp` 字号 + 不折行）。按下去的手感在 `app.css` 最后（四个网站同一段）。

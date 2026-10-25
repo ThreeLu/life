@@ -829,6 +829,14 @@ textarea.bare { resize: none; }
 .md.today small { color: var(--accent); font-weight: 600; }
 .legend .dot-sw { display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: var(--accent); }
 .legend .dot-sw.part { background: color-mix(in srgb, var(--accent) 35%, var(--chip)); }
+/* 分析：心情月历，心情越好紫色越深 */
+.md.m1 i, .legend .dot-sw.m1 { background: color-mix(in srgb, var(--accent) 14%, var(--chip)); }
+.md.m2 i, .legend .dot-sw.m2 { background: color-mix(in srgb, var(--accent) 32%, var(--chip)); }
+.md.m3 i, .legend .dot-sw.m3 { background: color-mix(in srgb, var(--accent) 52%, var(--chip)); }
+.md.m4 i, .legend .dot-sw.m4 { background: color-mix(in srgb, var(--accent) 76%, var(--chip)); }
+.md.m5 i, .legend .dot-sw.m5 { background: var(--accent); }
+.mood-legend { gap: 4px; }
+.mood-legend .dot-sw { margin: 0; }
 
 /* 形象：每一项最近两周一天一个点 */
 .care-group + .care-group { margin-top: 10px; }

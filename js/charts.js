@@ -28,10 +28,10 @@ export function lineChart({ days, vals, ma }, { min, max, title = '', color = 'v
   return svg;
 }
 
-// 柱状：bars = [{ label, v }]
-export function barChart(bars, { title = '', color = 'var(--accent)', height = 110, fmt = (v) => v } = {}) {
+// 柱状：bars = [{ label, v }]；scale 给了就按它算柱子高（比如心情满分 10），不给按最高的那根
+export function barChart(bars, { title = '', color = 'var(--accent)', height = 110, fmt = (v) => v, scale = null } = {}) {
   const top = 14; const bottom = 18;
-  const max = Math.max(1, ...bars.map((b) => b.v || 0));
+  const max = scale || Math.max(1, ...bars.map((b) => b.v || 0));
   const slot = W / bars.length; const bw = Math.min(26, slot * 0.6);
   const svg = s('svg', { viewBox: `0 0 ${W} ${height}`, class: 'chart', role: 'img', 'aria-label': title });
   bars.forEach((b, i) => {
