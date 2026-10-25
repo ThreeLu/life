@@ -19,7 +19,7 @@
   days: { 日期: { mood 1–10, note, energy 1–5, stress 1–5, did, plan, planDone: yes|part|no,
                   sleep: { bed, wake, q }, fetch: { am|noon|eve: true|'skip' }（打水，老数据 { mid, eve }）, goals: { 习惯id: true }, affirm（默念了）, care: { 打卡项id: true }, noShower（今晚不洗）, clean: true|'skip'（打扫卫生）, soak（泡脚了 true | 'skip' 今晚不泡）, photo（今天的一张照片的路径，photos/days/日期-xxx.jpg）, prayer: { night: { at, mode, note, summary }, morning: { at } } } },
   events: [{ id, day, at, type: shower|sport|p|p2, kind?, minutes?, km?, level?, note?, mode?, topic?, mistakes?, exprs?, score?, flag?, checks?: { c1, c2, c3 } }],
-  look: { routine: [{ id, step?, name, when: am|pm|shower|week, times?, optional? }], products: { 物品档案id: { opened, verdict, note, pao? } }, hide: [物品档案id],
+  look: { routine: [{ id, step?, name, when: am|pm|shower|week, times?, optional? }], 
           老的 direction / steps / identity / moments 不再用 },
   periodic: [{ id, name, every, last }],
   weeks: { 周一日期: { thanks } }（老的 skin 不再用）,
@@ -39,9 +39,9 @@
 ```
 
 - **一天从凌晨 4 点开始**（`dayKey`）。周从周一开始，`weeks` 的键是周一。
-- 形象页外观（2026-10-15 用户选「安静的点点」）：这个月一个宋体大数字（护肤做完几天）+ 次数小胶囊 + 圆点月历（`dotMonth`，今天带圈）；护肤按早上 / 晚上 / 洗澡后 / 每周分组，每项最近 14 天一天一个点（`careDots`），不显示百分比；护肤品横着滑的小卡（`.prod-strip`），细条是开封过了多久，快到时间琥珀色。
-- 形象页（2026-10-06 用户要求大改）：**只放数据、不放口号、不涉及钱**（钱在账本看）。这个月（护肤做完几天 `lookMonth`、洗澡、洗澡后 / 每周的项各几次、月历：早晚都做完深紫、做一部分浅紫）、护肤（最近 30 天每一项做到多少 `careItemRates`、记满一周说最常忘的；「改打卡项」直接加 / 改 / 删 `look.routine`）、护肤品。已经删掉：路线图和每一步的说明、我的方向、我是这样的人和精致时刻、每周皮肤打分（首页周末提醒和分析里的图也删了）、我学到的、身材、衣服（在物品档案看）、形象页角落那句话。老数据里的 `steps`、`direction`、`identity`、`moments`、`notes` 留着不用。
-- 护肤品：读物品档案里「洗漱护肤」类的物品（`isSkincare` 去掉热水壶、剃须刀、牙刷、毛巾这类用具，2026-10-15 用户说的），开封日期、好不好用、开封后多久用完（`pao` 月，默认按名字 `paoMonths`：香水 36、睫毛膏 6、其他 12，默认值不存）存在 `look.products`；快到 / 过了标出来（`openedStatus`）。「快用完了」直接提交物品档案 inventory.json 的 `runningLow`（`updateInventoryItem`），会进那边的购物清单。
+- 形象页外观（2026-10-15 用户选「安静的点点」）：这个月一个宋体大数字（护肤做完几天）+ 次数小胶囊 + 圆点月历（`dotMonth`，今天带圈）；护肤按早上 / 晚上 / 洗澡后 / 每周分组，每项最近 14 天一天一个点（`careDots`），不显示百分比。
+- 形象页（2026-10-06 用户要求大改）：**只放数据、不放口号、不涉及钱**（钱在账本看）。这个月（护肤做完几天 `lookMonth`、洗澡、洗澡后 / 每周的项各几次、月历：早晚都做完深紫、做一部分浅紫）、护肤（最近 30 天每一项做到多少 `careItemRates`、记满一周说最常忘的；「改打卡项」直接加 / 改 / 删 `look.routine`）。已经删掉：路线图和每一步的说明、我的方向、我是这样的人和精致时刻、每周皮肤打分（首页周末提醒和分析里的图也删了）、我学到的、身材、衣服（在物品档案看）、形象页角落那句话。老数据里的 `steps`、`direction`、`identity`、`moments`、`notes` 留着不用。
+- 护肤品（2026-10-24 用户说全都不要了）：开封日期、好不好用、开封后多久用完、「快用完了」进物品档案购物清单，整块删掉；`migrate` 删掉 `look.products`、`look.hide`。不要再加回来。
 - 定期打理（`#/periodic`，入口在「生活」页，不在形象页）：做了从那天重新数；到期后每天出现在「今天」直到点「做了」（`periodicDue`），前一天出现「明天该……了」（`periodicTomorrow`），其余时候不出现，不推送（用户 2026-10-06 定）。擦鞋、修眉这类以后由用户自己在「改打卡项」或定期打理里加；`migrate` 会拿掉老的「擦鞋」定期项。
 - 祷告（2026-10-06 重做，同日又分成白天 / 晚上）：页面只有一个「开始祷告」（`prayView`：今天的经文 + 金色小十字 + 按钮 + 最近有祷告的那一天几点祷告了几次、写过的那句 + 和 ChatGPT 聊过的 + 难受的时候）。**白天的祷告**（早上 / 下午 / 傍晚，`dayPrayName`）`#/pray/go?m=quick`：两种方式切换——「和 ChatGPT 说」（`quickPrayerPrompt`，两三分钟，**不读经文**、不讲道，只把现在的事交给神）或「写一句」（一句话 →「阿们」，存进 `times[].text`；提示「所有的事，都有神在帮助我」）。**晚上的祷告** `?m=night`（2026-10-14 改）：`prayerPrompt` 让 ChatGPT 当懂信仰的**长辈**，**聊天和开导**为主（问问题、理清想法、先理解再给具体看法），圣经合适的时候带一两句，不讲道、不替神传话；我说「差不多了」它为今天聊的事做简短祷告；回来「祷告完了」直接记下，**不念主祷文**（`LORDS_PRAYER` 留在 content.js 不用）。都不要 ChatGPT 写小结。记在 `days[日].prayer.times: [{ at, kind: quick|night, text? }]`，晚上那次同时写 `prayer.night`（统计、推送、圆满章都看它）。晚上 8 点后第一次默认是晚上那次，可以切换。晚上不让打字；不问「近了 / 远了」。阶段、晨祷、祷告事项、每周感恩、周日感恩推送都拿掉了，老数据留着。设计：彩窗透光的淡紫到暖金光晕、角落很淡的十字、经文宋体加金色「」、金色分隔线。
 - 每周的打卡项（面膜等 `when: 'week'`）：首页只在**周六晚上**出现（别的日子做过的那天也显示）。「明天要做」（2026-10-06）：睡前复盘单独一块，什么都能写；第二天早上那张清单顶上只提一句「今天要做：…」，不打勾、不算进度；做到没有只在第二天的睡前复盘问（`planDone`）。

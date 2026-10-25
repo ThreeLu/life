@@ -8,7 +8,7 @@ import {
   sickActive, recoveryLeft, tempStats, medInfo, doseStatus, medConflicts, seasonWarning,
   sickDid, sickSymptoms, sickLessons, similarSick, planMissing, sickKinds,
   fetchRows, fetchState, solarTerm, lowLessons, goodDays, 
-  goalProgress, goalLine, habitWeek, goalWeekDone, applyGoalPlan, lookMonth, careItemRates, careDots, isSkincare, paoMonths, openedStatus,
+  goalProgress, goalLine, habitWeek, goalWeekDone, applyGoalPlan, lookMonth, careItemRates, careDots,
 } from './life.js';
 import {
   VERSES, verseFor, prayerPrompt, quickPrayerPrompt,
@@ -918,9 +918,8 @@ function careCardInline(day, when) {
 // 只看做了什么：这个月、护肤（月历、每一项做到多少）、护肤品。不放口号，不涉及钱（钱在账本里看）
 
 const LOOK_HELP = [
-  ['这一页是什么', ['看你在形象上做了什么：这个月护肤做完几天、洗澡几次，每一项最近两周做了哪几天，用的护肤品开封多久了。', '顶上点「分析」看心情、作息这些的分析和周报月报。']],
+  ['这一页是什么', ['看你在形象上做了什么：这个月护肤做完几天、洗澡几次，每一项最近两周做了哪几天。', '顶上点「分析」看心情、作息这些的分析和周报月报。']],
   ['护肤', ['月历：早晚都做完是实心的紫点，做了一部分是浅紫点，今天带一个圈。', '每一项后面是最近 14 天，一天一个点，最右边是今天。洗过澡的晚上，洗脸那天是一个小空心圈（洗澡时洗过了）。', '「改打卡项」可以加、改名、删掉每天的打卡项，比如加「防晒（早上）」「擦鞋（早上）」。']],
-  ['护肤品', ['从物品档案里读「洗漱护肤」类的东西，横着滑；热水壶、剃须刀、牙刷、毛巾这类用具不算。还有不是护肤品的，点开它选「这个不是护肤品」。点一下记开封日期、好不好用、开封后多久用完（一般 12 个月）。', '下面那条是开封以后过了多久，快到时间变成琥珀色。「快用完了」会放进物品档案的购物清单。']],
 ];
 
 function lookView() {
@@ -929,8 +928,7 @@ function lookView() {
     headerSub('形象', '这个月做了什么', helpButton('形象这一页怎么用', LOOK_HELP)),
     lookTabs('look'),
     lookMonthCard(today),
-    careDataCard(today),
-    productsCard());
+    careDataCard(today));
 }
 
 // 这个月：一个大数字、一行次数、圆点月历
@@ -1031,116 +1029,6 @@ function routineItemSheet(r = null) {
         if (i >= 0) data.look.routine[i] = x; else data.look.routine.push(x);
       });
     },
-  });
-}
-
-// 物品档案里「洗漱护肤」类的东西（缓存 5 分钟）
-const invCache = { at: 0, items: null, error: '' };
-const inventoryGh = () => {
-  const inv = readJson('inventory-settings');
-  const owner = (settings.repo || DEFAULT_REPO).split('/')[0];
-  return new GitHub({ token: inv.token || settings.token, repo: inv.repo || `${owner}/inventory-data` });
-};
-async function loadProducts(force = false) {
-  if (!force && invCache.items && Date.now() - invCache.at < 300000) return;
-  try {
-    const data = JSON.parse(await inventoryGh().readText('inventory.json', 'main'));
-    const locs = Object.fromEntries((data.locations || []).map((l) => [l.id, l.name]));
-    invCache.items = (data.items || []).filter((i) => !i.archived && (i.tags || []).includes('洗漱护肤') && isSkincare(i.name))
-      .map((i) => ({ id: i.id, name: i.name, where: (locs[i.location] || '').split(' ')[0], qty: i.quantity, low: i.runningLow || '', out: Number(i.quantity) === 0 }));
-    invCache.error = '';
-  } catch (e) {
-    invCache.items = [];
-    invCache.error = e.message;
-  }
-  invCache.at = Date.now();
-}
-// 改物品档案里的一件东西（直接提交，冲突了重来）
-async function updateInventoryItem(id, fn, message) {
-  const g = inventoryGh();
-  for (let attempt = 0; ; attempt++) {
-    const head = await g.headSha();
-    const data = JSON.parse(await g.readText('inventory.json', head));
-    const it = (data.items || []).find((x) => x.id === id);
-    if (!it) throw new Error('物品档案里找不到这件了');
-    fn(it);
-    try {
-      await g.commit(head, [{ path: 'inventory.json', content: JSON.stringify(data, null, 1) + '\n' }], message);
-      return;
-    } catch (e) {
-      if (!(e instanceof GitHubError && e.status === 422) || attempt === 3) throw e;
-    }
-  }
-}
-
-const VERDICT = { good: '好用', ok: '一般', bad: '不适合' };
-const PAO_TEXT = { over: '过了建议的时间，最好换新的', soon: '快到时间了' };
-function productsCard() {
-  const box = h('div', {}, h('p', { class: 'muted small' }, '正在读物品档案……'));
-  const draw = () => {
-    const d = store.data;
-    const today = dayKey();
-    const list = (invCache.items || []).filter((i) => !d.look.hide.includes(i.id));
-    if (invCache.error) { box.replaceChildren(h('p', { class: 'muted small' }, `读不到物品档案：${invCache.error}`)); return; }
-    const rows = list.map((i) => {
-      const p = d.look.products[i.id] || {};
-      const st = p.opened ? openedStatus(p.opened, paoMonths(i.name, p.pao), today) : null;
-      return { i, p, st, rank: st ? { over: 0, soon: 1, ok: 2 }[st.level] : 3 };
-    }).sort((a, b) => a.rank - b.rank);
-    const card = ({ i, p, st }) => {
-      const used = p.opened ? Math.min(1, daysBetween(p.opened, today) / (paoMonths(i.name, p.pao) * 30.4)) : 0;
-      const tags = [p.verdict ? VERDICT[p.verdict] : '', i.out ? '用完了' : i.low ? '在购物清单上' : ''].filter(Boolean);
-      return h('button', { class: `prod-card${st && st.level !== 'ok' ? ' warn' : ''}`, onclick: () => productSheet(i) },
-        h('span', { class: 'prod-name' }, i.name),
-        h('span', { class: 'prod-bar' }, h('i', { style: `width:${Math.round(used * 100)}%` })),
-        h('span', { class: 'prod-age' }, st?.age || '还没记开封'),
-        st && st.level !== 'ok' ? h('span', { class: 'prod-warn' }, st.level === 'over' ? '该换新的了' : PAO_TEXT.soon) : null,
-        tags.length ? h('span', { class: 'prod-tags' }, tags.join(' · ')) : null);
-    };
-    box.replaceChildren(...[
-      rows.length ? h('div', { class: 'prod-strip' }, rows.map(card)) : h('p', { class: 'muted small' }, '物品档案里还没有「洗漱护肤」类的东西。'),
-      d.look.hide.length ? h('button', { class: 'link small', onclick: () => saveRender('显示藏起来的东西', (data) => { data.look.hide = []; }) }, `显示藏起来的 ${d.look.hide.length} 样`) : null,
-    ].filter(Boolean));
-  };
-  loadProducts().then(() => { if (box.isConnected) draw(); });
-  if (invCache.items) draw();
-  return h('div', { class: 'card' }, h('h3', {}, '护肤品'), box);
-}
-
-function productSheet(item) {
-  const p = store.data.look.products[item.id] || {};
-  const opened = h('input', { type: 'date', value: p.opened || '', 'aria-label': '开封日期' });
-  const note = h('input', { value: p.note || '', placeholder: '用起来怎么样（可以不填）', 'aria-label': '备注' });
-  let verdict = p.verdict || null;
-  let pao = paoMonths(item.name, p.pao);
-  const vRow = h('div', {});
-  const pRow = h('div', {});
-  const draw = () => {
-    vRow.replaceChildren(choiceRow('好不好用', Object.entries(VERDICT), verdict, (v) => { verdict = v; draw(); }));
-    pRow.replaceChildren(choiceRow('开封后多久用完', [[6, '6 个月'], [12, '12 个月'], [24, '24 个月'], [36, '36 个月']], pao, (v) => { pao = v || pao; draw(); }));
-  };
-  draw();
-  const lowBtn = item.out ? null : h('button', { class: 'secondary small', onclick: async () => {
-    close();
-    try {
-      await saving(item.low ? '正在改……' : '正在放进购物清单……', () => updateInventoryItem(item.id, (it) => { if (item.low) delete it.runningLow; else it.runningLow = dayKey(); }, `${item.low ? '还够用' : '快用完了'}：${item.name}（从「生活」）`));
-      toast(item.low ? '好，还够用' : '放进购物清单了');
-      await loadProducts(true);
-      render();
-    } catch { /* 已提示 */ }
-  } }, item.low ? '还够用（从购物清单拿掉）' : '快用完了 → 放进购物清单');
-  const close = openSheet({
-    title: item.name,
-    body: h('div', { class: 'form' }, h('label', {}, '开封日期', opened),
-      h('div', { class: 'label-sm' }, '开封后多久用完'), pRow,
-      h('div', { class: 'label-sm' }, '用了两周以后：'), vRow, note, lowBtn,
-      h('button', { class: 'link small', onclick: () => { close(); saveRender('藏起来', (data) => { data.look.hide.push(item.id); }); } }, '这个不是护肤品，不在这里显示')),
-    confirmText: '好了',
-    onConfirm: () => saveRender(`护肤品：${item.name}`, (data) => {
-      const x = { ...(opened.value ? { opened: opened.value } : {}), ...(verdict ? { verdict } : {}), ...(note.value.trim() ? { note: note.value.trim() } : {}),
-        ...(pao !== paoMonths(item.name) ? { pao } : {}) };
-      if (Object.keys(x).length) data.look.products[item.id] = x; else delete data.look.products[item.id];
-    }),
   });
 }
 

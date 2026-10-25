@@ -555,7 +555,7 @@ def _(c):
     expect(p.locator(".section-title", has_text="定期打理")).to_have_count(0)
 
 
-@step("形象：这个月做了什么（护肤做完几天、月历、每一项做到多少）；护肤品开封多久、快用完了进物品档案购物清单")
+@step("形象：这个月做了什么（护肤做完几天、月历、每一项做到多少）；不再有护肤品")
 def _(c):
     p = c.page
     c.go("#/look")
@@ -565,22 +565,10 @@ def _(c):
     expect(p.get_by_text("我学到的")).to_have_count(0)
     expect(p.get_by_text("我的方向")).to_have_count(0)
     expect(p.locator(".whisper")).to_have_count(0)  # 形象页不放角落那句话
-    p.get_by_role("button", name="编的洗面奶").click()
-    c.sheet().get_by_label("开封日期").fill((datetime.fromisoformat(TODAY) - timedelta(days=350)).date().isoformat())
-    c.sheet().get_by_role("button", name="好用").click()
-    c.sheet().get_by_role("button", name="好了").click()
-    c.wait(lambda d: d["look"]["products"].get("inv-1", {}).get("verdict") == "good", "护肤品")
-    assert "pao" not in c.data()["look"]["products"]["inv-1"]  # 默认 12 个月不存
-    expect(p.locator(".prod-card", has_text="编的洗面奶")).to_contain_text("快到时间了")
-    expect(p.locator("main")).not_to_contain_text("编的零食")  # 不是洗漱护肤类的不显示
-    expect(p.locator("main")).not_to_contain_text("编的热水壶")  # 洗漱护肤里的用具不算护肤品
-    expect(p.locator("main")).not_to_contain_text("编的电动剃须刀")
-    # 快用完了 → 物品档案里标上（进购物清单）
-    p.get_by_role("button", name="编的洗面奶").click()
-    c.sheet().get_by_role("button", name="快用完了 → 放进购物清单").click()
-    expect(p.locator(".prod-card", has_text="编的洗面奶")).to_contain_text("在购物清单上")
-    it = next(i for i in json.loads(INVENTORY.read("inventory.json"))["items"] if i["id"] == "inv-1")
-    assert it.get("runningLow") == TODAY, it
+    expect(p.locator("main")).not_to_contain_text("护肤品")
+    expect(p.locator("main")).not_to_contain_text("编的洗面奶")
+    d = c.data()
+    assert "products" not in d["look"] and "hide" not in d["look"], d["look"].keys()  # 老数据清掉
     p.screenshot(path=ART / "look.png", full_page=True)
 
 

@@ -46,7 +46,7 @@ export function defaultData(today) {
     },
     days: {}, // { 日期: { mood, note, energy, stress, did, plan, planDone, sleep: { bed, wake, q }, care: { 打卡项 id: true }, prayer: { night, morning }, noShower } }
     events: [], // 洗澡、运动、小记……：{ id, day, at, type, ... }
-    look: { direction: [], steps: {}, routine: [], products: {}, hide: [], identity: null, moments: [] }, // identity：「我是这样的人」自己改过的句子；moments：精致时刻 { id, day, text }
+    look: { direction: [], steps: {}, routine: [], identity: null, moments: [] }, // identity：「我是这样的人」自己改过的句子；moments：精致时刻 { id, day, text }
     notes: [], // 我学到的：{ id, title, text, track, link, at }
     periodic: DEFAULT_PERIODIC.map((p) => ({ ...p, last: null })),
     weeks: {}, // { 周一的日期: { skin: { score, tags, note }, thanks } }
@@ -112,6 +112,9 @@ export function migrate(data) {
   for (const r of Object.values(data.days)) { delete r.read; delete r.readBook; }
   for (const k of ['book', 'pos', 'next']) delete data.prayer[k];
   for (const k of Object.keys(data.milestones)) if (k.startsWith('english-')) delete data.milestones[k];
+  // 2026-10-24 护肤品（开封日期、好不好用）也不要了
+  delete data.look.products;
+  delete data.look.hide;
   if (data.milestones.seen) for (const k of Object.keys(data.milestones.seen)) if (k.startsWith('english-')) delete data.milestones.seen[k];
   return data;
 }
@@ -578,13 +581,6 @@ export function careItemRates(data, today, n = 30) {
   });
 }
 
-// 护肤品开封后多久用完（月）：香水久一点，睫毛膏短，其他按 12 个月；自己改过的用自己的
-export function paoMonths(name, set) {
-  if (set) return set;
-  if (/香水|香氛/.test(name)) return 36;
-  if (/睫毛膏|眼线/.test(name)) return 6;
-  return 12;
-}
 // 一项打卡最近 n 天每天的样子（最早的在前）：done 做了 / skip 不用做（洗过澡的晚上洗脸）/ miss 没做 / null 还没开始记
 export function careDots(data, r, today, n = 14) {
   return Array.from({ length: n }, (_, i) => {
@@ -593,13 +589,4 @@ export function careDots(data, r, today, n = 14) {
     if (data.days[x]?.care?.[r.id]) return 'done';
     return careSkipped(data, x, r) ? 'skip' : 'miss';
   });
-}
-// 物品档案的「洗漱护肤」里也有电器和工具（热水壶、剃须刀、牙刷、毛巾……），形象页的护肤品不算它们
-const NOT_SKINCARE = /壶|剃须|刮胡|刀|牙刷|牙膏|牙线|冲牙|漱口|毛巾|浴巾|浴球|搓澡|梳|吹风|卷发|直发|杯|盆|桶|拖鞋|镜|指甲|镊|纸|棉签|收纳|置物|架|盒|袋|篮|挂钩|电池|充电|插|线$|海绵|晾/;
-export const isSkincare = (name) => !NOT_SKINCARE.test(name || '');
-export function openedStatus(opened, months, today) {
-  const days = daysBetween(opened, today);
-  const left = Math.round(months * 30.4) - days;
-  const age = days < 60 ? `开封 ${days} 天` : `开封 ${Math.floor(days / 30.4)} 个月`;
-  return { age, left, level: left < 0 ? 'over' : left <= 30 ? 'soon' : 'ok' };
 }
