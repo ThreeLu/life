@@ -1,6 +1,5 @@
-"""每晚 22:30 左右（北京时间）：今天的一句话还没写、还没有晚上的祷告就提醒；生病时加一句早点睡；
+"""每晚 22:30 左右（北京时间）：今天的一句话还没写、还没有晚上的祷告就提醒；
 要降温了加一句。合成一条推送，都做了就不发。
-白天（10–20 点每 2 小时一次）：只在生病时提醒喝水、发烧时提醒量体温。
 打水：一天只打一次。今天还没打、这一回也没点「不打了」，就在中午 11–13、晚上 17–19 刚开和快关的时候各提醒一次。
 
 在数据仓库 life-data 的定时任务里运行（那边的 workflow 每次从公开仓库下载这个文件）：
@@ -37,9 +36,6 @@ def message(data, now):
     if not prayed:
         lines.append("然后是今晚的 2 分钟" if lines else "今晚的 2 分钟")
         url = url or f"{APP}#/pray/go?m=night"
-    if (data.get("sick") or {}).get("current"):
-        lines.append("身体在恢复，今晚早点睡")
-        url = url or f"{APP}#/sick"
     if today.weekday() == 4:
         picks = weekend_picks(data.get("places") or [], today)
         if picks:
@@ -69,31 +65,6 @@ def weekend_picks(places, today, n=2):
             cand.append((15, p["name"]))
     cand.sort(key=lambda x: (-x[0], x[1]))
     return [name for _, name in cand[:n]]
-
-
-FEVER_FROM = 37.3
-WATER_GOAL = 8
-
-
-def day_message(data, now):
-    """白天生病时：喝水跟不上就提醒；发烧了 4 小时没量体温就提醒。没生病返回 None"""
-    ep = (data.get("sick") or {}).get("current")
-    if not ep:
-        return None
-    t = day_key(now).isoformat()
-    lines = []
-    expected = WATER_GOAL * max(0, min(1, (now.hour - 8) / 14))
-    if (ep.get("water") or {}).get(t, 0) + 1 < expected:
-        lines.append("喝杯温水吧")
-    temps = sorted(ep.get("temps") or [], key=lambda x: x["at"])
-    feverish = ep.get("kind") == "fever" or (temps and temps[-1]["t"] >= FEVER_FROM)
-    if feverish:
-        last = datetime.fromisoformat(temps[-1]["at"].replace("Z", "+00:00")) + timedelta(hours=8) if temps else None
-        if not last or (now - last.replace(tzinfo=None)) >= timedelta(hours=4):
-            lines.append("该量一次体温了")
-    if not lines:
-        return None
-    return {"title": "照顾自己", "body": "；".join(lines), "url": f"{APP}#/sick", "tag": f"life-day-{t}-{now.hour}"}
 
 
 # 打水：(哪一回, 提醒几, 从几点几分, 到几点几分, 文字)。一天一桶，早上不打；中午打了晚上就不提醒，中午点了不打了晚上 17:00 提醒
@@ -253,25 +224,20 @@ def main():
                 send(msg)
             else:
                 print("水打过了")
-    key = "night" if night else f"day{now.hour // 2}"
-    # 睡前那条 21–23 点；白天（只在生病时）9–21 点，半夜不吵
-    if not (once(key, now, 21, 23) if night else once(key, now, 9, 21)):
+    # 白天只有打水的提醒；睡前那条 21–23 点
+    test = os.environ.get("TEST") == "true"
+    if not (night or test) or not once("night", now, 21, 23):
         return
     data = json.load(open("life.json", encoding="utf-8"))
-    if os.environ.get("TEST") == "true":
+    if test:
         msg = {"title": "测试推送", "body": "看到这条说明「生活」的提醒能用了", "url": APP, "tag": "life-test"}
-    elif night:
+    else:
         msg = message(data, now)
         extra = season_line(data, now)
         if extra:
             msg = msg or {"title": "睡前", "body": "", "url": f"{APP}#/", "tag": f"life-{day_key(now)}"}
             msg["body"] = "；".join(x for x in [msg["body"], extra] if x)
-    else:
-        msg = day_message(data, now)
-        if not msg:
-            print("没生病，白天不提醒")
-            return
-    mark_sent(key, now)
+    mark_sent("night", now)
     if not msg:
         print("今晚不用提醒")
         return

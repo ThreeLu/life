@@ -181,7 +181,6 @@ export function periodSummary(data, from, to) {
     sports: sports.length, sportMinutes: sports.reduce((a, e) => a + (e.minutes || 0), 0), km: sports.reduce((a, e) => a + (e.km || 0), 0),
     prayers: days.filter((d) => data.days[d]?.prayer?.night).length,
     notes: days.map((d) => ({ day: d, note: data.days[d]?.note, mood: data.days[d]?.mood })).filter((x) => x.note),
-    sick: (data.sick?.history || []).filter((x) => x.start <= to && x.end >= from).length,
     visits: (data.places || []).flatMap((p) => (p.visits || []).filter((v) => v.day >= from && v.day <= to).map((v) => ({ name: p.name, ...v }))),
   };
 }

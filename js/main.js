@@ -5,15 +5,14 @@ import {
   periodicDue, periodicTomorrow, eventsOn, privateStats,
   prayedOn,
   dailyCheer, weekHighlights, newMilestones, careFullDay, showeredOn, careSkipped,
-  sickActive, recoveryLeft, tempStats, medInfo, doseStatus, medConflicts, seasonWarning,
-  sickDid, sickSymptoms, sickLessons, similarSick, planMissing, sickKinds,
+  seasonWarning,
   fetchRows, fetchState, solarTerm, lowLessons, goodDays, 
   goalProgress, goalLine, habitWeek, goalWeekDone, applyGoalPlan, lookMonth, careItemRates, careDots,
 } from './life.js';
 import {
   VERSES, verseFor, prayerPrompt, quickPrayerPrompt,
   goalPrompt, CHAT_MOODS, CHAT_RECORD_PROMPT,
-  CHEER_ON, cheerNight, MILESTONE_TEXT, SICK_KINDS, SYMPTOMS, LOW_KINDS, LOW_VERSES, HOTLINES, SELF_LINES, RED_FLAGS, FEVER_FROM,
+  CHEER_ON, cheerNight, MILESTONE_TEXT, LOW_KINDS, LOW_VERSES, HOTLINES, SELF_LINES,
 } from './content.js';
 import { pushSupport, subscribe, currentSubscription, deviceName, PUSH_FILE } from './push.js';
 import { h, compressImage, blobToBase64 } from './util.js';
@@ -136,8 +135,6 @@ const routes = [
   [/^\/look$/, () => lookView()],
   [/^\/pray$/, () => prayView()],
   [/^\/pray\/go$/, (_, q) => prayGoView(q.m)],
-  [/^\/sick$/, () => sickView()],
-  [/^\/sick\/book$/, () => sickBookView()],
   [/^\/photos$/, (_, q) => photosView(q.m)],
   [/^\/places$/, () => placesView()],
   [/^\/place\/([^/]+)\/edit$/, (id) => placeEditView(id)],
@@ -154,7 +151,6 @@ const routes = [
   [/^\/chat\/([^/]+)$/, (id) => chatView(id)],
   [/^\/low$/, () => lowView()],
   [/^\/low\/go$/, () => lowGoView()],
-  [/^\/history$/, () => historyView()],
   [/^\/goals$/, () => goalsView()],
   [/^\/goal\/([^/]+)$/, (id) => goalView(id)],
   [/^\/people$/, () => peopleView()],
@@ -166,10 +162,10 @@ const routes = [
   [/^\/settings$/, () => settingsView()],
 ];
 const NAV_GROUPS = {
-  '/': [/^\/?$/, /^\/day\//, /^\/night/, /^\/sick$/],
+  '/': [/^\/?$/, /^\/day\//, /^\/night/],
   '/look': [/^\/look/, /^\/stats/, /^\/report/, /^\/ask/],
   '/pray': [/^\/pray/, /^\/low/, /^\/chats?(\/|$)/],
-  '/more': [/^\/more/, /^\/history/, /^\/settings/, /^\/places?/, /^\/sick\/book/, /^\/periodic/, /^\/goals?(\/|$)/, /^\/people/, /^\/person\//, /^\/greet\//],
+  '/more': [/^\/more/, /^\/settings/, /^\/places?/, /^\/periodic/, /^\/goals?(\/|$)/, /^\/people/, /^\/person\//, /^\/greet\//],
 };
 
 function setupNav() {
@@ -396,9 +392,9 @@ const TODAY_HELP = [
     '泡脚：晚上泡了就点一下，再点取消；今晚不泡就点右边的「今晚不泡」，点一下那行又能改回泡了。',
     '今天的一张照片：在睡前复盘那一页里，「明天要做」下面。选一张或现在拍一张，窗外、饭菜、桌面都行；选好就存了，不用点「记好了」。没拍的那天就空着。',
     '洗澡不用每天：洗了就点晚上的「洗澡」（或底部中间的「＋」），会先问一句，点「洗好了」才记，点错了点「取消」；记了也能撤销，或在「今天记下的」里删掉。不洗就点「今晚不洗」，后来又洗了，点这一行照样能记。洗过澡的晚上会多一行身体乳，晚上的洗脸自动划掉。',
-    '最上面一行一行的是提醒：生病、降温、该打理了，有事才出现。',
+    '最上面一行一行的是提醒：降温、该打理了，有事才出现。',
   ]],
-  ['其他', ['看以前的某一天、这周的你、一年前的今天：「生活 → 最近的记录」。']],
+  ['其他', ['看以前的某一天、这周的你、一年前的今天：底下的「回顾」。月历上点一天就打开那天，忘了记的也能补。']],
 ];
 
 // ---------- 今天 ----------
@@ -437,8 +433,7 @@ function todayView(day) {
         total ? `${PERIODS[p]} ${done}/${total}` : PERIODS[p]);
     })),
     goalLines(),
-    logLine(day),
-    !sickActive(d) ? h('div', { class: 'unwell-row' }, h('button', { class: 'link small unwell', onclick: startSickSheet }, '我不舒服')) : null);
+    logLine(day));
 }
 
 // 一行提醒：有事才出现
@@ -450,9 +445,6 @@ function alertLine(text, { href, onclick, action, tone = '' } = {}) {
 function alertRows(today) {
   const d = store.data;
   const out = [];
-  const ep = d.sick.current;
-  if (ep) out.push(alertLine(`${SICK_KINDS[ep.kind].name} · 第 ${daysBetween(ep.start, today) + 1} 天`, { href: '#/sick', tone: 'red' }));
-  else if (recoveryLeft(d, today)) out.push(alertLine(`恢复期还有 ${recoveryLeft(d, today)} 天，早点睡`, { tone: 'soft' }));
   const ms = milestoneList();
   if (ms.length) out.push(alertLine(ms.map((m) => m.text).join('；'), { action: h('button', { class: 'link small', onclick: () => ms[0].okAll() }, '好') }));
   const due = periodicDue(d, today);
@@ -806,7 +798,6 @@ function sportSheet(day) {
       if (!kind) { toast('选一下做的什么运动', 'error'); return false; }
       const mins = Number(minutes.value) || null;
       const dist = Number(km.value) || null;
-      if (sickActive(d)) toast('生病的时候运动先停一停，好了再动。', 'error');
       return saveRender(`运动：${kind}`, (data) => {
         data.events.push({ id: newId('e'), day, at: atFor(day), type: 'sport', kind, ...(mins ? { minutes: mins } : {}), ...(dist && !km.hidden ? { km: dist } : {}), ...(level ? { level } : {}), ...(note.value.trim() ? { note: note.value.trim() } : {}) });
       }).then((ok) => ok && toast(CHEER_ON.sport));
@@ -822,8 +813,7 @@ function quickSheet() {
       cell({ ic: 'drop', title: '洗澡', onclick: () => { close(); showerSheet(day); } }),
       cell({ ic: 'run', color: 'var(--sage)', title: '运动', onclick: () => { close(); sportSheet(day); } }),
       cell({ ic: 'bed', color: 'var(--blue)', title: '睡眠', onclick: () => { close(); sleepSheet(day); } }),
-      cell({ ic: 'moon', color: 'var(--accent)', title: '睡前复盘', href: '#/night' }),
-      sickActive(store.data) ? cell({ ic: 'shield', color: 'var(--danger)', title: '生病：喝水、体温、吃药', href: '#/sick' }) : cell({ ic: 'shield', color: 'var(--danger)', title: '我不舒服', onclick: () => { close(); startSickSheet(); } })),
+      cell({ ic: 'moon', color: 'var(--accent)', title: '睡前复盘', href: '#/night' })),
     confirmText: null, cancelText: '关闭',
   });
 }
@@ -832,7 +822,6 @@ function quickSheet() {
 
 
 
-// 每周问一次皮肤状态：首页周五到周日出现，「形象」页一直有
 function yearAgoCard(today) {
   const ago = addDays(today, -365);
   const rec = store.data.days[ago];
@@ -914,48 +903,74 @@ function careCardInline(day, when) {
   }));
 }
 
-// ---------- 形象 ----------
-// 只看做了什么：这个月、护肤（月历、每一项做到多少）、护肤品。不放口号，不涉及钱（钱在账本里看）
+// ---------- 回顾 ----------
+// 一页看这段日子：这个月（护肤月历，点一天看那天、补记）、这周的你、护肤最近两周、一年前的今天、周报月报年报。
+// 不放口号，不涉及钱（钱在账本里看）。顶上切到「分析」。
 
 const LOOK_HELP = [
-  ['这一页是什么', ['看你在形象上做了什么：这个月护肤做完几天、洗澡几次，每一项最近两周做了哪几天。', '顶上点「分析」看心情、作息这些的分析和周报月报。']],
-  ['护肤', ['月历：早晚都做完是实心的紫点，做了一部分是浅紫点，今天带一个圈。', '每一项后面是最近 14 天，一天一个点，最右边是今天。洗过澡的晚上，洗脸那天是一个小空心圈（洗澡时洗过了）。', '「改打卡项」可以加、改名、删掉每天的打卡项，比如加「防晒（早上）」「擦鞋（早上）」。']],
+  ['这一页是什么', ['回头看这段日子做了什么：这个月护肤做完几天，洗澡、运动、祷告几次，这周的你，每一项护肤最近两周做了哪几天。', '最下面是这周、这个月的回顾和年度报告。顶上点「分析」看心情、作息这些的分析。']],
+  ['月历', ['早晚护肤都做完是实心的紫点，做了一部分是浅紫点，今天带一个圈。点两边的箭头看别的月。', '点一天，打开那一天：能看那天记了什么，忘了记的也能补上。']],
+  ['护肤', ['每一项后面是最近 14 天，一天一个点，最右边是今天。洗过澡的晚上，洗脸那天是一个小空心圈（洗澡时洗过了）。', '「改打卡项」可以加、改名、删掉每天的打卡项，比如加「防晒（早上）」「擦鞋（早上）」。']],
 ];
+const lookState = { month: null };
 
 function lookView() {
   const today = dayKey();
   return h('div', {},
-    headerSub('形象', '这个月做了什么', helpButton('形象这一页怎么用', LOOK_HELP)),
+    headerSub('回顾', '这段日子做了什么', helpButton('回顾这一页怎么用', LOOK_HELP)),
     lookTabs('look'),
     lookMonthCard(today),
-    careDataCard(today));
+    weekCardToday(today),
+    careDataCard(today),
+    yearAgoCard(today),
+    h('div', { class: 'section-title' }, '回顾'),
+    h('div', { class: 'group' },
+      cell({ href: `#/report?k=week&d=${today}`, ic: 'calendar', color: 'var(--sage)', title: '这周的回顾' }),
+      cell({ href: `#/report?k=month&d=${today}`, ic: 'chart', color: 'var(--blue)', title: '这个月的回顾' }),
+      cell({ href: `#/report?k=year&d=${today}`, ic: 'book', color: 'var(--amber)', title: `${today.slice(0, 4)} 年度报告` })));
 }
 
-// 这个月：一个大数字、一行次数、圆点月历
+// 这个月：一个大数字、一行次数、圆点月历（可以翻月，点一天打开那天）
 function lookMonthCard(today) {
   const d = store.data;
-  const m = lookMonth(d, today);
-  const counts = [`洗澡 ${m.showers} 次`, ...m.extra.map((x) => `${x.r.name} ${x.n} 次`)];
+  const month = lookState.month || today.slice(0, 7);
+  const last = new Date(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 0).getDate();
+  const end = [`${month}-${String(last).padStart(2, '0')}`, today].sort()[0];
+  const m = lookMonth(d, end);
+  const inMonth = (x) => x >= m.from && x <= end;
+  const sports = d.events.filter((e) => e.type === 'sport' && inMonth(e.day)).length;
+  let prayers = 0;
+  for (let x = m.from; x <= end; x = addDays(x, 1)) if (prayedOn(d, x)) prayers++;
+  const counts = [`洗澡 ${m.showers} 次`, `运动 ${sports} 次`, `祷告 ${prayers} 晚`, ...m.extra.map((x) => `${x.r.name} ${x.n} 次`)];
+  const prev = addDays(`${month}-01`, -1).slice(0, 7);
+  const next = addDays(`${month}-28`, 7).slice(0, 7);
+  const move = (x) => { lookState.month = x === today.slice(0, 7) ? null : x; render(); };
   return h('div', { class: 'card look-month' },
-    h('h3', {}, `${Number(today.slice(5, 7))} 月`),
+    h('div', { class: 'period-nav' },
+      prev >= (d.startDate || today).slice(0, 7) ? h('button', { class: 'icon-btn', onclick: () => move(prev), 'aria-label': '上个月' }, '‹') : h('span', { class: 'icon-btn ghost' }),
+      h('h3', { class: 'grow center' }, month.slice(0, 4) === today.slice(0, 4) ? `${Number(month.slice(5, 7))} 月` : `${month.slice(0, 4)} 年 ${Number(month.slice(5, 7))} 月`),
+      next <= today.slice(0, 7) ? h('button', { class: 'icon-btn', onclick: () => move(next), 'aria-label': '下个月' }, '›') : h('span', { class: 'icon-btn ghost' })),
     h('div', { class: 'look-big' }, h('b', {}, String(m.full.size)), h('span', {}, '天')),
-    h('p', { class: 'muted small look-cap' }, '这个月护肤做完的日子'),
+    h('p', { class: 'muted small look-cap' }, month === today.slice(0, 7) ? '这个月护肤做完的日子' : '这个月护肤做完了这么多天'),
     h('p', { class: 'look-counts' }, counts.map((x) => h('span', {}, x))),
-    dotMonth(today, m),
-    h('p', { class: 'muted small legend' }, h('i', { class: 'dot-sw full' }), '早晚都做完　', h('i', { class: 'dot-sw part' }), '做了一部分'));
+    dotMonth(month, m, today),
+    h('p', { class: 'muted small legend' }, h('i', { class: 'dot-sw full' }), '早晚都做完　', h('i', { class: 'dot-sw part' }), '做了一部分', h('span', { class: 'grow' }), '点一天看那天'));
 }
-function dotMonth(today, m) {
-  const first = `${today.slice(0, 7)}-01`;
+function dotMonth(month, m, today) {
+  const first = `${month}-01`;
   const lead = (parseDay(first).getDay() + 6) % 7;
-  const n = new Date(Number(today.slice(0, 4)), Number(today.slice(5, 7)), 0).getDate();
+  const n = new Date(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 0).getDate();
   const cells = Array.from({ length: lead }, () => h('span', {}));
   for (let i = 1; i <= n; i++) {
-    const x = `${today.slice(0, 7)}-${String(i).padStart(2, '0')}`;
+    const x = `${month}-${String(i).padStart(2, '0')}`;
     const st = m.full.has(x) ? 'full' : m.some.has(x) ? 'part' : x > today ? 'future' : x < m.from ? 'before' : 'empty';
-    cells.push(h('span', { class: `md ${st}${x === today ? ' today' : ''}`, title: `${i} 日` }, h('i', {}), h('small', {}, String(i))));
+    const inner = [h('i', {}), h('small', {}, String(i))];
+    const cls = `md ${st}${x === today ? ' today' : ''}`;
+    cells.push(x > today || x < m.from ? h('span', { class: cls }, inner)
+      : h('a', { class: cls, href: x === today ? '#/' : `#/day/${x}`, 'aria-label': `${Number(month.slice(5, 7))} 月 ${i} 日` }, inner));
   }
-  return h('div', { class: 'dot-month', role: 'img', 'aria-label': '这个月哪天护肤做完了' },
-    ['一', '二', '三', '四', '五', '六', '日'].map((w) => h('span', { class: 'wd' }, w)), cells);
+  return h('div', { class: 'dot-month' },
+    ['一', '二', '三', '四', '五', '六', '日'].map((w) => h('span', { class: 'wd', 'aria-hidden': 'true' }, w)), cells);
 }
 
 // 护肤：按早上 / 晚上 / 洗澡后 / 每周分组，每一项后面最近 14 天一天一个点
@@ -1061,7 +1076,7 @@ function periodicView() {
   const due = withLeft.filter((x) => x.left <= 0).sort((a, b) => a.left - b.left).map((x) => x.p);
   const later = withLeft.filter((x) => x.left > 0).sort((a, b) => a.left - b.left).map((x) => x.p);
   return h('div', {},
-    headerSub('定期打理', '到日子了会出现在「今天」', helpButton('定期打理怎么用', [['怎么用', ['平时不打扰你：前一天「今天」页会说一声「明天该……了」；到了日子出现在「今天」，没做就每天都在，点「做了」就从那天重新数。', '点一项可以改名字、几天一次、上次是哪天；也可以自己加，比如洗枕头、擦眼镜。', '「形象」里开始学修眉这类步骤时，会自动加上对应的一项。']]])),
+    headerSub('定期打理', '到日子了会出现在「今天」', helpButton('定期打理怎么用', [['怎么用', ['平时不打扰你：前一天「今天」页会说一声「明天该……了」；到了日子出现在「今天」，没做就每天都在，点「做了」就从那天重新数。', '点一项可以改名字、几天一次、上次是哪天；也可以自己加，比如洗枕头、擦眼镜。']]])),
     due.length ? [h('div', { class: 'section-title' }, `该做了（${due.length}）`), h('div', { class: 'card list-card' }, due.map((p) => periodicRow(p, today, edit)))] : null,
     later.length ? [h('div', { class: 'section-title' }, '还早'), h('div', { class: 'card list-card' }, later.map((p) => periodicRow(p, today, edit)))] : null,
     h('button', { class: 'secondary wide', onclick: () => edit() }, '＋ 加一项'));
@@ -1796,7 +1811,7 @@ function visitSheet(p, v = null) {
 
 const STATS_HELP = [
   ['这一页是什么', [
-    '形象页顶上点「分析」到这里，点「这个月」回去。',
+    '回顾页顶上点「分析」到这里，点「这个月」回去。',
     '把你记下来的东西放在一起看：每天的心情、心情精力压力睡眠的走势、作息、一周里哪天状态好、洗澡运动的规律、什么在影响你。',
     '数据要攒一段时间：规律一两周就有；「什么在影响我」要心情记满 3 周才开始给结论。数据不够时会告诉你还要多少天。',
   ]],
@@ -1818,9 +1833,9 @@ const statsState = { range: 30, rhythm: 'shower' };
 const weatherHist = { key: '', data: {} };
 const spendHist = { at: 0, data: {} };
 
-// 形象页顶上的切换：这个月 | 分析
+// 回顾页顶上的切换：这个月 | 分析
 function lookTabs(on) {
-  return h('div', { class: 'segmented', role: 'group', 'aria-label': '形象' },
+  return h('div', { class: 'segmented', role: 'group', 'aria-label': '回顾' },
     [['look', '这个月'], ['stats', '分析']].map(([k, v]) => h('a', { class: `seg${on === k ? ' on' : ''}`, href: `#/${k}`, 'aria-current': on === k ? 'page' : null }, v)));
 }
 
@@ -1860,7 +1875,7 @@ function statsView() {
   const rh = rhythm(d, today, RH[statsState.rhythm][1]);
   const fmtH = (v) => (v === null ? '—' : `${Math.floor(v)} 小时${Math.round((v % 1) * 60) ? ` ${Math.round((v % 1) * 60)} 分` : ''}`);
   return h('div', {},
-    headerSub('形象', `心情记了 ${nMood} 天`, helpButton('分析怎么看', STATS_HELP)),
+    headerSub('回顾', `心情记了 ${nMood} 天`, helpButton('分析怎么看', STATS_HELP)),
     lookTabs('stats'),
 
     moodMonthCard(today),
@@ -1906,12 +1921,8 @@ function statsView() {
         : h('p', { class: 'muted small' }, '每种情况都要有 3 天以上才能比，多记几天。'),
       h('p', { class: 'muted small' }, '只能看出两件事常常一起出现，看不出谁导致谁。')),
 
-    h('div', { class: 'section-title' }, '回顾'),
     h('div', { class: 'group' },
-      cell({ href: '#/ask', ic: 'sparkle', title: '问问我的记录', sub: '用大白话问，DeepSeek 读你的记录回答' }),
-      cell({ href: `#/report?k=week&d=${today}`, ic: 'calendar', color: 'var(--sage)', title: '这周的回顾' }),
-      cell({ href: `#/report?k=month&d=${today}`, ic: 'chart', color: 'var(--blue)', title: '这个月的回顾' }),
-      cell({ href: `#/report?k=year&d=${today}`, ic: 'book', color: 'var(--amber)', title: `${today.slice(0, 4)} 年度报告` })));
+      cell({ href: '#/ask', ic: 'sparkle', title: '问问我的记录', sub: '用大白话问，DeepSeek 读你的记录回答' })));
 }
 
 // 心情月历：一天一个点，心情越好越深（1–2 分最浅，9–10 分最深），没记的空着
@@ -2013,7 +2024,7 @@ function reportView(q) {
       s.bestDay ? h('p', { class: 'small' }, `心情最好的一天：${dayLabel(s.bestDay)}${d.days[s.bestDay].note ? `，「${d.days[s.bestDay].note}」` : ''}`) : null),
     k === 'week' ? goalWeekCard(r.from) : null,
     s.notes.length ? h('div', { class: 'card' }, h('h3', {}, '每天的一句话'), s.notes.slice(-31).map((x) => h('div', { class: 'small night-note' }, h('span', { class: 'muted' }, `${x.day.slice(5).replace('-', '/')} · ${x.mood || '-'} 分　`), x.note))) : null,
-    h('a', { class: 'small', href: '#/stats' }, '‹ 分析'));
+    h('a', { class: 'small', href: '#/look' }, '‹ 回顾'));
 }
 // 周报里：想做到的事这周做了什么、现在到哪了
 function goalWeekCard(mon) {
@@ -2033,7 +2044,7 @@ function summaryText(s) {
   const f = (v) => (v === null ? '没记' : Math.round(v * 10) / 10);
   return [
     `记录了 ${s.recorded}/${s.days} 天。心情平均 ${f(s.mood)}（1–10），精力 ${f(s.energy)}（1–5），压力 ${f(s.stress)}（1–5），平均睡 ${f(s.sleep)} 小时。`,
-    `护肤都做完 ${s.careDays} 天，洗澡 ${s.showers} 次，运动 ${s.sports} 次（${s.sportMinutes} 分钟${s.km ? `，${Math.round(s.km * 10) / 10} 公里` : ''}），祷告 ${s.prayers} 晚，生病 ${s.sick} 次。`,
+    `护肤都做完 ${s.careDays} 天，洗澡 ${s.showers} 次，运动 ${s.sports} 次（${s.sportMinutes} 分钟${s.km ? `，${Math.round(s.km * 10) / 10} 公里` : ''}），祷告 ${s.prayers} 晚。`,
     s.visits.length ? `去过：${s.visits.map((v) => `${v.name}${v.score ? `（${v.score} 分）` : ''}`).join('、')}。` : '',
     s.notes.length ? `每天的一句话：${s.notes.map((x) => `${x.day.slice(5)} ${x.mood || '-'}分 ${x.note}`).join('；')}` : '',
   ].filter(Boolean).join('\n');
@@ -2073,9 +2084,8 @@ function recordContext() {
     ].filter(Boolean);
     if (parts.length) lines.push(`${day} ${parts.join('，')}`);
   }
-  const sick = (d.sick.history || []).slice(-5).map((x) => `${x.start}~${x.end} ${SICK_KINDS[x.kind].name}`).join('；');
   // 小记和日常生活完全分开：从来不发
-  return `今天 ${today}。\n${lines.join('\n') || '（最近没什么记录）'}${sick ? `\n生病：${sick}` : ''}`;
+  return `今天 ${today}。\n${lines.join('\n') || '（最近没什么记录）'}`;
 }
 async function askRecords(question) {
   askState.messages.push({ role: 'me', text: question });
@@ -2106,41 +2116,7 @@ function askView() {
     h('a', { class: 'small', href: '#/stats' }, '‹ 分析'));
 }
 
-// ---------- 生病 ----------
-// 一次生病 = sick.current：{ id, kind, start, temps: [{ at, t }], meds: [{ at, item, name }], water: { 日期: 杯 }, done: { 日期: { 第几项: true } },
-//   gut: { 日期: { d: 拉, v: 吐 } }, suspects: [文字], end?, how? }。好了以后移进 sick.history。
-
-const SICK_HELP = [
-  ['生病模式', [
-    '不舒服了在「今天」最下面点「我不舒服」，选感冒、发烧、肠胃。首页最上面会一直有一张生病卡片，运动先停。',
-    '这一页：量了体温就记，喝一杯水点一下，今天有哪些症状点一下，要做的事做了就勾（预案里没有的，在下面「还做了」里加）。感冒时体温到 37.3°C 会问你要不要切到发烧模式。',
-    '吃药：药从物品档案里读（药品急救类）。点「吃了」会记下时间，算出下次最早几点能吃；第一次用某个药，点「说明书」把一次多少、几小时一次、一天最多几次抄进来。',
-    '同一种成分的两个药（比如两种感冒药里都有对乙酰氨基酚）一起吃会提醒你。抗生素、激素这类标着「医生判断」。',
-    '「什么时候去医院」一直在页面上；你记的体温、天数到了会变红。',
-    '好了点最下面的「好了」，勾一下这次什么管用，存进「生病手册」。之后两天是恢复期：运动先缓缓，早点睡。',
-  ]],
-  ['攒经验', [
-    '记得越多，下次越有数：再生同样的病，最上面「以前的经验」会告诉你以前几天好、感冒有几次转成了发烧、什么管用、症状最像的那一次是怎么好的。',
-    '以前觉得管用、预案里还没有的，可以一键加进预案。',
-  ]],
-  ['说明', ['这里写的是常识，不是医嘱。吃药以药盒上的说明书和医生说的为准。拿不准就去校医院。']],
-  ['提醒', ['生病的时候白天大概每 2 小时提醒一次喝水；发烧时也提醒量体温（在「设置」开启推送）。']],
-];
-
-
-function startSickSheet() {
-  const close = openSheet({
-    title: '哪里不舒服',
-    body: h('div', { class: 'group' }, Object.entries(SICK_KINDS).map(([k, v]) => cell({ title: `${v.icon} ${v.name}`, onclick: () => { close(); startSick(k); } }))),
-    confirmText: null, cancelText: '取消',
-  });
-}
-function startSick(kind) {
-  saveRender(`生病：${SICK_KINDS[kind].name}`, (data) => {
-    data.sick.current = { id: newId('sk'), kind, start: dayKey(), temps: [], meds: [], water: {}, done: {}, gut: {}, suspects: [] };
-  }).then((ok) => { if (ok) { toast('好好休息。'); go('#/sick'); } });
-}
-
+// ---------- 换季 ----------
 // 换季预防：每天查一次天气（Open-Meteo，不用密钥），存在 localStorage
 const WEATHER_KEY = 'life-weather';
 // 换季：要降温了 / 温差大，返回一句话（没有就 null），放在首页天气下面
@@ -2167,445 +2143,8 @@ function seasonAlert() {
     : `${when}早晚温差 ${Math.round(x.max - x.min)}°C，出门带件外套`;
 }
 
-// 物品档案里的药（药品急救类，缓存 5 分钟）
-const medCache = { at: 0, items: null, error: '' };
-async function loadMeds() {
-  if (medCache.items && Date.now() - medCache.at < 300000) return;
-  const inv = readJson('inventory-settings');
-  const owner = (settings.repo || DEFAULT_REPO).split('/')[0];
-  const g = new GitHub({ token: inv.token || settings.token, repo: inv.repo || `${owner}/inventory-data` });
-  try {
-    const data = JSON.parse(await g.readText('inventory.json', 'main'));
-    const locs = Object.fromEntries((data.locations || []).map((l) => [l.id, l.name]));
-    medCache.items = (data.items || []).filter((i) => !i.archived && (i.tags || []).includes('药品急救'))
-      .map((i) => ({ id: i.id, name: i.name, where: (locs[i.location] || '').split(' ')[0], qty: i.quantity, expires: i.fields?.['保质期'] || '', left: i.fields?.['剩余'] || '' }));
-    medCache.error = '';
-  } catch (e) {
-    medCache.items = [];
-    medCache.error = e.message;
-  }
-  medCache.at = Date.now();
-}
-// 保质期「2027-08」「2026-12-15」→ 过期了 / 两个月内过期
-function expiryNote(s) {
-  if (!s) return '';
-  const end = /^\d{4}-\d{2}$/.test(s) ? `${s}-28` : s;
-  const left = daysBetween(dayKey(), end);
-  if (Number.isNaN(left)) return '';
-  return left < 0 ? '已经过期' : left <= 60 ? `${left} 天后过期` : '';
-}
-const KIND_USE = { cold: /感冒|退烧|咳嗽|流感/, fever: /退烧|感冒|流感/, gut: /拉肚子|消化|积食|补水/, other: /./ };
-
-function sickView() {
-  const d = store.data;
-  const ep = d.sick.current;
-  const today = dayKey();
-  if (!ep) {
-    return h('div', {},
-      headerSub('生病', '现在没有生病', helpButton('生病模式怎么用', SICK_HELP)),
-      h('div', { class: 'card' }, h('p', {}, '不舒服了点一下，网页带着你一步一步来。'),
-        h('div', { class: 'group' }, Object.entries(SICK_KINDS).map(([k, v]) => cell({ title: `${v.icon} ${v.name}`, onclick: () => startSick(k) })))),
-      h('a', { class: 'button secondary wide', href: '#/sick/book' }, '生病手册、预案和药箱'));
-  }
-  const ts = tempStats(ep);
-  const nth = daysBetween(ep.start, today) + 1;
-  const switchTo = (kind) => saveRender(`生病：换成${SICK_KINDS[kind].name}`, (data) => switchSickKind(data, kind));
-  return h('div', {},
-    headerSub(`${SICK_KINDS[ep.kind].icon} ${SICK_KINDS[ep.kind].name}`, `第 ${nth} 天 · 从 ${ep.start.slice(5).replace('-', '/')} 开始`, helpButton('生病模式怎么用', SICK_HELP)),
-    h('p', { class: 'cheer' }, nth === 1 ? '今天只要好好休息。' : '会好起来的。'),
-    ep.kind === 'cold' && ts.feverNow ? h('div', { class: 'banner warn' }, `体温 ${ts.last.t}°C，发烧了。`, h('button', { class: 'small', style: 'margin-left:8px', onclick: () => switchTo('fever') }, '切到发烧模式')) : null,
-    ts.normal24 ? h('div', { class: 'card good-card' }, h('p', {}, '体温正常一天了。是不是好了？'), h('button', { onclick: endSickSheet }, '好了')) : null,
-    lessonsCard(ep, today),
-    redFlagCard(ep, ts),
-    tempCard(ep, ts),
-    symptomCard(ep, today),
-    waterCard(ep, today),
-    planCardSick(ep, today),
-    ep.kind === 'gut' ? gutCard(ep, today) : null,
-    medsCard(ep),
-    h('div', { class: 'actions' },
-      h('button', { class: 'grow', onclick: endSickSheet }, '好了'),
-      h('button', { class: 'secondary', onclick: startSickSheet2 }, '换一种')),
-    h('a', { class: 'small', href: '#/sick/book' }, '生病手册、预案和药箱 ›'));
-}
-// 换种类（比如感冒转成发烧）记在 path 里，以后能算出「感冒几次里有几次转成发烧、第几天」
-function switchSickKind(data, kind) {
-  const ep = data.sick.current;
-  if (!ep || ep.kind === kind) return false;
-  ep.path ||= [{ day: ep.start, kind: ep.kind }];
-  ep.path.push({ day: dayKey(), kind });
-  ep.kind = kind;
-}
-function startSickSheet2() {
-  const close = openSheet({
-    title: '换成', body: h('div', { class: 'group' }, Object.entries(SICK_KINDS).map(([k, v]) => cell({ title: `${v.icon} ${v.name}`, onclick: () => { close(); saveRender(`生病：换成${v.name}`, (data) => switchSickKind(data, k)); } }))),
-    confirmText: null, cancelText: '取消',
-  });
-}
-
-function redFlagCard(ep, ts) {
-  const today = dayKey();
-  const gutToday = ep.gut?.[today] || {};
-  const hot = new Set();
-  if (ep.kind === 'fever' || ep.kind === 'cold') {
-    if (ts.max >= 39) hot.add(0);
-    if (ts.feverDays > 3) hot.add(1);
-  }
-  if (ep.kind === 'gut' && (gutToday.d || 0) + (gutToday.v || 0) >= 6) hot.add(0);
-  if (ep.kind === 'gut' && daysBetween(ep.start, today) >= 2) hot.add(4);
-  return h('div', { class: `card${hot.size ? ' alert' : ''}` },
-    h('h3', {}, '什么时候必须去医院'),
-    hot.size ? h('p', { class: 'warn small' }, '你记的情况已经到了下面标红的那条，去看医生吧。') : null,
-    h('ul', { class: 'small flags' }, RED_FLAGS[ep.kind].map((x, i) => h('li', { class: hot.has(i) ? 'warn' : '' }, x))),
-    h('a', { class: 'small', href: 'tel:120' }, '急救 120'));
-}
-
-function tempCard(ep, ts) {
-  const input = h('input', { inputmode: 'decimal', placeholder: '比如 37.6', 'aria-label': '体温', class: 'temp-input' });
-  const add = () => {
-    const t = Number(input.value);
-    if (!(t >= 34 && t <= 43)) { toast('体温填 34 到 43 之间的数', 'error'); return; }
-    saveRender(`体温 ${t}`, (data) => { data.sick.current.temps.push({ at: nowIso(), t }); })
-      .then((ok) => ok && toast(t >= 39 ? '烧得比较高，按说明书吃退烧药、多喝水，看看下面什么时候要去医院。' : t >= FEVER_FROM ? '记好了。多喝水，躺下休息。' : '体温正常，很好。'));
-  };
-  const every = ep.kind === 'fever' ? 4 : 12;
-  const next = ts.last ? new Date(new Date(ts.last.at).getTime() + every * 3600000) : null;
-  return h('div', { class: 'card' },
-    h('h3', {}, '体温'),
-    h('div', { class: 'inline-add' }, input, h('button', { class: 'small', onclick: add }, '记')),
-    ts.temps.length ? tempChart(ts.temps) : null,
-    h('p', { class: 'muted small' }, ts.last ? `${ep.kind === 'fever' ? '每 4 小时' : '早晚各'}量一次${next ? `，下次大概 ${hm(next.toISOString())}` : ''}。最高 ${ts.max}°C。` : '先量一次。'));
-}
-function tempChart(temps) {
-  const NS = 'http://www.w3.org/2000/svg';
-  const W = 320; const H = 110; const pad = 18;
-  const list = temps.slice(-12);
-  const lo = Math.min(36, ...list.map((x) => x.t)); const hi = Math.max(39, ...list.map((x) => x.t));
-  const x = (i) => pad + (list.length === 1 ? (W - 2 * pad) / 2 : (i * (W - 2 * pad)) / (list.length - 1));
-  const y = (t) => 8 + ((hi - t) / (hi - lo)) * (H - 30);
-  const el = (tag, a, text) => { const e = document.createElementNS(NS, tag); for (const [k, v] of Object.entries(a)) e.setAttribute(k, v); if (text) e.textContent = text; return e; };
-  const svg = el('svg', { viewBox: `0 0 ${W} ${H}`, class: 'chart', role: 'img', 'aria-label': '体温曲线' });
-  svg.append(el('line', { x1: 0, x2: W, y1: y(FEVER_FROM), y2: y(FEVER_FROM), style: 'stroke:var(--amber)', 'stroke-dasharray': '4 4' }));
-  svg.append(el('text', { x: W - 2, y: y(FEVER_FROM) - 3, 'text-anchor': 'end', class: 'chart-label' }, '37.3'));
-  svg.append(el('polyline', { points: list.map((p, i) => `${x(i)},${y(p.t)}`).join(' '), fill: 'none', style: 'stroke:var(--accent)', 'stroke-width': 2 }));
-  list.forEach((p, i) => {
-    svg.append(el('circle', { cx: x(i), cy: y(p.t), r: 3, style: `fill:${p.t >= FEVER_FROM ? 'var(--danger)' : 'var(--accent)'}` }));
-    svg.append(el('text', { x: x(i), y: y(p.t) - 6, 'text-anchor': 'middle', class: 'chart-num' }, String(p.t)));
-    svg.append(el('text', { x: x(i), y: H - 4, 'text-anchor': 'middle', class: 'chart-label' }, hm(p.at)));
-  });
-  return svg;
-}
-
-const WATER_GOAL = 8;
-function waterCard(ep, today) {
-  const n = ep.water?.[today] || 0;
-  const add = (k) => saveRender('喝水', (data) => { const w = (data.sick.current.water ||= {}); w[today] = Math.max(0, (w[today] || 0) + k); })
-    .then((ok) => ok && k > 0 && n + 1 === WATER_GOAL && toast('今天的水喝够了。'));
-  return h('div', { class: 'card' },
-    h('h3', {}, '喝水'),
-    h('div', { class: 'water' },
-      h('div', { class: 'cups', 'aria-label': `喝了 ${n} 杯` }, Array.from({ length: Math.max(WATER_GOAL, n) }, (_, i) => h('span', { class: i < n ? 'on' : '' }))),
-      h('span', { class: 'small' }, `${n} / ${WATER_GOAL} 杯`)),
-    h('div', { class: 'actions' }, h('button', { onclick: () => add(1) }, '喝了一杯'), n ? h('button', { class: 'link small', onclick: () => add(-1) }, '点多了') : null),
-    h('p', { class: 'muted small' }, ep.kind === 'gut' ? '肠胃不舒服：小口小口地喝，温的。' : '一杯大概 250 毫升，温水最好。'));
-}
-
-function planCardSick(ep, today) {
-  const plan = store.data.sick.plans[ep.kind] || [];
-  const items = [...new Set([...plan, ...(ep.extra || [])])];
-  const done = ep.done?.[today] || {};
-  const isDone = (x) => Boolean(done[x] || (plan.indexOf(x) >= 0 && done[plan.indexOf(x)]));
-  const toggle = (x) => saveRender(`生病：${x}`, (data) => {
-    const dd = ((data.sick.current.done ||= {})[today] ||= {});
-    const i = plan.indexOf(x);
-    if (isDone(x)) { delete dd[x]; if (i >= 0) delete dd[i]; } else dd[x] = true;
-  });
-  const input = h('input', { placeholder: '还做了别的？比如「喝姜汤」', 'aria-label': '还做了' });
-  const add = () => {
-    const t = input.value.trim();
-    if (!t) return;
-    saveRender(`生病：${t}`, (data) => {
-      const ep2 = data.sick.current;
-      ep2.extra ||= [];
-      if (!ep2.extra.includes(t) && !plan.includes(t)) ep2.extra.push(t);
-      ((ep2.done ||= {})[today] ||= {})[t] = true;
-    });
-  };
-  return h('div', { class: 'card' },
-    h('div', { class: 'rec-top' }, h('h3', {}, '今天要做'), h('a', { class: 'small', href: '#/sick/book' }, '改预案')),
-    h('div', { class: 'chips' }, items.map((x) => h('button', {
-      type: 'button', class: `chip check${isDone(x) ? ' on' : ''}`, 'aria-pressed': String(isDone(x)), onclick: () => toggle(x),
-    }, isDone(x) ? icon('check', 'i tiny') : null, x))),
-    h('div', { class: 'inline-add' }, input, h('button', { class: 'small secondary', onclick: add }, '加')),
-    h('p', { class: 'muted small' }, '做了就点一下。好了的时候勾哪些管用，下次生病就知道先做什么。'));
-}
-
-// 今天有哪些症状：每天点一下（可以自己加）
-function symptomCard(ep, today) {
-  const mine = ep.sym?.[today] || [];
-  const yest = ep.sym?.[addDays(today, -1)] || [];
-  const all = [...new Set([...(SYMPTOMS[ep.kind] || SYMPTOMS.other), ...sickSymptoms(ep)])];
-  const toggle = (x) => saveRender(`症状：${x}`, (data) => {
-    const sym = (data.sick.current.sym ||= {});
-    const l = (sym[today] ||= []);
-    const i = l.indexOf(x);
-    if (i >= 0) l.splice(i, 1); else l.push(x);
-    if (!l.length) delete sym[today];
-  });
-  const input = h('input', { placeholder: '别的症状', 'aria-label': '别的症状' });
-  return h('div', { class: 'card' },
-    h('h3', {}, '今天哪里不舒服'),
-    h('div', { class: 'chips' }, all.map((x) => h('button', { type: 'button', class: `chip check${mine.includes(x) ? ' on' : ''}`, 'aria-pressed': String(mine.includes(x)), onclick: () => toggle(x) }, x))),
-    h('div', { class: 'inline-add' }, input, h('button', { class: 'small secondary', onclick: () => { const t = input.value.trim(); if (t && !mine.includes(t)) toggle(t); } }, '加')),
-    yest.length ? h('p', { class: 'muted small' }, `昨天：${yest.join('、')}`) : null);
-}
-
-// 以前的经验：同一种病以前几次、几天好、感冒转发烧、什么管用、最像的那一次
-function lessonsCard(ep, today) {
-  const d = store.data;
-  const name = SICK_KINDS[ep.kind].name;
-  const ls = sickLessons(d.sick.history, ep.kind, d.sick.plans);
-  if (!ls) {
-    return h('div', { class: 'card soft' }, h('p', { class: 'small' },
-      `这是第一次在这里记${name}。每天点一下症状、做了什么，好了的时候勾一下什么管用——下次再这样，这里会告诉你上次是怎么好的。`));
-  }
-  const nth = daysBetween(ep.start, today) + 1;
-  const sim = similarSick(d.sick.history, ep);
-  const missing = planMissing(ls, d.sick.plans[ep.kind]);
-  const tf = ls.toFever;
-  return h('div', { class: 'card lessons' },
-    h('h3', {}, '以前的经验'),
-    h('p', { class: 'small' }, `以前${name} ${ls.n} 次，平均 ${ls.avgDays} 天好${ls.maxTemp ? `，最高烧到 ${ls.maxTemp}°C` : ''}。${nth > 1 && nth <= Math.ceil(ls.avgDays) ? `今天第 ${nth} 天，快了。` : ''}`),
-    ep.kind === 'cold' && tf?.turned ? h('p', { class: 'small fever-hint' },
-      `${tf.n} 次感冒里有 ${tf.turned} 次后来发烧了${tf.day ? `，一般在第 ${tf.day} 天` : ''}。${!tf.day || nth <= tf.day ? '这两天早晚都量一下体温，泡脚、早睡别落下。' : ''}`) : null,
-    ls.helped.length ? [h('div', { class: 'label-sm' }, '以前觉得管用的'),
-      h('div', { class: 'chips' }, ls.helped.slice(0, 8).map((x) => h('span', { class: 'chip on static' }, `${x.text}${x.of > 1 ? ` ${x.n}/${x.of}` : ''}`)))] : null,
-    missing.length ? h('button', { class: 'small secondary', onclick: () => saveRender('预案：加上管用的', (data) => {
-      const pl = (data.sick.plans[ep.kind] ||= []);
-      for (const x of missing) if (!pl.includes(x)) pl.push(x);
-    }).then((ok) => ok && toast('加进预案了。')) }, `把「${missing.slice(0, 3).join('、')}」加进预案`) : null,
-    sim ? h('div', { class: 'similar' },
-      h('div', { class: 'label-sm' }, `最像的一次：${sim.ep.start.slice(5).replace('-', '/')}（也是${sim.common.join('、')}）`),
-      h('p', { class: 'small' }, [
-        `${daysBetween(sim.ep.start, sim.ep.end) + 1} 天好`,
-        sickKinds(sim.ep).length > 1 ? `中间${sickKinds(sim.ep).map((k) => SICK_KINDS[k].name).join('→')}` : '',
-        (sim.ep.helped || []).length ? `管用：${sim.ep.helped.join('、')}` : '',
-      ].filter(Boolean).join(' · ')),
-      sim.ep.how ? h('p', { class: 'small muted' }, `那次写的：${sim.ep.how}`) : null)
-      : ls.hows[0] ? h('p', { class: 'small muted' }, `上次写的：${ls.hows[0].how}`) : null);
-}
-
-// 肠胃：记次数；从账本里看昨天吃了什么，点「可能是这个」
-const foodCache = { day: '', list: null };
-function gutCard(ep, today) {
-  const g = ep.gut?.[today] || {};
-  const bump = (k) => saveRender('肠胃：记一次', (data) => { const x = ((data.sick.current.gut ||= {})[today] ||= {}); x[k] = (x[k] || 0) + 1; });
-  const box = h('div', { class: 'chips' });
-  const draw = () => {
-    const list = foodCache.list || [];
-    box.replaceChildren(...(list.length ? list.map((f) => {
-      const on = ep.suspects.includes(f.text);
-      return h('button', { type: 'button', class: `chip check${on ? ' on' : ''}`, onclick: () => saveRender('肠胃：可能是这个', (data) => {
-        const s = data.sick.current.suspects;
-        const i = s.indexOf(f.text);
-        if (i >= 0) s.splice(i, 1); else s.push(f.text);
-      }) }, f.text);
-    }) : [h('p', { class: 'muted small' }, foodCache.list ? '账本里昨天和今天没有吃饭的记录。' : '正在看账本……')]));
-  };
-  if (foodCache.day !== today) {
-    foodCache.day = today;
-    foodCache.list = null;
-    readFood(today).then((list) => { foodCache.list = list; if (box.isConnected) draw(); });
-  }
-  draw();
-  return h('div', { class: 'card' },
-    h('h3', {}, '今天'),
-    h('div', { class: 'actions' },
-      h('button', { class: 'secondary', onclick: () => bump('d') }, `拉肚子 ${g.d || 0} 次`),
-      h('button', { class: 'secondary', onclick: () => bump('v') }, `吐了 ${g.v || 0} 次`)),
-    h('h3', {}, '可能是吃了什么'),
-    h('p', { class: 'muted small' }, '从账本里找的昨天和今天吃的，觉得可疑的点一下。攒几次，「生病手册」里能看出规律。'),
-    box);
-}
-async function readFood(today) {
-  const lg = readJson('ledger-settings');
-  const owner = (settings.repo || DEFAULT_REPO).split('/')[0];
-  const g = new GitHub({ token: lg.token || settings.token, repo: lg.repo || `${owner}/finance-data` });
-  try {
-    const f = JSON.parse(await g.readText('finance.json', 'main'));
-    const food = new Set(f.categories.filter((c) => c.group === 'food').map((c) => c.id));
-    const name = Object.fromEntries(f.categories.map((c) => [c.id, c.name]));
-    const days = [addDays(today, -1), today];
-    return f.tx.filter((t) => t.type === 'expense' && food.has(t.category) && days.includes(t.date))
-      .map((t) => ({ text: `${t.date === today ? '今天' : '昨天'}${name[t.category] || ''}${t.note ? `：${t.note.slice(0, 20)}` : ''}` }))
-      .filter((x, i, arr) => arr.findIndex((y) => y.text === x.text) === i);
-  } catch {
-    return [];
-  }
-}
-
-function medsCard(ep) {
-  const d = store.data;
-  const box = h('div', {}, h('p', { class: 'muted small' }, '正在读物品档案里的药……'));
-  const draw = () => {
-    if (medCache.error) { box.replaceChildren(h('p', { class: 'muted small' }, `读不到物品档案：${medCache.error}`)); return; }
-    const use = KIND_USE[ep.kind];
-    const items = (medCache.items || []).map((m) => ({ ...m, info: medInfo(m.name) }));
-    const fit = items.filter((m) => use.test(m.info.use) && !m.info.rx);
-    const rest = items.filter((m) => !fit.includes(m));
-    box.replaceChildren(...[
-      ...fit.map((m) => medRow(ep, m)),
-      fit.length ? null : h('p', { class: 'muted small' }, '物品档案里没有对症的药。'),
-      rest.length ? h('details', { class: 'inner' }, h('summary', {}, `其他药（${rest.length}）`), rest.map((m) => medRow(ep, m))) : null,
-    ].filter(Boolean));
-  };
-  loadMeds().then(() => { if (box.isConnected) draw(); });
-  if (medCache.items) draw();
-  const taken = ep.meds.slice().sort((a, b) => b.at.localeCompare(a.at)).slice(0, 8);
-  return h('div', { class: 'card' },
-    h('h3', {}, '吃药'),
-    h('p', { class: 'muted small' }, '以药盒上的说明书为准。拿不准就问医生或药店。'),
-    box,
-    taken.length ? [h('h3', { style: 'margin-top:12px' }, '吃过的'), taken.map((m) => h('div', { class: 'event-row' },
-      h('span', { class: 'muted small ev-time' }, hm(m.at)), h('span', { class: 'grow small' }, m.name),
-      h('button', { class: 'link small', onclick: () => saveUndoable('删掉吃药记录', (data) => { data.sick.current.meds = data.sick.current.meds.filter((x) => x.at !== m.at || x.item !== m.item); }, '删掉了').then(render).catch(() => {}) }, '删掉')))] : null);
-}
-function medRow(ep, m) {
-  const cfg = store.data.sick.meds[m.id] || {};
-  const st = doseStatus(ep, m.id, cfg);
-  const exp = expiryNote(m.expires);
-  const line = [
-    m.info.use, m.where,
-    cfg.dose ? `${cfg.dose}${cfg.gapHours ? `，${cfg.gapHours} 小时一次` : ''}${cfg.perDay ? `，一天最多 ${cfg.perDay} 次` : ''}` : '还没抄说明书',
-  ].filter(Boolean).join(' · ');
-  const status = st.next ? `下次最早 ${hm(st.next.toISOString())}` : st.last ? `上次 ${hm(st.last.at)}` : '';
-  return h('div', { class: 'med-row' },
-    h('div', { class: 'grow' },
-      h('b', {}, m.name), m.info.rx ? h('span', { class: 'badge warn' }, '医生判断') : null, exp ? h('span', { class: 'badge warn' }, exp) : null,
-      h('span', { class: 'muted small block' }, line),
-      status || st.left !== null ? h('span', { class: `small block${st.next || st.left === 0 ? ' soon' : ''}` }, [status, st.left !== null ? `今天还能吃 ${st.left} 次` : ''].filter(Boolean).join(' · ')) : null),
-    h('div', { class: 'med-actions' },
-      h('button', { class: 'small', onclick: () => takeMed(ep, m, st) }, '吃了'),
-      h('button', { class: 'link small', onclick: () => medConfigSheet(m) }, '说明书')));
-}
-function takeMed(ep, m, st) {
-  const warns = [...medConflicts(ep, m.name, m.id)];
-  if (m.info.rx) warns.unshift(`${m.name}：${m.info.use}。医生让你吃了再吃。`);
-  if (st.next) warns.push(`按你抄的说明书，下次最早 ${hm(st.next.toISOString())} 才能吃。`);
-  if (st.left === 0) warns.push('今天已经吃到说明书写的最多次数了。');
-  if (expiryNote(m.expires) === '已经过期') warns.push('这盒药已经过期了，别吃。');
-  const doIt = () => saveRender(`吃药：${m.name}`, (data) => { data.sick.current.meds.push({ at: nowIso(), item: m.id, name: m.name }); })
-    .then((ok) => ok && toast('记好了。躺一会儿吧。'));
-  if (!warns.length) return doIt();
-  openSheet({ title: '先看一下', body: h('ul', { class: 'small flags' }, warns.map((w) => h('li', { class: 'warn' }, w))), confirmText: '还是记上', cancelText: '先不吃', onConfirm: doIt });
-}
-function medConfigSheet(m) {
-  const cfg = store.data.sick.meds[m.id] || {};
-  const dose = h('input', { value: cfg.dose || '', placeholder: '一次多少，比如「1 片」「1 袋」', 'aria-label': '一次多少' });
-  const gap = h('input', { inputmode: 'decimal', value: cfg.gapHours || '', placeholder: '几小时一次（可以不填）', 'aria-label': '几小时一次' });
-  const per = h('input', { inputmode: 'numeric', value: cfg.perDay || '', placeholder: '一天最多几次', 'aria-label': '一天最多几次' });
-  const info = medInfo(m.name);
-  openSheet({
-    title: m.name,
-    body: h('div', { class: 'form' },
-      h('p', { class: 'small' }, info.use ? `管什么：${info.use}` : '', info.ingredients.length ? h('span', { class: 'block muted' }, `主要成分：${info.ingredients.join('、')}`) : null),
-      h('p', { class: 'muted small' }, '照着药盒里的说明书抄：成人一次多少、一天几次。说明书写「一日 3 次」，一般就是 6–8 小时一次。'),
-      dose, gap, per,
-      m.left ? h('p', { class: 'muted small' }, `物品档案里记着：${m.left}${m.expires ? `，保质期 ${m.expires}` : ''}`) : null),
-    confirmText: '存好',
-    onConfirm: () => saveRender(`药箱：${m.name}`, (data) => {
-      const x = { ...(dose.value.trim() ? { dose: dose.value.trim() } : {}), ...(Number(gap.value) > 0 ? { gapHours: Number(gap.value) } : {}), ...(Number(per.value) > 0 ? { perDay: Number(per.value) } : {}) };
-      if (Object.keys(x).length) data.sick.meds[m.id] = x; else delete data.sick.meds[m.id];
-    }),
-  });
-}
-
-function endSickSheet() {
-  const d = store.data;
-  const ep = d.sick.current;
-  const did = ep ? sickDid(ep, d.sick.plans) : [];
-  const helped = new Set();
-  const chips = h('div', { class: 'chips' });
-  const draw = () => chips.replaceChildren(...did.map((x) => h('button', {
-    type: 'button', class: `chip check${helped.has(x) ? ' on' : ''}`, 'aria-pressed': String(helped.has(x)),
-    onclick: () => { if (helped.has(x)) helped.delete(x); else helped.add(x); draw(); },
-  }, x)));
-  draw();
-  const how = h('textarea', { rows: 3, placeholder: '还有想对下次的自己说的？（可以不写）', 'aria-label': '怎么好的' });
-  openSheet({
-    title: '好了 🎉',
-    body: [h('p', { class: 'small' }, '辛苦了。接下来两天是恢复期：运动先缓缓，早点睡。'),
-      did.length ? [h('div', { class: 'label-sm' }, '这次什么管用？点一下'), chips] : null, how],
-    confirmText: '好了',
-    onConfirm: () => saveRender('生病：好了', (data) => {
-      const cur = data.sick.current;
-      if (!cur) return false;
-      data.sick.history.push({ ...cur, end: dayKey(), ...(helped.size ? { helped: [...helped] } : {}), ...(how.value.trim() ? { how: how.value.trim() } : {}) });
-      data.sick.current = null;
-    }).then((ok) => { if (ok) { toast('好起来了，真好。'); go('#/'); } }),
-  });
-}
-
-// 生病手册：每一种的经验、以前的每一次、预案
-function sickBookView() {
-  const d = store.data;
-  const hist = d.sick.history.slice().reverse();
-  const year = dayKey().slice(0, 4);
-  const thisYear = d.sick.history.filter((x) => x.start.startsWith(year));
-  const months = {};
-  for (const x of d.sick.history) months[Number(x.start.slice(5, 7))] = (months[Number(x.start.slice(5, 7))] || 0) + 1;
-  const suspects = {};
-  for (const x of d.sick.history) for (const s of x.suspects || []) { const k = s.replace(/^(昨天|今天)/, ''); suspects[k] = (suspects[k] || 0) + 1; }
-  const editPlan = (kind) => {
-    const ta = h('textarea', { rows: 8, 'aria-label': '预案' });
-    ta.value = (d.sick.plans[kind] || []).join('\n');
-    openSheet({
-      title: `${SICK_KINDS[kind].name}的预案`, body: [h('p', { class: 'muted small' }, '一行一件事。生病时会变成可以打勾的清单。你自己习惯的做法（比如喝姜汤）都可以加。'), ta], confirmText: '存好',
-      onConfirm: () => saveRender('生病预案', (data) => { data.sick.plans[kind] = ta.value.split('\n').map((x) => x.trim()).filter(Boolean); }),
-    });
-  };
-  const lessons = Object.keys(SICK_KINDS).map((k) => [k, sickLessons(d.sick.history, k, d.sick.plans)]).filter(([, l]) => l);
-  return h('div', {},
-    headerSub('生病手册', `${year} 年病了 ${thisYear.length} 次`, helpButton('生病手册', [['这一页', [
-      '每次生病好了以后存在这里：几号到几号、什么症状、最高几度、做了什么、什么管用。',
-      '「我的经验」把同一种病的每一次放在一起看：一般几天好、感冒有几次转成发烧、什么最管用。下次生病，生病页最上面也会显示。',
-      '预案：每种情况你要做的事，生病时变成打勾清单。经验里管用的，可以一键加进来。',
-    ]]])),
-    d.sick.history.length ? h('div', { class: 'card' },
-      h('div', { class: 'stat-grid' },
-        stat(`${year} 年`, `${thisYear.length} 次`), stat('一共', `${d.sick.history.length} 次`),
-        stat('平均几天好', `${Math.round(d.sick.history.reduce((a, x) => a + daysBetween(x.start, x.end) + 1, 0) / d.sick.history.length * 10) / 10} 天`),
-        stat('上一次', `${relDay(d.sick.history[d.sick.history.length - 1].end)}好的`)),
-      h('h3', {}, '每个月'), barChart(Array.from({ length: 12 }, (_, i) => ({ label: String(i + 1), v: months[i + 1] || 0 })), { title: '每个月生病几次', color: 'var(--danger)' }))
-      : h('div', { class: 'card soft' }, h('p', { class: 'small' }, '还没有记录。下次不舒服时在生病页每天点一下症状、做了什么，好了勾一下什么管用，这里就开始攒你自己的经验。')),
-    lessons.length ? [h('div', { class: 'section-title' }, '我的经验'), lessons.map(([k, l]) => h('div', { class: 'card lessons' },
-      h('div', { class: 'rec-top' }, h('b', {}, `${SICK_KINDS[k].icon} ${SICK_KINDS[k].name}`), h('span', { class: 'muted small' }, `${l.n} 次 · 平均 ${l.avgDays} 天好`)),
-      k === 'cold' && l.toFever?.n ? h('p', { class: 'small' }, l.toFever.turned ? `${l.toFever.n} 次里 ${l.toFever.turned} 次转成了发烧${l.toFever.day ? `，一般在第 ${l.toFever.day} 天` : ''}` : `${l.toFever.n} 次都没有发烧`) : null,
-      l.maxTemp ? h('p', { class: 'small' }, `最高烧到 ${l.maxTemp}°C`) : null,
-      l.symptoms.length ? h('p', { class: 'small' }, h('span', { class: 'muted' }, '常有：'), l.symptoms.slice(0, 5).map((x) => `${x.text}${x.n > 1 ? `×${x.n}` : ''}`).join('、')) : null,
-      l.helped.length ? h('p', { class: 'small' }, h('span', { class: 'muted' }, '管用：'), l.helped.slice(0, 6).map((x) => `${x.text}（${x.n}/${x.of}）`).join('、'))
-        : l.did.length ? h('p', { class: 'small' }, h('span', { class: 'muted' }, '做过：'), l.did.slice(0, 6).map((x) => x.text).join('、')) : null))] : null,
-    h('div', { class: 'section-title' }, '预案'),
-    h('div', { class: 'group' }, Object.entries(SICK_KINDS).map(([k, v]) => cell({ title: `${v.icon} ${v.name}`, sub: (d.sick.plans[k] || []).join('、'), onclick: () => editPlan(k) }))),
-    Object.keys(suspects).length ? h('div', { class: 'card' }, h('h3', {}, '肠胃不舒服前吃过的'),
-      Object.entries(suspects).sort((a, b) => b[1] - a[1]).map(([k, n]) => h('div', { class: 'small' }, `${k}${n > 1 ? ` · ${n} 次` : ''}`))) : null,
-    hist.length ? h('div', { class: 'section-title' }, '以前的每一次') : null,
-    hist.map((x) => {
-      const ts = tempStats(x);
-      const meds = [...new Set(x.meds.map((m) => m.name))];
-      const sym = sickSymptoms(x);
-      return h('div', { class: 'card' },
-        h('b', {}, sickKinds(x).map((k) => `${SICK_KINDS[k].icon} ${SICK_KINDS[k].name}`).join(' → ')),
-        h('span', { class: 'muted small' }, ` · ${x.start.slice(5).replace('-', '/')}–${x.end.slice(5).replace('-', '/')}，${daysBetween(x.start, x.end) + 1} 天`),
-        sym.length ? h('p', { class: 'small' }, sym.join('、')) : null,
-        h('p', { class: 'small' }, [ts.max ? `最高 ${ts.max}°C` : '', meds.length ? `吃了 ${meds.join('、')}` : ''].filter(Boolean).join(' · ') || '没记体温和吃药'),
-        (x.helped || []).length ? h('p', { class: 'small' }, `管用：${x.helped.join('、')}`) : null,
-        x.how ? h('p', { class: 'small muted' }, `写的：${x.how}`) : null);
-    }));
-}
-
 // ---------- 难受的时候 ----------
-// 像生病的预案：先呼吸 → 有多难受 → 哪一种 → 一件一件做 → 给你的话 → 现在呢。每一次记进 low.log，攒成「什么管用」。
+// 先呼吸 → 有多难受 → 哪一种 → 一件一件做 → 给你的话 → 现在呢。每一次记进 low.log，攒成「什么管用」。
 
 const LOW_HELP = [
   ['这一页', [
@@ -2973,29 +2512,6 @@ function suppliesCard(ui) {
       h('button', { class: 'link small', onclick: () => saveRender('小记：用品', (data) => { const y = data.private.supplies.find((z) => z.id === x.id); if (y) y.low = !y.low; }) }, x.low ? '补上了' : '快用完了'),
       h('button', { class: 'link small muted icon-del', 'aria-label': '删掉', onclick: () => saveUndoable('小记：删用品', (data) => { data.private.supplies = data.private.supplies.filter((z) => z.id !== x.id); }, '删掉了').then(render).catch(() => {}) }, icon('trash')))),
     h('div', { class: 'inline-add' }, input, h('button', { class: 'small', onclick: add }, '加')));
-}
-
-// ---------- 最近的记录 ----------
-
-function historyView() {
-  const d = store.data;
-  const today = dayKey();
-  const days = Array.from({ length: 30 }, (_, i) => addDays(today, -i));
-  return h('div', {},
-    headerSub('最近的记录', '点一天可以看、可以补记'),
-    weekCardToday(today),
-    yearAgoCard(today),
-    h('div', { class: 'group' }, days.map((x) => {
-      const r = d.days[x] || {};
-      const evs = eventsOn(d, x);
-      const marks = [
-        r.mood ? `心情 ${r.mood}` : '',
-        evs.some((e) => e.type === 'shower') ? '洗澡' : '',
-        evs.some((e) => e.type === 'sport') ? '运动' : '',
-        prayedOn(d, x) ? '祷告' : '',
-      ].filter(Boolean).join(' · ');
-      return cell({ href: x === today ? '#/' : `#/day/${x}`, title: `${relDay(x, today)} · ${dayLabel(x)}`, sub: r.note || marks || '没有记录' });
-    })));
 }
 
 // ---------- 想做到的事 ----------
@@ -4071,7 +3587,7 @@ function photosView(month) {
     confirmText: '换或删', cancelText: '关闭', onConfirm: () => { setTimeout(() => dayPhotoSheet(day), 0); },
   });
   return h('div', {},
-    headerSub('照片', all ? `一共 ${all} 张，每天一张` : '每天一张', helpButton('照片怎么用', [['怎么用', ['每天在睡前复盘那一页里存一张。这里按月排成一面墙。', '点一张看大图；要换或删，点「换或删」。', '忘了拍的那天空着就好。想补以前某一天的，在「最近的记录」里打开那一天，点它的睡前复盘，同样有这一块。']]])),
+    headerSub('照片', all ? `一共 ${all} 张，每天一张` : '每天一张', helpButton('照片怎么用', [['怎么用', ['每天在睡前复盘那一页里存一张。这里按月排成一面墙。', '点一张看大图；要换或删，点「换或删」。', '忘了拍的那天空着就好。想补以前某一天的，在「回顾」的月历上点那一天，点它的睡前复盘，同样有这一块。']]])),
     h('div', { class: 'month-nav' },
       h('a', { class: 'link', href: `#/photos?m=${shift(-1)}` }, '‹'),
       h('b', {}, `${Number(m.slice(0, 4))}年${Number(m.slice(5))}月`),
@@ -4091,10 +3607,7 @@ function moreView() {
       cell({ href: '#/goals', ic: 'sparkle', color: 'var(--accent)', title: '想做到的事', sub: '心愿 → 一步一步能做到的事' }),
       cell({ href: '#/places', ic: 'globe', color: 'var(--good)', title: '想去的地方', sub: '地图、周末去哪、足迹' }),
       cell({ href: '#/photos', ic: 'image', color: 'var(--blue)', title: '照片', sub: '每天一张，按月排成一面墙' }),
-      cell({ href: '#/people', ic: 'people', color: 'var(--amber)', title: '身边的人', sub: '家人、亲戚、一路上认识的人' }),
-      cell({ href: '#/sick/book', ic: 'shield', color: 'var(--danger)', title: '生病手册', sub: '我的经验、预案' })),
-    h('div', { class: 'group' },
-      cell({ href: '#/history', ic: 'list', color: 'var(--amber)', title: '最近的记录', sub: '这周的你、一年前的今天' })),
+      cell({ href: '#/people', ic: 'people', color: 'var(--amber)', title: '身边的人', sub: '家人、亲戚、一路上认识的人' })),
     h('div', { class: 'group' },
       cell({ href: '#/periodic', ic: 'calendar', color: 'var(--muted)', title: '定期打理', sub: '剪指甲、换床单这些，到日子才出现' })),
     h('div', { class: 'group' },

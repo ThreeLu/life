@@ -3,7 +3,7 @@
 //
 // 代码是公开的：这里只放通用的默认值。用的什么产品、祷告事项、密码（只存哈希）都在私有仓库的 life.json 里。
 
-import { CHEERS, CHEER_VERSES, MILESTONE_TEXT, DEFAULT_PLANS, LOW_PLANS, MED_KNOWLEDGE, FEVER_INGREDIENTS, FEVER_FROM, RECOVERY_DAYS } from './content.js';
+import { CHEERS, CHEER_VERSES, MILESTONE_TEXT, LOW_PLANS } from './content.js';
 
 export const DAY_START_HOUR = 4; // 凌晨 4 点前还算前一天（熬夜到 1 点洗的澡算「昨天」）
 
@@ -53,7 +53,6 @@ export function defaultData(today) {
     prayer: { stage: 1, since: today, items: [] },
     // 小记：ui 是这一页上的文字（名字、按钮、说明），只在私有仓库里
     private: { supplies: [], ui: {} },
-    sick: { current: null, history: [], plans: structuredClone(DEFAULT_PLANS), meds: {}, clinic: {} },
     // 难受的时候：plans 每种难受的清单，notes 写给难受时的自己 { id, text, at }，log 每一次 { id, day, at, kind, before, after, did, helped, note }
     low: { plans: structuredClone(LOW_PLANS), notes: [], log: [] },
     milestones: {}, // { key: 达到的日期 }，seen: { key: true }
@@ -94,8 +93,6 @@ export function migrate(data) {
   data.weeks ||= {};
   data.prayer = { ...d.prayer, ...(data.prayer || {}) };
   data.private = { ...d.private, ...(data.private || {}) };
-  data.sick = { ...d.sick, ...(data.sick || {}) };
-  data.sick.plans = { ...DEFAULT_PLANS, ...(data.sick.plans || {}) };
   data.low = { ...d.low, ...(data.low || {}) };
   data.low.plans = { ...LOW_PLANS, ...(data.low.plans || {}) };
   data.milestones ||= {};
@@ -115,6 +112,8 @@ export function migrate(data) {
   // 2026-10-24 护肤品（开封日期、好不好用）也不要了
   delete data.look.products;
   delete data.look.hide;
+  // 2026-10-24 生病模式、生病手册整个不要了，老的生病记录、预案、抄的药品说明都删掉
+  delete data.sick;
   if (data.milestones.seen) for (const k of Object.keys(data.milestones.seen)) if (k.startsWith('english-')) delete data.milestones.seen[k];
   return data;
 }
@@ -272,126 +271,7 @@ export function newMilestones(data) {
   });
 }
 
-// ---------- 生病 ----------
-
-export const sickActive = (data) => Boolean(data.sick.current);
-
-// 好了以后的恢复期还剩几天（没有就 0）
-export function recoveryLeft(data, today) {
-  const last = data.sick.history[data.sick.history.length - 1];
-  if (!last?.end || data.sick.current) return 0;
-  const left = RECOVERY_DAYS - daysBetween(last.end, today);
-  return left > 0 ? left : 0;
-}
-
-// ---- 从以前生病的记录里攒经验 ----
-// 一次生病：path = [{ day, kind }]（换过种类才有，第一个是开始时的种类），sym = { 日期: [症状] }，
-// done = { 日期: { 做的事: true } }（老数据的键是预案里的序号），extra = [自己加的事]，helped = [觉得管用的]
-export const sickStartKind = (ep) => ep.path?.[0]?.kind || ep.kind;
-export const sickKinds = (ep) => [...new Set([...(ep.path || []).map((x) => x.kind), ep.kind])];
-export const sickSymptoms = (ep) => [...new Set(Object.values(ep.sym || {}).flat())];
-export function sickDid(ep, plans = {}) {
-  const plan = plans[sickStartKind(ep)] || plans[ep.kind] || [];
-  const out = new Set();
-  for (const dd of Object.values(ep.done || {})) for (const k of Object.keys(dd)) out.add(/^\d+$/.test(k) ? plan[Number(k)] : k);
-  for (const x of ep.extra || []) out.add(x);
-  for (const m of ep.meds || []) out.add(m.name);
-  out.delete(undefined);
-  return [...out];
-}
-function tally(lists) {
-  const m = {};
-  for (const l of lists) for (const x of new Set(l)) m[x] = (m[x] || 0) + 1;
-  return Object.entries(m).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).map(([text, n]) => ({ text, n }));
-}
-// 某一种（感冒 / 发烧 / 肠胃……）的经验：经过这一种的每一次都算
-export function sickLessons(history, kind, plans = {}) {
-  const eps = history.filter((e) => e.end && sickKinds(e).includes(kind));
-  if (!eps.length) return null;
-  const days = eps.map((e) => daysBetween(e.start, e.end) + 1);
-  const maxes = eps.map((e) => tempStats(e).max).filter(Boolean);
-  let toFever = null;
-  if (kind === 'cold') {
-    const colds = eps.filter((e) => sickStartKind(e) === 'cold');
-    const turned = colds.filter((e) => sickKinds(e).includes('fever'));
-    const at = turned.map((e) => daysBetween(e.start, e.path.find((x) => x.kind === 'fever').day) + 1);
-    if (colds.length) toFever = { n: colds.length, turned: turned.length, day: at.length ? Math.round(at.reduce((a, x) => a + x, 0) / at.length) : null };
-  }
-  const did = tally(eps.map((e) => sickDid(e, plans)));
-  const helped = tally(eps.map((e) => e.helped || []));
-  const didN = Object.fromEntries(did.map((x) => [x.text, x.n]));
-  return {
-    n: eps.length,
-    avgDays: Math.round((days.reduce((a, x) => a + x, 0) / days.length) * 10) / 10,
-    maxTemp: maxes.length ? Math.max(...maxes) : null,
-    toFever,
-    symptoms: tally(eps.map(sickSymptoms)),
-    did,
-    helped: helped.map((x) => ({ ...x, of: Math.max(x.n, didN[x.text] || 0) })),
-    hows: eps.filter((e) => e.how).slice(-3).reverse().map((e) => ({ start: e.start, how: e.how })),
-  };
-}
-// 以前最像这一次的（症状重合最多的那次），没有足够像的就 null
-export function similarSick(history, ep) {
-  const mine = new Set(sickSymptoms(ep));
-  if (!mine.size) return null;
-  let best = null;
-  for (const e of history) {
-    if (!e.end || !sickKinds(e).some((k) => sickKinds(ep).includes(k))) continue;
-    const theirs = new Set(sickSymptoms(e));
-    const common = [...mine].filter((x) => theirs.has(x));
-    const score = common.length / new Set([...mine, ...theirs]).size;
-    if (common.length && score >= 0.34 && (!best || score > best.score || (score === best.score && e.start > best.ep.start))) best = { ep: e, common, score };
-  }
-  return best;
-}
-// 经验里觉得管用、但预案里还没有的
-export const planMissing = (lessons, plan) => (lessons?.helped || []).filter((x) => !(plan || []).includes(x.text)).map((x) => x.text);
-
-export function tempStats(ep, now = new Date()) {
-  const temps = (ep.temps || []).slice().sort((a, b) => a.at.localeCompare(b.at));
-  const last = temps[temps.length - 1] || null;
-  const max = temps.reduce((m, x) => Math.max(m, x.t), 0) || null;
-  const fevers = temps.filter((x) => x.t >= FEVER_FROM);
-  const feverDays = fevers.length ? Math.floor((now - new Date(fevers[0].at)) / 86400000) + 1 : 0;
-  const day = temps.filter((x) => now - new Date(x.at) <= 86400000);
-  // 发过烧、最近 24 小时量过不少于 2 次、都正常 → 可以问「是不是好了」
-  const normal24 = fevers.length > 0 && day.length >= 2 && day.every((x) => x.t < FEVER_FROM) && now - new Date(day[0].at) >= 12 * 3600000;
-  return { temps, last, max, feverNow: Boolean(last && last.t >= FEVER_FROM), feverDays, normal24 };
-}
-
-// 认药：名字 → 成分、管什么、是不是要医生判断
-export function medInfo(name) {
-  return MED_KNOWLEDGE.find((m) => m.match.test(name)) || { ingredients: [], use: '' };
-}
-
-// 这个药下次最早几点能吃、今天还能吃几次（按用户从说明书抄的：几小时一次、一天最多几次）
-export function doseStatus(ep, itemId, cfg, now = new Date()) {
-  const taken = (ep.meds || []).filter((m) => m.item === itemId).sort((a, b) => a.at.localeCompare(b.at));
-  const last = taken[taken.length - 1] || null;
-  const in24 = taken.filter((m) => now - new Date(m.at) < 86400000).length;
-  const gap = Number(cfg?.gapHours) || 0;
-  const next = last && gap ? new Date(new Date(last.at).getTime() + gap * 3600000) : null;
-  const max = Number(cfg?.perDay) || 0;
-  return { last, in24, next: next && next > now ? next : null, left: max ? Math.max(0, max - in24) : null };
-}
-
-// 吃这个药之前：24 小时内吃过的别的药里有没有同样的成分；两种退烧药混着吃
-export function medConflicts(ep, name, itemId, now = new Date()) {
-  const mine = medInfo(name).ingredients;
-  const out = [];
-  const recent = (ep.meds || []).filter((m) => m.item !== itemId && now - new Date(m.at) < 86400000);
-  const seen = new Set();
-  for (const m of recent) {
-    if (seen.has(m.name)) continue;
-    seen.add(m.name);
-    const theirs = medInfo(m.name).ingredients;
-    const same = mine.filter((x) => theirs.includes(x));
-    if (same.length) out.push(`${m.name} 里也有${same.join('、')}，一起吃会超量${same.includes('对乙酰氨基酚') ? '（伤肝）' : same.includes('氯苯那敏') ? '（会特别困）' : ''}。`);
-    else if (FEVER_INGREDIENTS.some((x) => mine.includes(x)) && FEVER_INGREDIENTS.some((x) => theirs.includes(x))) out.push(`24 小时内吃过 ${m.name}：两种退烧药别自己混着吃，问一下医生。`);
-  }
-  return out;
-}
+// ---------- 换季 ----------
 
 // 换季预防：daily = [{ date, min, max }]，第一天是今天。三天内最低温比今天低 8°C 以上，或某天温差 12°C 以上
 export function seasonWarning(daily) {

@@ -121,7 +121,7 @@ def _(c):
     expect(p.locator(".card.period").first).to_be_visible()
 
 
-@step("形象：改打卡项（加、改名、删了可以撤销），打卡项进到今天")
+@step("回顾：改打卡项（加、改名、删了可以撤销），打卡项进到今天")
 def _(c):
     p = c.page
     c.go("#/look")
@@ -423,7 +423,7 @@ def _(c):
     p.get_by_role("button", name="编的另一种").click()
     c.wait(lambda d: len(events(d, "p2")) == 1, "另一种")
     # 其他页面看不到
-    c.go("#/history")
+    c.go("#/look")
     expect(p.locator("main")).not_to_contain_text("编的")
     # 锁上：要输密码
     c.go("#/p")
@@ -541,7 +541,7 @@ def _(c):
     c.sheet().get_by_label("几天一次").fill("10")
     c.sheet().get_by_role("button", name="好了").click()
     c.wait(lambda d: any(x["name"] == "编的打理" and x["every"] == 10 for x in d["periodic"]), "加定期")
-    # 前一天先说一声；其他时候不出现；入口在「生活」里，不在形象页
+    # 前一天先说一声；其他时候不出现；入口在「生活」里，不在回顾页
     p.locator(".per-row", has_text="编的打理").locator(".per-main").click()
     c.sheet().get_by_label("上次做").fill((datetime.fromisoformat(TODAY) - timedelta(days=9)).date().isoformat())
     c.sheet().get_by_role("button", name="好了").click()
@@ -555,32 +555,60 @@ def _(c):
     expect(p.locator(".section-title", has_text="定期打理")).to_have_count(0)
 
 
-@step("形象：这个月做了什么（护肤做完几天、月历、每一项做到多少）；不再有护肤品")
+@step("回顾：这个月（护肤月历、洗澡运动祷告次数、翻月）、护肤最近两周、周报入口；不再有护肤品、生病、最近的记录")
 def _(c):
     p = c.page
+    c.write(lambda d: d.update(sick={"current": None, "history": [{"kind": "cold", "start": YESTERDAY, "end": TODAY}], "plans": {}, "meds": {}}))
     c.go("#/look")
+    p.reload()
+    expect(p.locator("#nav a.active")).to_have_text("回顾")
     expect(p.locator(".look-big")).to_be_visible()
     expect(p.locator(".dot-month .md.today")).to_have_count(1)
+    expect(p.locator(".look-counts")).to_contain_text("运动")
+    expect(p.locator(".look-counts")).to_contain_text("祷告")
     expect(p.locator(".care-rate", has_text="洗脸（洗面奶甲）").locator(".dots i")).to_have_count(14)
+    expect(p.get_by_role("link", name="这周的回顾")).to_be_visible()
     expect(p.get_by_text("我学到的")).to_have_count(0)
     expect(p.get_by_text("我的方向")).to_have_count(0)
-    expect(p.locator(".whisper")).to_have_count(0)  # 形象页不放角落那句话
+    expect(p.locator(".whisper")).to_have_count(0)  # 回顾页不放角落那句话
     expect(p.locator("main")).not_to_contain_text("护肤品")
     expect(p.locator("main")).not_to_contain_text("编的洗面奶")
     d = c.data()
     assert "products" not in d["look"] and "hide" not in d["look"], d["look"].keys()  # 老数据清掉
     p.screenshot(path=ART / "look.png", full_page=True)
+    # 首页、「记一下」、「生活」里都没有生病了
+    c.go("#/")
+    expect(p.get_by_role("button", name="我不舒服")).to_have_count(0)
+    p.get_by_role("button", name="记一下").click()
+    expect(c.sheet()).not_to_contain_text("不舒服")
+    c.sheet().get_by_role("button", name="关闭").click()
+    c.go("#/more")
+    expect(p.get_by_text("生病手册")).to_have_count(0)
+    expect(p.get_by_text("最近的记录")).to_have_count(0)
 
 
-@step("最近的记录：看以前某一天、补记")
+@step("回顾：月历上点一天打开那天、补记；翻到上个月")
 def _(c):
     p = c.page
-    c.go("#/history")
-    p.get_by_role("link", name="昨天").first.click()
+    start = c.data()["startDate"]
+    c.write(lambda d: d.update(startDate=(datetime.fromisoformat(TODAY) - timedelta(days=40)).date().isoformat()))
+    c.go("#/look")
+    p.reload()
+    if YESTERDAY[:7] != TODAY[:7]:
+        p.get_by_role("button", name="上个月").click()
+    p.locator(".dot-month").get_by_role("link", name=f"{int(YESTERDAY[5:7])} 月 {int(YESTERDAY[8:])} 日").click()
     expect(p.get_by_role("heading", name="昨天")).to_be_visible()
     c.period("晚上").locator(".it", has_text="洗澡").locator(".it-main").click()
     c.sheet().get_by_role("button", name="洗好了").click()
     c.wait(lambda d: any(e["day"] == YESTERDAY for e in events(d, "shower")), "补记昨天洗澡")
+    assert "sick" not in c.data(), "老的生病数据存的时候清掉"
+    c.go("#/look")
+    p.get_by_role("button", name="上个月").click()
+    expect(p.locator(".look-month .period-nav h3")).not_to_have_text(f"{int(TODAY[5:7])} 月")
+    p.get_by_role("button", name="下个月").click()
+    expect(p.locator(".look-month .period-nav h3")).to_have_text(f"{int(TODAY[5:7])} 月")
+    c.write(lambda d: d.update(startDate=start))
+    p.reload()
 
 
 @step("两台设备：另一台刚改过，这台的修改合并进去")
@@ -619,112 +647,8 @@ def _(c):
     line.get_by_role("button", name="好").click()
     c.wait(lambda d: d["milestones"].get("seen", {}).get("care-1"), "看过里程碑")
     expect(p.locator(".seal")).to_be_visible()  # 护肤、复盘、祷告都做了
-    c.go("#/history")
+    c.go("#/look")
     expect(p.get_by_text("这周的你")).to_be_visible()
-
-
-@step("生病：感冒→量到 37.8 切发烧、喝水、预案打勾、吃药（说明书、下次几点、同成分提醒）、去医院的情况变红、好了进手册")
-def _(c):
-    p = c.page
-    c.go("#/")
-    p.get_by_role("button", name="我不舒服").click()
-    c.sheet().get_by_role("button", name="感冒").click()
-    expect(p.get_by_role("heading", name="🤧 感冒")).to_be_visible()
-    c.wait(lambda d: d["sick"]["current"]["kind"] == "cold", "开始感冒")
-    expect(p.get_by_text("这是第一次在这里记感冒")).to_be_visible()
-    p.locator(".card", has_text="今天哪里不舒服").get_by_role("button", name="嗓子疼").click()
-    c.wait(lambda d: d["sick"]["current"].get("sym", {}).get(TODAY) == ["嗓子疼"], "症状")
-    p.get_by_label("体温", exact=True).fill("37.8")
-    p.get_by_role("button", name="记", exact=True).click()
-    c.wait(lambda d: d["sick"]["current"]["temps"][0]["t"] == 37.8, "体温")
-    p.get_by_role("button", name="切到发烧模式").click()
-    c.wait(lambda d: d["sick"]["current"]["kind"] == "fever" and [x["kind"] for x in d["sick"]["current"]["path"]] == ["cold", "fever"], "切发烧")
-    p.get_by_role("button", name="喝了一杯").click()
-    c.wait(lambda d: d["sick"]["current"]["water"][TODAY] == 1, "喝水")
-    p.get_by_role("button", name="多喝水（发烧很耗水）").click()
-    c.wait(lambda d: d["sick"]["current"]["done"][TODAY] == {"多喝水（发烧很耗水）": True}, "预案打勾")
-    p.get_by_label("还做了").fill("编的姜汤")
-    p.locator(".card", has_text="今天要做").get_by_role("button", name="加", exact=True).click()
-    c.wait(lambda d: d["sick"]["current"].get("extra") == ["编的姜汤"] and d["sick"]["current"]["done"][TODAY].get("编的姜汤"), "还做了")
-    # 药：从物品档案读；先抄说明书
-    row = p.locator(".med-row", has_text="编的感冒灵颗粒")
-    row.get_by_role("button", name="说明书").click()
-    c.sheet().get_by_label("一次多少").fill("1 袋")
-    c.sheet().get_by_label("几小时一次").fill("6")
-    c.sheet().get_by_label("一天最多几次").fill("3")
-    c.sheet().get_by_role("button", name="存好").click()
-    c.wait(lambda d: d["sick"]["meds"]["inv-m2"] == {"dose": "1 袋", "gapHours": 6, "perDay": 3}, "说明书")
-    p.locator(".med-row", has_text="编的感冒灵颗粒").get_by_role("button", name="吃了").click()
-    c.wait(lambda d: len(d["sick"]["current"]["meds"]) == 1, "吃药")
-    expect(p.locator(".med-row", has_text="编的感冒灵颗粒")).to_contain_text("下次最早")
-    expect(p.locator(".med-row", has_text="编的感冒灵颗粒")).to_contain_text("今天还能吃 2 次")
-    # 再吃感康：同成分提醒
-    p.locator(".med-row", has_text="编的感康").get_by_role("button", name="吃了").click()
-    expect(c.sheet()).to_contain_text("对乙酰氨基酚")
-    c.sheet().get_by_role("button", name="先不吃").click()
-    assert len(c.data()["sick"]["current"]["meds"]) == 1
-    # 抗生素标「医生判断」，放在「其他药」里
-    p.get_by_text("其他药（2）").click()
-    expect(p.locator(".med-row", has_text="编的左氧氟沙星")).to_contain_text("医生判断")
-    # 39.2：去医院那条变红
-    p.get_by_label("体温", exact=True).fill("39.2")
-    p.get_by_role("button", name="记", exact=True).click()
-    expect(p.locator(".card.alert")).to_contain_text("39°C 以上")
-    # 首页：生病卡片
-    c.go("#/")
-    expect(p.locator(".alert-line.red")).to_contain_text("发烧 · 第 1 天")
-    expect(p.get_by_role("button", name="我不舒服")).to_have_count(0)
-    # 好了
-    c.go("#/sick")
-    p.get_by_role("button", name="好了").first.click()
-    c.sheet().get_by_role("button", name="编的姜汤").click()
-    c.sheet().get_by_label("怎么好的").fill("编的办法")
-    c.sheet().get_by_role("button", name="好了").click()
-    c.wait(lambda d: d["sick"]["current"] is None and d["sick"]["history"][0]["how"] == "编的办法" and d["sick"]["history"][0]["helped"] == ["编的姜汤"], "好了")
-    expect(p.get_by_text("恢复期还有")).to_be_visible()
-    c.go("#/sick/book")
-    expect(p.get_by_text("最高 39.2°C")).to_be_visible()
-    expect(p.get_by_text("写的：编的办法")).to_be_visible()
-    expect(p.locator(".lessons", has_text="感冒")).to_contain_text("1 次里 1 次转成了发烧")
-    expect(p.locator(".lessons", has_text="感冒")).to_contain_text("编的姜汤（1/1）")
-    expect(p.get_by_text("看病去哪")).to_have_count(0)
-    # 改预案
-    p.get_by_role("button", name="🤧 感冒").click()
-    c.sheet().get_by_label("预案").fill("编的做法一\n编的做法二")
-    c.sheet().get_by_role("button", name="存好").click()
-    c.wait(lambda d: d["sick"]["plans"]["cold"] == ["编的做法一", "编的做法二"], "预案")
-    # 再感冒一次：以前的经验、最像的一次、把管用的加进预案
-    c.go("#/sick")
-    p.get_by_role("button", name="🤧 感冒").click()
-    c.wait(lambda d: d["sick"]["current"] and d["sick"]["current"]["kind"] == "cold", "又感冒")
-    lessons = p.locator(".lessons")
-    expect(lessons).to_contain_text("1 次感冒里有 1 次后来发烧了，一般在第 1 天")
-    expect(lessons).to_contain_text("编的姜汤")
-    p.locator(".card", has_text="今天哪里不舒服").get_by_role("button", name="嗓子疼").click()
-    expect(lessons).to_contain_text("最像的一次")
-    lessons.get_by_role("button", name="把「编的姜汤」加进预案").click()
-    c.wait(lambda d: d["sick"]["plans"]["cold"] == ["编的做法一", "编的做法二", "编的姜汤"], "加进预案")
-    p.get_by_role("button", name="好了").first.click()
-    c.sheet().get_by_role("button", name="好了").click()
-    c.wait(lambda d: d["sick"]["current"] is None and len(d["sick"]["history"]) == 2, "又好了")
-
-
-@step("肠胃：记次数，从账本里找昨天吃了什么，点可能是这个")
-def _(c):
-    p = c.page
-    c.go("#/sick")
-    p.get_by_role("button", name="肠胃不舒服").click()
-    c.wait(lambda d: d["sick"]["current"]["kind"] == "gut", "肠胃")
-    p.get_by_role("button", name="拉肚子 0 次").click()
-    c.wait(lambda d: d["sick"]["current"]["gut"][TODAY]["d"] == 1, "拉肚子")
-    p.get_by_role("button", name="昨天午餐：编的盖饭").click()
-    c.wait(lambda d: d["sick"]["current"]["suspects"] == ["昨天午餐：编的盖饭"], "可疑的")
-    expect(p.locator(".med-row", has_text="编的蒙脱石散")).to_be_visible()
-    p.get_by_role("button", name="好了").first.click()
-    c.sheet().get_by_role("button", name="好了").click()
-    c.wait(lambda d: d["sick"]["current"] is None, "肠胃好了")
-    c.go("#/sick/book")
-    expect(p.get_by_text("午餐：编的盖饭")).to_be_visible()
 
 
 @step("换季：要降温了写在首页天气下面")
@@ -847,13 +771,13 @@ def _(c):
     c.wait(lambda d: d["places"][0].get("cost") == 50 and d["places"][0]["visits"], "改地方")
 
 
-@step("分析：形象页顶上切换进来；心情月历、走势、作息、一周里哪天、规律（洗澡运动）、什么在影响我；没有科研、护肤、咖啡")
+@step("分析：回顾页顶上切换进来；心情月历、走势、作息、一周里哪天、规律（洗澡运动）、什么在影响我；没有科研、护肤、咖啡")
 def _(c):
     p = c.page
     c.go("#/look")
-    p.get_by_role("group", name="形象").get_by_role("link", name="分析").click()
+    p.get_by_role("group", name="回顾").get_by_role("link", name="分析").click()
     expect(p).to_have_url(re.compile(r"#/stats$"))
-    expect(p.locator("#nav a.active")).to_have_text("形象")
+    expect(p.locator("#nav a.active")).to_have_text("回顾")
     expect(p.get_by_text("就开始有结论了")).to_be_visible()
     # 编 30 天：运动的日子心情 8、不运动 5；睡够 7 小时精力高。顺便放一些老数据（咖啡、英语、读经），之后存一次就清掉
     def seed(d):
@@ -893,18 +817,18 @@ def _(c):
     p.get_by_role("button", name="上个月").click()
     expect(p.locator(".period-nav h3")).to_contain_text("月的心情")
     p.get_by_role("button", name="下个月").click()
-    # 「生活」页不再有分析的入口；形象页切回来
+    # 「生活」页不再有分析的入口；回顾页切回来
     c.go("#/more")
     expect(p.get_by_text("分析和回顾")).to_have_count(0)
     c.go("#/stats")
-    p.get_by_role("group", name="形象").get_by_role("link", name="这个月").click()
+    p.get_by_role("group", name="回顾").get_by_role("link", name="这个月").click()
     expect(p.locator(".look-month")).to_be_visible()
 
 
 @step("回顾：周报月报（DeepSeek 写一段、存下来、不再有科研回顾）、年报；老的咖啡、英语、读经数据清掉")
 def _(c):
     p = c.page
-    c.go("#/stats")
+    c.go("#/look")
     p.get_by_role("link", name="这个月的回顾").click()
     c.go(f"#/report?k=month&d={YESTERDAY}")
     p.get_by_role("button", name="请 DeepSeek 写一段").click()
@@ -921,14 +845,14 @@ def _(c):
     assert not any("read" in r for r in d["days"].values()), "读经清掉"
     assert "english-10" not in d["milestones"]
     assert any(r.get("did") for r in d["days"].values()), "科研那格照记"
-    expect(p.locator("#nav a.active")).to_have_text("形象")
+    expect(p.locator("#nav a.active")).to_have_text("回顾")
     p.get_by_role("link", name="周", exact=True).click()
     expect(p.locator(".period-nav")).to_contain_text("这周（")
     p.get_by_role("link", name="年", exact=True).click()
     expect(p.locator(".stat-grid")).to_contain_text("运动")
     expect(p.locator(".stat-grid")).not_to_contain_text("咖啡")
-    p.get_by_role("link", name="‹ 分析").click()
-    expect(p).to_have_url(re.compile(r"#/stats$"))
+    p.get_by_role("link", name="‹ 回顾").click()
+    expect(p).to_have_url(re.compile(r"#/look$"))
 
 
 @step("问问我的记录：带着最近的记录问 DeepSeek；状态不对首页轻轻提一句")
