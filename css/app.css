@@ -997,3 +997,10 @@ button.icon-del svg.i { width: 17px; height: 17px; }
 .photo-cell span { position: absolute; left: 6px; bottom: 5px; font-size: 11px; color: #fff; text-shadow: 0 1px 3px rgba(0,0,0,.45); }
 .photo-line { display: flex; align-items: center; gap: 12px; padding: 0; border: 0; background: none; text-align: left; }
 .photo-line .day-thumb { margin: 0; width: 88px; height: 88px; }
+
+/* 导师找我（2026-10-25） */
+.adv-big { font-family: var(--serif); font-size: 36px; font-weight: 600; line-height: 1.1; margin: 4px 0; color: var(--muted); }
+.adv-big.on { color: var(--accent); }
+.how summary { font-size: 15px; }
+.how p { margin: 6px 0; line-height: 1.6; }
+.how-math { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 12px; background: var(--chip); border-radius: 8px; padding: 6px 8px; overflow-wrap: anywhere; }

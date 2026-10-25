@@ -23,6 +23,7 @@ import {
   gentleNote, periodSummary, rangeDays,
 } from './stats.js';
 import { lineChart, barChart, monthGrid, sleepBars } from './charts.js';
+import { advisorOutlook, ADVISOR_REMIND, ADVISOR_MIN } from './advisor.js';
 import { icon } from './icons.js';
 import { personPicker, recentIds } from './picker.js';
 import { FAVOR_BIG, estimatePrompt, cleanEstimate } from './renqing.js';
@@ -145,6 +146,7 @@ const routes = [
   [/^\/ask$/, () => askView()],
   [/^\/p$/, () => privateView()],
   [/^\/periodic$/, () => periodicView()],
+  [/^\/advisor$/, () => advisorView()],
   [/^\/chats$/, () => chatsView()],
   [/^\/chat\/new$/, (_, q) => chatEditView('new', q)],
   [/^\/chat\/([^/]+)\/edit$/, (id) => chatEditView(id)],
@@ -165,7 +167,7 @@ const NAV_GROUPS = {
   '/': [/^\/?$/, /^\/day\//, /^\/night/],
   '/look': [/^\/look/, /^\/stats/, /^\/report/, /^\/ask/],
   '/pray': [/^\/pray/, /^\/low/, /^\/chats?(\/|$)/],
-  '/more': [/^\/more/, /^\/settings/, /^\/places?/, /^\/periodic/, /^\/goals?(\/|$)/, /^\/people/, /^\/person\//, /^\/greet\//],
+  '/more': [/^\/more/, /^\/settings/, /^\/places?/, /^\/periodic/, /^\/advisor/, /^\/goals?(\/|$)/, /^\/people/, /^\/person\//, /^\/greet\//],
 };
 
 function setupNav() {
@@ -455,6 +457,9 @@ function alertRows(today) {
     }, '好了').then(render).catch(() => {}) }, '做了') }));
   } else if (due.length > 1) out.push(alertLine(`该打理了：${due.map((p) => p.name).join('、')}`, { href: '#/periodic' }));
   out.push(...peopleAlerts(today));
+  // 导师找我：今天被问进度的可能 ≥ 25%、今天还没记，一整天都在（早上还会推送一次）
+  const adv = advisorOutlook(d, today);
+  if (adv.remind) out.push(alertLine(`导师今天可能会问进度 · 可能 ${pct(adv.p)}`, { href: '#/advisor' }));
   const soon = periodicTomorrow(d, today);
   if (soon.length) out.push(alertLine(`明天该${soon.map((p) => p.name).join('、')}了`, { href: '#/periodic', tone: 'soft' }));
   const lowRecent = [today, addDays(today, -1)].some((x) => d.days[x]?.mood && d.days[x].mood <= 3) && !d.low.log.some((x) => x.day >= addDays(today, -1));
@@ -813,7 +818,8 @@ function quickSheet() {
       cell({ ic: 'drop', title: '洗澡', onclick: () => { close(); showerSheet(day); } }),
       cell({ ic: 'run', color: 'var(--sage)', title: '运动', onclick: () => { close(); sportSheet(day); } }),
       cell({ ic: 'bed', color: 'var(--blue)', title: '睡眠', onclick: () => { close(); sleepSheet(day); } }),
-      cell({ ic: 'moon', color: 'var(--accent)', title: '睡前复盘', href: '#/night' })),
+      cell({ ic: 'moon', color: 'var(--accent)', title: '睡前复盘', href: '#/night' }),
+      cell({ ic: 'people', color: 'var(--amber)', title: '导师找我了', onclick: () => { close(); advisorSheet(); } })),
     confirmText: null, cancelText: '关闭',
   });
 }
@@ -3603,6 +3609,74 @@ function photosView(month) {
     h('a', { class: 'small', href: '#/more' }, '‹ 生活'));
 }
 
+// ---------- 导师找我（2026-10-25 用户要的） ----------
+// 被找了就在「＋」里记一下（不每天问）；模型在 js/advisor.js，可能 ≥ 25% 时「今天」里一行、早上推送一次
+
+const pct = (p) => `${Math.round(p * 100)}%`;
+const ADVISOR_HOW = { wechat: '微信', face: '当面', meeting: '组会', phone: '电话' };
+function advisorSheet() {
+  const today = dayKey();
+  const day = h('input', { type: 'date', value: today, max: today, 'aria-label': '哪天' });
+  let how = null;
+  const howRow = h('div', {});
+  const draw = () => howRow.replaceChildren(choiceRow('怎么找的', Object.entries(ADVISOR_HOW), how, (v) => { how = v; draw(); }));
+  draw();
+  openSheet({
+    title: '导师找我了',
+    body: h('div', { class: 'form' }, h('label', {}, '哪天（忘了记可以改成那天）', day), h('p', { class: 'muted small' }, '怎么找的（可以不选）'), howRow),
+    confirmText: '记好了',
+    onConfirm: () => {
+      const d = day.value || today;
+      if (d > today) { toast('还没到那天', 'error'); return false; }
+      if (store.data.events.some((e) => e.type === 'advisor' && e.day === d)) { toast('这天已经记过了', 'error'); return false; }
+      return saveUndoable('导师找我了', (data) => {
+        data.events.push({ id: newId('e'), day: d, at: atFor(d), type: 'advisor', ...(how ? { kind: how } : {}) });
+      }, d === today ? '记好了：导师今天找你了' : `记好了：${relDay(d)}`).then(render).catch(() => false);
+    },
+  });
+}
+
+const ADVISOR_HELP = [
+  ['怎么用', ['导师找你问进度了，点底部中间的「＋」→「导师找我了」。忘了当天记，可以改成那天。一天只算一次。', '不用每天记「没找」：没记的日子就是没找。', '模型觉得今天被问的可能到了 25%，「今天」页最上面会有一行，早上 7:30–10:00 还会推送一次（GitHub 定时有时晚，晚太多那天就只在「今天」里看得到）。']],
+  ['看什么', ['「往后两周」每天一根柱子：如果在那之前都没被找，那天被问的可能。超过 25% 的是深色。', '「怎么算的」里有模型、公式和各个星期几的倍数。记得越多越准。']],
+];
+function advisorView() {
+  const d = store.data;
+  const today = dayKey();
+  const o = advisorOutlook(d, today);
+  const list = d.events.filter((e) => e.type === 'advisor').sort((a, b) => b.day.localeCompare(a.day));
+  const week = '日一二三四五六';
+  const remove = (e) => saveUndoable(`删掉：导师找我 ${e.day}`, (data) => { data.events = data.events.filter((x) => x.id !== e.id); }, `删掉了 ${relDay(e.day)}`).then(render).catch(() => {});
+  const gaps = list.slice(0, -1).map((e, i) => daysBetween(list[i + 1].day, e.day));
+  const fit = o.model;
+  return h('div', {},
+    headerSub('导师找我', '哪天可能会问进度', helpButton('导师找我怎么用', ADVISOR_HELP)),
+    h('div', { class: 'card adv-today' },
+      !fit ? h('p', { class: 'muted' }, `记满 ${ADVISOR_MIN} 次才开始预测（现在 ${o.days.length} 次）。被找了就在「＋」里记一下。`)
+        : o.doneToday ? h('p', {}, h('b', {}, '今天已经找过了。'), ' 下面是往后的。')
+          : [h('div', { class: 'muted small' }, '今天被问进度的可能'), h('div', { class: `adv-big${o.remind ? ' on' : ''}` }, pct(o.p)),
+            h('p', { class: 'muted small' }, o.remind ? '到了 25%，留意一下。' : '不到 25%，不提醒。')],
+      list.length ? h('p', { class: 'muted small' }, `上次：${relDay(list[0].day)}（${dayLabel(list[0].day)}）${gaps.length ? ` · 平均隔 ${(gaps.reduce((a, x) => a + x, 0) / gaps.length).toFixed(1)} 天` : ''}`) : null),
+    o.next.length ? h('div', { class: 'card' }, h('h3', {}, '往后两周'),
+      barChart(o.next.map((x) => ({ label: week[parseDay(x.day).getDay()], v: Math.round(x.p * 100), color: x.p >= ADVISOR_REMIND ? 'var(--accent)' : 'color-mix(in srgb, var(--accent) 35%, transparent)' })),
+        { title: '往后两周每天被问的可能（%）', fmt: (v) => `${v}`, scale: 100 }),
+      h('p', { class: 'muted small' }, `从${o.next[0].day === today ? '今天' : '明天'}起，每根柱子是「如果在那之前都没被找」那天的可能（%）。深色是到了 25% 会提醒的日子。`)) : null,
+    h('div', { class: 'card' }, h('h3', {}, `记下的 ${list.length} 次`),
+      list.length ? h('div', { class: 'event-list' }, list.map((e) => h('div', { class: 'event-row' },
+        h('span', { class: 'grow' }, dayLabel(e.day), e.kind ? h('span', { class: 'muted small' }, ` · ${ADVISOR_HOW[e.kind] || e.kind}`) : null),
+        h('button', { class: 'link small', 'aria-label': `删掉 ${e.day}`, onclick: () => remove(e) }, '删掉'))))
+        : h('p', { class: 'muted small' }, '还没有。')),
+    fit ? h('details', { class: 'card how' }, h('summary', {}, '怎么算的'),
+      h('p', { class: 'small' }, '离散时间风险模型（贝叶斯逻辑回归）。从第一次被找的第二天起，每天一行：那天被找了没有，离上次几天，周几。'),
+      h('p', { class: 'how-math' }, 'logit P = β₀ + β₁·ln d + β₂·d/7 + γ_周几'),
+      h('p', { class: 'how-math' }, '先验：β ~ N(0, 2²)，γ ~ N(0, 1)'),
+      h('p', { class: 'small' }, '先验把各个星期几往平均拉：数据少的时候，不把巧合当成规律。拉普拉斯近似：牛顿法求后验众数 θ̂，协方差 Σ = (XᵀWX + Λ)⁻¹。预测时把参数的不确定也算进去：'),
+      h('p', { class: 'how-math' }, 'P = σ(μ / √(1 + π·s²/8))，μ = xᵀθ̂，s² = xᵀΣx'),
+      h('p', { class: 'small' }, `用了 ${fit.events} 次、${fit.rows} 天。β₁ = ${fit.theta[1].toFixed(2)}，β₂ = ${fit.theta[2].toFixed(2)}（${fit.theta[1] + fit.theta[2] / 7 > 0 ? '离上次越久越可能' : '离上次越久反而越不可能'}）。各个星期几比平均（倍数，按几率算）：`),
+      h('p', { class: 'how-math' }, o.week.map((x) => `周${x.w} ${x.odds.toFixed(2)}`).join(' · ')),
+      h('p', { class: 'small muted' }, '没有随机数：同样的记录算出同样的数。早上推送用的是同一个模型的 Python 版。')) : null);
+}
+
 // ---------- 更多 ----------
 
 function moreView() {
@@ -3614,7 +3688,8 @@ function moreView() {
       cell({ href: '#/photos', ic: 'image', color: 'var(--blue)', title: '照片', sub: '每天一张，按月排成一面墙' }),
       cell({ href: '#/people', ic: 'people', color: 'var(--amber)', title: '身边的人', sub: '家人、亲戚、一路上认识的人' })),
     h('div', { class: 'group' },
-      cell({ href: '#/periodic', ic: 'calendar', color: 'var(--muted)', title: '定期打理', sub: '剪指甲、换床单这些，到日子才出现' })),
+      cell({ href: '#/periodic', ic: 'calendar', color: 'var(--muted)', title: '定期打理', sub: '剪指甲、换床单这些，到日子才出现' }),
+      cell({ href: '#/advisor', ic: 'people', color: 'var(--amber)', title: '导师找我', sub: '哪天可能会问进度' })),
     h('div', { class: 'group' },
       cell({ href: '#/settings', ic: 'gear', color: 'var(--muted)', title: '设置' })));
 }

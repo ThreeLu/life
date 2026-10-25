@@ -54,3 +54,31 @@ assert in_window(datetime(2026, 10, 10, 22, 31), 21, 23) and not in_window(datet
 assert not in_window(datetime(2026, 10, 11, 3, 38), 9, 21) and in_window(datetime(2026, 10, 11, 16, 48), 9, 21)
 assert not in_window(datetime(2026, 10, 10, 23, 0), 21, 23)
 print("时间段 ✓")
+
+
+# 导师找我：和网页 js/advisor.js 同一个模型，同样的记录算出同样的数
+import json as _json  # noqa: E402
+import shutil  # noqa: E402
+import subprocess  # noqa: E402
+
+from life_push import advisor_fit, advisor_message, advisor_prob  # noqa: E402
+
+ADV = [f"2026-{x}" for x in ["08-02", "08-09", "08-17", "08-21", "08-30", "09-18", "09-28", "10-04", "10-07", "10-09", "10-12", "10-25"]]
+f = advisor_fit(ADV, "2026-10-26")
+p26, p_sun = advisor_prob(f, "2026-10-26"), advisor_prob(f, "2026-11-08")
+assert abs(p26 - 0.16675) < 1e-4 and abs(p_sun - 0.36233) < 1e-4, (p26, p_sun)
+assert advisor_fit(ADV[:2], "2026-10-26") is None  # 不到 3 次不预测
+data = {"events": [{"day": d, "type": "advisor"} for d in ADV]}
+assert advisor_message(data, datetime(2026, 10, 26, 8, 0)) is None  # 17%，不到 25%
+m = advisor_message(data, datetime(2026, 11, 8, 8, 0))  # 那天用的是 11 月 7 日以前的记录
+assert m["body"] == "导师今天可能会问进度（可能 33%）" and m["url"].endswith("#/advisor"), m
+data["events"].append({"day": "2026-11-08", "type": "advisor"})
+assert advisor_message(data, datetime(2026, 11, 8, 9, 0)) is None  # 今天已经记了
+if shutil.which("node"):
+    js = ("const a = await import(process.argv[1]); const days = JSON.parse(process.argv[2]);"
+          "const f = a.advisorFit(days, '2026-10-26'); console.log(JSON.stringify([a.advisorProb(f, '2026-10-26'), a.advisorProb(f, '2026-11-08')]));")
+    out = subprocess.run(["node", "--input-type=module", "-e", js, str(Path(__file__).resolve().parent.parent / "js" / "advisor.js"), _json.dumps(ADV)],
+                         capture_output=True, text=True, check=True).stdout
+    w26, wsun = _json.loads(out)
+    assert abs(w26 - p26) < 1e-9 and abs(wsun - p_sun) < 1e-9, (w26, p26, wsun, p_sun)
+print("导师找我 ✓")

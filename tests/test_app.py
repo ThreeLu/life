@@ -556,6 +556,59 @@ def _(c):
     expect(p.locator(".section-title", has_text="定期打理")).to_have_count(0)
 
 
+@step("导师找我：可能到 25% 时今天一行；「＋」里记一下（一天一次、能改日子）；规律页往后两周、记录能删、怎么算的；入口在「生活」")
+def _(c):
+    p = c.page
+    sys.path.insert(0, str(ROOT / "tools"))
+    from life_push import advisor_fit, advisor_prob
+    today = datetime.fromisoformat(TODAY)
+    # 编的：每周同一天被找（和今天同一个星期几），上次是一周前 → 今天很可能
+    past = [(today - timedelta(days=7 * k)).date().isoformat() for k in range(10, 0, -1)]
+    prob = advisor_prob(advisor_fit(past, TODAY), TODAY)
+    assert prob >= 0.25, prob
+    c.write(lambda d: d["events"].extend({"id": f"adv{i}", "day": x, "at": f"{x}T12:00:00.000Z", "type": "advisor"} for i, x in enumerate(past)))
+    c.go("#/")
+    p.reload()
+    line = p.locator(".alert-line", has_text="导师今天可能会问进度")
+    expect(line).to_contain_text(f"可能 {round(prob * 100)}%")
+    # 「＋」里记一下：默认今天，选「微信」
+    p.locator("nav .plus").click()
+    p.locator(".sheet").get_by_role("button", name="导师找我了").click()
+    sheet = c.sheet()
+    expect(sheet.get_by_label("哪天")).to_have_value(TODAY)
+    sheet.get_by_role("button", name="微信").click()
+    sheet.get_by_role("button", name="记好了").click()
+    c.wait(lambda d: any(e["type"] == "advisor" and e["day"] == TODAY and e.get("kind") == "wechat" for e in d["events"]), "记下今天")
+    expect(line).to_have_count(0)
+    # 同一天再记：不让
+    p.locator("nav .plus").click()
+    p.locator(".sheet").get_by_role("button", name="导师找我了").click()
+    c.sheet().get_by_role("button", name="记好了").click()
+    expect(p.locator(".toast")).to_contain_text("这天已经记过了")
+    c.sheet().get_by_role("button", name="取消").click()
+    # 补记以前的一天
+    p.locator("nav .plus").click()
+    p.locator(".sheet").get_by_role("button", name="导师找我了").click()
+    c.sheet().get_by_label("哪天").fill(YESTERDAY)
+    c.sheet().get_by_role("button", name="记好了").click()
+    c.wait(lambda d: any(e["type"] == "advisor" and e["day"] == YESTERDAY for e in d["events"]), "补记昨天")
+    # 规律页：入口在「生活」
+    c.go("#/more")
+    p.get_by_role("link", name=re.compile("导师找我")).click()
+    expect(p.locator(".adv-today")).to_contain_text("今天已经找过了")
+    expect(p.locator(".card", has_text="往后两周").locator("svg.chart rect")).to_have_count(14)
+    rows = p.locator(".card", has_text="记下的").locator(".event-row")
+    expect(rows).to_have_count(12)
+    expect(rows.first).to_contain_text("微信")
+    p.locator("details.how summary").click()
+    expect(p.locator("details.how")).to_contain_text("logit P = β₀")
+    expect(p.locator("details.how")).to_contain_text("用了 12 次")
+    rows.nth(1).get_by_role("button", name="删掉").click()  # 删掉补记的昨天
+    c.wait(lambda d: not any(e["type"] == "advisor" and e["day"] == YESTERDAY for e in d["events"]), "删掉昨天")
+    expect(rows).to_have_count(11)
+    p.screenshot(path=ART / "advisor.png", full_page=True)
+
+
 @step("回顾：这个月（护肤月历、洗澡运动祷告次数、翻月）、护肤最近两周、周报入口；不再有护肤品、生病、最近的记录")
 def _(c):
     p = c.page

@@ -1,6 +1,7 @@
 """每晚 22:30 左右（北京时间）：今天的一句话还没写、还没有晚上的祷告就提醒；
 要降温了加一句。合成一条推送，都做了就不发。
 打水：一天只打一次。今天还没打、这一回也没点「不打了」，就在中午 11–13、晚上 17–19 刚开和快关的时候各提醒一次。
+导师找我：早上 7:30–10:00，今天被问进度的可能 ≥ 25%、今天还没记，就提醒一次（模型和网页 js/advisor.js 一模一样，见 advisor_*）。
 
 在数据仓库 life-data 的定时任务里运行（那边的 workflow 每次从公开仓库下载这个文件）：
 订阅在 config/push.json，私钥在 secret VAPID_PRIVATE_KEY。规则和网页 js/life.js 一致（一天从凌晨 4 点开始）。
@@ -8,6 +9,7 @@
 """
 
 import json
+import math
 import os
 import subprocess
 import sys
@@ -133,6 +135,108 @@ def season_line(data, now):
     return f"这几天要降温 {drop}°C，加件衣服、早点睡" if drop >= 8 else None
 
 
+# ---------- 导师找我（2026-10-25）：和网页 js/advisor.js 同一个模型，算出来的数要一样，改一边就改另一边 ----------
+# 贝叶斯逻辑回归（离散时间风险模型）：logit P = β₀ + β₁·ln(离上次几天) + β₂·(离上次几天 / 7) + γ_周几，
+# 先验 β ~ N(0, 2²)、γ ~ N(0, 1)；拉普拉斯近似（牛顿法求众数、Σ = 海森矩阵的逆），预测用 MacKay 近似 σ(μ / √(1 + π s² / 8))。
+ADVISOR_REMIND = 0.25
+ADVISOR_MIN = 3
+ADVISOR_PRIOR_VAR = [4, 4, 4, 1, 1, 1, 1, 1, 1, 1]
+
+
+def advisor_days(data):
+    return sorted({e["day"] for e in data.get("events") or [] if e.get("type") == "advisor"})
+
+
+def advisor_features(gap, wd):
+    x = [1.0, math.log(gap), gap / 7, 0, 0, 0, 0, 0, 0, 0]
+    x[3 + wd] = 1.0
+    return x
+
+
+def _solve(A, b):
+    """高斯消元（选主元），和网页 solve 一样"""
+    n = len(b)
+    M = [list(row) + [b[i]] for i, row in enumerate(A)]
+    for c in range(n):
+        p = c
+        for r in range(c + 1, n):
+            if abs(M[r][c]) > abs(M[p][c]):
+                p = r
+        M[c], M[p] = M[p], M[c]
+        for r in range(n):
+            if r == c:
+                continue
+            f = M[r][c] / M[c][c]
+            for k in range(c, n + 1):
+                M[r][k] -= f * M[c][k]
+    return [M[i][n] / M[i][i] for i in range(n)]
+
+
+def _sigmoid(z):
+    return 1 / (1 + math.exp(-z))
+
+
+def advisor_fit(days, up_to):
+    """用 up_to（不含）以前的日子拟合；记录太少返回 None"""
+    ev = [d for d in days if d < up_to]
+    if len(ev) < ADVISOR_MIN:
+        return None
+    seen = set(ev)
+    rows, last = [], date.fromisoformat(ev[0])
+    d, end = last + timedelta(days=1), date.fromisoformat(up_to)
+    while d < end:
+        y = 1 if d.isoformat() in seen else 0
+        rows.append((advisor_features((d - last).days, d.weekday()), y))
+        if y:
+            last = d
+        d += timedelta(days=1)
+    k = len(ADVISOR_PRIOR_VAR)
+    th = [0.0] * k
+    th[0] = -2.0
+    H = None
+    for _ in range(30):
+        g = [-t / ADVISOR_PRIOR_VAR[i] for i, t in enumerate(th)]
+        H = [[(1 / ADVISOR_PRIOR_VAR[i] if i == j else 0.0) for j in range(k)] for i in range(k)]
+        for x, y in rows:
+            p = _sigmoid(sum(xi * th[i] for i, xi in enumerate(x)))
+            w = p * (1 - p)
+            for i in range(k):
+                if not x[i]:
+                    continue
+                g[i] += x[i] * (y - p)
+                for j in range(k):
+                    if x[j]:
+                        H[i][j] += w * x[i] * x[j]
+        step = _solve(H, g)
+        th = [t + step[i] for i, t in enumerate(th)]
+        if max(abs(s) for s in step) < 1e-9:
+            break
+    return {"theta": th, "H": H, "last": ev[-1]}
+
+
+def advisor_prob(fit, day):
+    if not fit:
+        return None
+    d = date.fromisoformat(day)
+    x = advisor_features((d - date.fromisoformat(fit["last"])).days, d.weekday())
+    mu = sum(xi * fit["theta"][i] for i, xi in enumerate(x))
+    v = _solve(fit["H"], x)
+    s2 = sum(xi * v[i] for i, xi in enumerate(x))
+    return _sigmoid(mu / math.sqrt(1 + math.pi * s2 / 8))
+
+
+def advisor_message(data, now):
+    """今天被问进度的可能 ≥ 25%、今天还没记：返回推送；否则 None。文字是用户 2026-10-25 选的（写清楚、带上可能）"""
+    t = day_key(now).isoformat()
+    days = advisor_days(data)
+    if t in days:
+        return None
+    p = advisor_prob(advisor_fit(days, t), t)
+    if p is None or p < ADVISOR_REMIND:
+        return None
+    return {"title": "今天", "body": f"导师今天可能会问进度（可能 {int(p * 100 + 0.5)}%）", "url": f"{APP}#/advisor", "tag": f"life-advisor-{t}"}
+
+
 def send(msg):
     from pywebpush import WebPushException, webpush
 
@@ -215,6 +319,15 @@ def main():
     night = now.hour >= 21 or os.environ.get("MODE") == "night"
     if not night and os.environ.get("TEST") != "true":
         data = json.load(open("life.json", encoding="utf-8"))
+        # 导师找我：早上 7:30–10:00 一次
+        if in_window(now, 7.5, 10) and once("advisor", now, 7.5, 10):
+            msg = advisor_message(data, now)
+            mark_sent("advisor", now)
+            if msg:
+                print(msg["title"], "|", msg["body"])
+                send(msg)
+            else:
+                print("今天不用提醒导师的事")
         fkey = fetch_key(now)
         if fkey and once(fkey, now, 0, 24):
             msg = fetch_message(data, now)
@@ -224,7 +337,7 @@ def main():
                 send(msg)
             else:
                 print("水打过了")
-    # 白天只有打水的提醒；睡前那条 21–23 点
+    # 白天只有导师、打水的提醒；睡前那条 21–23 点
     test = os.environ.get("TEST") == "true"
     if not (night or test) or not once("night", now, 21, 23):
         return
