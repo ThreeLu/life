@@ -1004,3 +1004,24 @@ button.icon-del svg.i { width: 17px; height: 17px; }
 .how summary { font-size: 15px; }
 .how p { margin: 6px 0; line-height: 1.6; }
 .how-math { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 12px; background: var(--chip); border-radius: 8px; padding: 6px 8px; overflow-wrap: anywhere; }
+
+/* 状态预报（2026-10-26）：首页问候下面一张小卡，#/forecast 一张大卡。天气越好越暖，阴天小雨偏冷灰 */
+.fc-card { display: flex; gap: 14px; align-items: flex-start; color: var(--text); text-decoration: none; }
+.fc-ic { flex: none; display: grid; place-items: center; width: 44px; height: 44px; border-radius: 50%; background: color-mix(in srgb, var(--fc) 14%, transparent); color: var(--fc); }
+.fc-ic .i { width: 26px; height: 26px; }
+.fc-sun { --fc: var(--amber); } .fc-partly { --fc: color-mix(in srgb, var(--amber) 55%, var(--accent)); } .fc-cloud { --fc: var(--accent); }
+.fc-overcast { --fc: var(--muted); } .fc-rain { --fc: var(--blue); }
+.fc-name { font: 600 17px/1.4 var(--serif); letter-spacing: 0.04em; }
+.fc-name .muted { font-family: inherit; font-weight: 400; letter-spacing: 0; }
+.fc-check { margin-top: 4px; color: var(--accent); font-variant-numeric: tabular-nums; }
+.fc-tip { margin: 8px 0 0; padding-left: 9px; border-left: 2px solid var(--fc); color: var(--muted); line-height: 1.6; }
+.fc-big { text-align: center; padding: 22px 16px; }
+.fc-big .fc-ic { width: 72px; height: 72px; margin: 0 auto 10px; }
+.fc-big .fc-ic .i { width: 40px; height: 40px; }
+.fc-big .fc-name { font-size: 24px; margin-bottom: 4px; }
+.fc-big p { margin: 4px 0; }
+.fc-big .fc-tip { text-align: left; margin-top: 12px; }
+.fc-week { display: grid; grid-template-columns: repeat(6, 1fr); gap: 4px; text-align: center; margin: 6px 0 8px; }
+.fc-day { display: flex; flex-direction: column; align-items: center; gap: 4px; color: var(--fc); }
+.fc-day .i { width: 24px; height: 24px; }
+.fc-day .small { color: var(--text); white-space: nowrap; font-size: 12px; }

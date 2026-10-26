@@ -39,6 +39,10 @@ const PATHS = {
   check: '<path d="m5 12 4.5 4.5L19 7"/>',
   receipt: '<path d="M6 3h12v18l-3-2-3 2-3-2-3 2z"/><path d="M9 8h6M9 12h6"/>',
   trash: '<path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/>',
+  cloud: '<path d="M7 18h10a4 4 0 0 0 .4-8 6 6 0 0 0-11.4 1.6A3.3 3.3 0 0 0 7 18Z"/>',
+  partly: '<circle cx="8" cy="8" r="3"/><path d="M8 2.5v1M2.5 8h1M4.1 4.1l.7.7M11.9 4.1l-.7.7"/><path d="M9.5 20h8a3.5 3.5 0 0 0 .4-7 5 5 0 0 0-9.4 1.4A2.8 2.8 0 0 0 9.5 20Z"/>',
+  overcast: '<path d="M7 15h10a4 4 0 0 0 .4-8 6 6 0 0 0-11.4 1.6A3.3 3.3 0 0 0 7 15Z"/><path d="M5 18.5h14M8 21.5h8"/>',
+  rain: '<path d="M7 14h10a4 4 0 0 0 .4-8 6 6 0 0 0-11.4 1.6A3.3 3.3 0 0 0 7 14Z"/><path d="m9 17-1 3M13 17l-1 3M17 17l-1 3"/>',
   mic: '<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/>',
 };
 export function icon(name, cls = 'i') {

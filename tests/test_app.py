@@ -1327,7 +1327,12 @@ def fake_weather(page):
     import datetime as dt
     days = [(datetime.fromisoformat(TODAY) + dt.timedelta(days=i)).date().isoformat() for i in range(5)]
     body = json.dumps({"daily": {"time": days, "temperature_2m_min": [15, 12, 5, 6, 7], "temperature_2m_max": [24, 20, 12, 13, 14]}})
-    page.route("https://api.open-meteo.com/**", lambda route: route.fulfill(status=200, content_type="application/json", body=body, headers={"Access-Control-Allow-Origin": "*"}))
+    # 状态预报：前 92 天到往后 7 天的降水和日照（编的：每 5 天下一次雨）
+    fc_days = [(datetime.fromisoformat(TODAY) + dt.timedelta(days=i)).date().isoformat() for i in range(-92, 7)]
+    fc_body = json.dumps({"daily": {"time": fc_days, "precipitation_sum": [5 if i % 5 == 0 else 0 for i in range(len(fc_days))],
+                                    "sunshine_duration": [3600 * (i % 9) for i in range(len(fc_days))]}})
+    page.route("https://api.open-meteo.com/**", lambda route: route.fulfill(status=200, content_type="application/json", headers={"Access-Control-Allow-Origin": "*"},
+                                                                          body=fc_body if "precipitation_sum" in route.request.url else body))
 
 
 def fake_externals(page):
@@ -1398,6 +1403,64 @@ def _(c):
             break
         p.wait_for_timeout(100)
     assert LAST_AI and "编的简介：他喜欢编的东西" in LAST_AI[-1], LAST_AI[-1][:300] if LAST_AI else "没有请求"
+
+
+@step("状态预报：心情记得少不出现；记够了首页一张天气卡（心情几分、精力、低落的可能）、晚上对答案；预报页往后几天、准不准、怎么算的；入口在「生活」")
+def _(c):
+    p = c.page
+    base = datetime.fromisoformat(TODAY)
+
+    def seed(n):
+        def mutate(d):
+            for k in list(d["days"]):
+                if k < TODAY:
+                    d["days"][k].pop("mood", None)
+            for i in range(1, n + 1):
+                day = (base - timedelta(days=i)).date().isoformat()
+                r = d["days"].setdefault(day, {})
+                r.update(mood=4 + i % 5, energy=1 + i % 4, sleep={"bed": "23:30", "wake": f"0{6 + i % 3}:30"})
+            d["days"].setdefault(TODAY, {}).pop("mood", None)
+            d["days"][TODAY].pop("sleep", None)
+        c.write(mutate)
+        c.page.reload()  # 只换 # 不会重新读仓库
+    seed(5)
+    c.go("#/")
+    expect(p.locator(".today-head")).to_be_visible()
+    expect(p.locator(".fc-card")).to_have_count(0)
+    c.go("#/forecast")
+    expect(p.get_by_text("心情记满 7 天就开始预报（现在 5 天）")).to_be_visible()
+    seed(12)  # 7–20 天：只说天气，不说分
+    c.go("#/")
+    expect(p.locator(".fc-card")).to_contain_text("还在认识你")
+    expect(p.locator(".fc-card")).not_to_contain_text("分左右")
+    seed(30)
+    c.go("#/")
+    card = p.locator(".fc-card")
+    expect(card).to_contain_text("今天的状态")
+    expect(card).to_contain_text("分左右")
+    expect(card).to_contain_text("低落的可能")
+    expect(card).to_contain_text("记了睡眠会更准")
+    c.write(lambda d: d["days"][TODAY].update(mood=7, sleep={"bed": "23:00", "wake": "07:00"}))
+    p.reload()
+    c.go("#/")
+    expect(p.locator(".fc-card .fc-check")).to_contain_text("实际 7")
+    expect(p.locator(".fc-card")).not_to_contain_text("记了睡眠会更准")
+    p.screenshot(path=ART / "forecast-home.png")
+    p.locator(".fc-card").click()
+    expect(p.get_by_role("heading", name="状态预报")).to_be_visible()
+    expect(p.locator(".fc-big .fc-name")).to_be_visible()
+    expect(p.locator(".fc-week .fc-day")).to_have_count(6)
+    expect(p.locator(".card", has_text="准不准")).to_contain_text("平均差")
+    p.locator("summary", has_text="怎么算的").click()
+    expect(p.locator(".how")).to_contain_text("每多睡 1 小时")
+    p.screenshot(path=ART / "forecast.png", full_page=True)
+    help_text = p.locator(".help-btn").first
+    help_text.click()
+    expect(c.sheet()).not_to_contain_text("回归")  # 说明里不写模型名
+    c.sheet().get_by_role("button", name="知道了").click()
+    c.go("#/more")
+    p.locator(".cell", has_text="状态预报").click()
+    expect(p.get_by_role("heading", name="状态预报")).to_be_visible()
 
 
 LEDGER = FakeRepo(ledger_seed())

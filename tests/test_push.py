@@ -82,3 +82,63 @@ if shutil.which("node"):
     w27, wmon = _json.loads(out)
     assert abs(w27 - p27) < 1e-9 and abs(wmon - p_mon) < 1e-9, (w27, p27, wmon, p_mon)
 print("导师找我 ✓")
+
+
+# 状态预报：和网页 js/forecast.js 同一个模型，同样的记录、同样的天气算出同样的数
+from life_push import forecast_fit, forecast_level, forecast_line, forecast_predict, morning_message  # noqa: E402
+
+
+def fake_days(n=40, start="2026-09-01"):
+    """编的记录：睡得多心情好一点；伪随机，不用 random，两边好对"""
+    from datetime import date as _d, timedelta as _td
+    data, weather, seed = {"days": {}, "events": []}, {}, 7
+
+    def rnd():
+        nonlocal seed
+        seed = (seed * 16807) % 2147483647
+        return seed / 2147483647
+    for i in range(n):
+        d = (_d.fromisoformat(start) + _td(days=i)).isoformat()
+        h = 6 + int(rnd() * 4)
+        if rnd() < 0.4:
+            data["events"].append({"type": "sport", "day": d})
+        mood = max(1, min(10, round(5 + (h - 7) * 0.8 + rnd() * 3 - 1)))
+        data["days"][d] = {"mood": mood, "energy": max(1, min(5, round(mood / 2))), "sleep": {"bed": "23:30", "wake": f"0{h - 1}:30", "q": 1 + i % 5}}
+        if rnd() < 0.6:
+            data["days"][d]["prayer"] = {"night": {"at": "x"}}
+        weather[d] = {"rain": 3 if rnd() < 0.2 else 0, "sun": rnd() * 10}
+    return data, weather
+
+
+FD, FW = fake_days()
+T = "2026-10-10"
+res = {}
+for tgt in ["mood", "energy"]:
+    fit = forecast_fit(FD, T, tgt, FW)
+    res[tgt] = [forecast_predict(fit, FD, d, FW, T) for d in [T, "2026-10-12"]]
+mf = forecast_fit(FD, T, "mood", FW)
+assert mf["n"] == 39, mf["n"]
+assert forecast_fit({"days": {k: v for k, v in list(FD["days"].items())[:6]}, "events": []}, T) is None  # 不到 7 天不预报
+line = forecast_line(FD, T, FW)
+assert line.startswith("今天") and "心情" in line and "分左右" in line, line
+short = {"days": {k: v for k, v in list(FD["days"].items())[:10]}, "events": []}
+assert forecast_line(short, "2026-09-11", FW).endswith("（还在认识你）"), forecast_line(short, "2026-09-11", FW)
+m = morning_message(FD, datetime(2026, 10, 10, 8, 0), FW)
+assert m["title"] == "今天" and m["body"] == line and m["url"].endswith("#/forecast"), m
+both = dict(FD, events=FD["events"] + [{"day": d, "type": "advisor"} for d in ADV])
+m = morning_message(both, datetime(2025, 6, 2, 8, 0), FW)
+assert m["body"] == "导师今天可能会问进度（可能 35%）" and m["url"].endswith("#/advisor"), m  # 那天心情还没记够，只有导师
+assert morning_message({"days": {}, "events": []}, datetime(2026, 10, 10, 8, 0)) is None
+if shutil.which("node"):
+    js = ("const f = await import(process.argv[1]); const [data, w, T] = JSON.parse(process.argv[2]); const out = {};"
+          "for (const t of ['mood', 'energy']) { const fit = f.forecastFit(data, T, t, w); out[t] = [T, '2026-10-12'].map((d) => f.forecastPredict(fit, data, d, w, T)); }"
+          "out.level = f.levelOf(f.forecastFit(data, T, 'mood', w), out.mood[0]).name; console.log(JSON.stringify(out));")
+    out = _json.loads(subprocess.run(["node", "--input-type=module", "-e", js, str(Path(__file__).resolve().parent.parent / "js" / "forecast.js"), _json.dumps([FD, FW, T])],
+                                     capture_output=True, text=True, check=True).stdout)
+    for tgt in ["mood", "energy"]:
+        for a, b in zip(out[tgt], res[tgt]):
+            assert abs(a["mean"] - b["mean"]) < 1e-9 and abs(a["sd"] - b["sd"]) < 1e-9, (tgt, a, b)
+            if tgt == "mood":
+                assert abs(a["pLow"] - b["p_low"]) < 1e-9, (a, b)
+    assert out["level"] == forecast_level(mf, res["mood"][0]), out["level"]
+print("状态预报 ✓")

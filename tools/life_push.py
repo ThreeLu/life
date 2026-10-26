@@ -1,7 +1,8 @@
 """每晚 22:30 左右（北京时间）：今天的一句话还没写、还没有晚上的祷告就提醒；
 要降温了加一句。合成一条推送，都做了就不发。
 打水：一天只打一次。今天还没打、这一回也没点「不打了」，就在中午 11–13、晚上 17–19 刚开和快关的时候各提醒一次。
-导师找我：早上 7:30–10:00，今天被问进度的可能 ≥ 25%、今天还没记，就提醒一次（模型和网页 js/advisor.js 一模一样，见 advisor_*）。
+早上 7:30–10:00 一条：状态预报（今天的心情、精力说成天气，模型和网页 js/forecast.js 一模一样，见 forecast_*），
+导师今天被问进度的可能 ≥ 25%、今天还没记就再加一句（模型和网页 js/advisor.js 一模一样，见 advisor_*）。
 
 在数据仓库 life-data 的定时任务里运行（那边的 workflow 每次从公开仓库下载这个文件）：
 订阅在 config/push.json，私钥在 secret VAPID_PRIVATE_KEY。规则和网页 js/life.js 一致（一天从凌晨 4 点开始）。
@@ -237,6 +238,170 @@ def advisor_message(data, now):
     return {"title": "今天", "body": f"导师今天可能会问进度（可能 {int(p * 100 + 0.5)}%）", "url": f"{APP}#/advisor", "tag": f"life-advisor-{t}"}
 
 
+# ---------- 状态预报（和网页 js/forecast.js 一模一样，改一边就改另一边）----------
+# 贝叶斯线性回归（正态-逆伽马共轭先验），心情、精力各一个；x 每列减训练日子的平均，不知道的填 0（当是平均）。
+FORECAST_MIN = 7
+FORECAST_SURE = 21
+FORECAST_WINDOW = 180
+LOW_MOOD = 4
+FORECAST_TAU2 = [1, 0.25, 0.25, 0.25, 0.25, 0.25, 0.25, 0.25, 0.25]
+FORECAST_A0 = 3
+FORECAST_TARGETS = {"mood": (1, 10, 1.5), "energy": (1, 5, 0.7)}
+FORECAST_LEVELS = ["晴", "晴间多云", "多云", "阴", "小雨"]
+
+
+def _add(day, n):
+    return (date.fromisoformat(day) + timedelta(days=n)).isoformat()
+
+
+def _sleep_h(sl):
+    if not sl or not sl.get("bed") or not sl.get("wake"):
+        return None
+    to_min = lambda t: int(t.split(":")[0]) * 60 + int(t.split(":")[1])  # noqa: E731
+    m = to_min(sl["wake"]) - to_min(sl["bed"])
+    if m <= 0:
+        m += 1440
+    return m / 60
+
+
+def forecast_raw(data, day, target, weather, today):
+    days = data.get("days") or {}
+    r, prev = days.get(day) or {}, _add(day, -1)
+    p = days.get(prev) or {}
+    h = _sleep_h(r.get("sleep"))
+    settled = prev < today
+    sport = any(e.get("type") == "sport" and e.get("day") == prev for e in data.get("events") or [])
+    prayed = bool((p.get("prayer") or {}).get("night"))
+    w = weather.get(day)
+    q = (r.get("sleep") or {}).get("q")
+    wd = date.fromisoformat(day).weekday()  # 周一 = 0
+    return [
+        None if h is None else max(-4, min(4, h - 7)),
+        q - 3 if q else None,
+        p.get(target),
+        1 if sport else (0 if settled else None),
+        1 if prayed else (0 if settled else None),
+        None if not w else (1 if (w.get("rain") or 0) >= 1 else 0),
+        None if not w else (1 if (w.get("sun") or 0) >= 6 else 0),
+        1 if wd >= 5 else 0,
+    ]
+
+
+def _dot(a, b):
+    return sum(x * b[i] for i, x in enumerate(a))
+
+
+def forecast_fit(data, up_to, target="mood", weather=None):
+    weather = weather or {}
+    frm = _add(up_to, -FORECAST_WINDOW)
+    all_days = data.get("days") or {}
+    days = sorted(d for d, r in all_days.items() if frm <= d < up_to and r.get(target) is not None)
+    if len(days) < FORECAST_MIN:
+        return None
+    raws = [forecast_raw(data, d, target, weather, up_to) for d in days]
+    ys = [all_days[d][target] for d in days]
+    k = len(FORECAST_TAU2)
+    means = []
+    for j in range(k - 1):
+        v = [r[j] for r in raws if r[j] is not None]
+        means.append(sum(v) / len(v) if v else 0)
+    ybar = sum(ys) / len(ys)
+    X = [[1.0] + [0.0 if x is None else x - means[j] for j, x in enumerate(r)] for r in raws]
+    y = [v - ybar for v in ys]
+    P = [[(1 / FORECAST_TAU2[i] if i == j else 0.0) for j in range(k)] for i in range(k)]
+    Xty = [0.0] * k
+    for n, row in enumerate(X):
+        for i in range(k):
+            Xty[i] += row[i] * y[n]
+            for j in range(k):
+                P[i][j] += row[i] * row[j]
+    m = _solve(P, Xty)
+    s0 = FORECAST_TARGETS[target][2]
+    a = FORECAST_A0 + len(days) / 2
+    b = (FORECAST_A0 - 1) * s0 * s0 + (_dot(y, y) - _dot(m, Xty)) / 2
+    sd_y = math.sqrt(sum((v - ybar) ** 2 for v in ys) / len(ys))
+    return {"target": target, "n": len(days), "means": means, "ybar": ybar, "sd_y": sd_y, "m": m, "P": P, "sigma2": b / (a - 1)}
+
+
+def norm_cdf(z):
+    """Abramowitz–Stegun 7.1.26，和网页 normCdf 同一个公式"""
+    x = abs(z) / math.sqrt(2)
+    t = 1 / (1 + 0.3275911 * x)
+    erf = 1 - (((((1.061405429 * t - 1.453152027) * t) + 1.421413741) * t - 0.284496736) * t + 0.254829592) * t * math.exp(-x * x)
+    return (1 + erf) / 2 if z >= 0 else (1 - erf) / 2
+
+
+def forecast_predict(fit, data, day, weather=None, today=None):
+    if not fit:
+        return None
+    raw = forecast_raw(data, day, fit["target"], weather or {}, today or day)
+    x = [1.0] + [0.0 if v is None else v - fit["means"][j] for j, v in enumerate(raw)]
+    mu = fit["ybar"] + _dot(x, fit["m"])
+    v = _solve(fit["P"], x)
+    sd = math.sqrt(fit["sigma2"] * (1 + _dot(x, v)))
+    lo, hi, _ = FORECAST_TARGETS[fit["target"]]
+    out = {"mean": max(lo, min(hi, mu)), "sd": sd}
+    if fit["target"] == "mood":
+        out["p_low"] = norm_cdf((LOW_MOOD + 0.5 - mu) / sd)
+    return out
+
+
+def forecast_level(fit, pred):
+    z = (pred["mean"] - fit["ybar"]) / max(0.5, fit["sd_y"])
+    i = 4 if pred["p_low"] >= 0.5 or z < -1 else 3 if z < -0.5 else 2 if z < 0 else 1 if z < 0.5 else 0
+    return FORECAST_LEVELS[i]
+
+
+def energy_word(e):
+    return "精力足" if e >= 3.8 else "精力还行" if e >= 3 else "精力一般" if e >= 2.3 else "容易累"
+
+
+def forecast_line(data, today, weather=None):
+    """早上推送那一句：「晴间多云，心情 7 分左右，精力还行」；记满 21 天前只说天气；记得太少返回 None"""
+    weather = weather or {}
+    mf = forecast_fit(data, today, "mood", weather)
+    if not mf:
+        return None
+    mood = forecast_predict(mf, data, today, weather, today)
+    level = forecast_level(mf, mood)
+    if mf["n"] < FORECAST_SURE:
+        return f"今天{level}（还在认识你）"
+    ef = forecast_fit(data, today, "energy", weather)
+    line = f"今天{level}，心情 {int(mood['mean'] + 0.5)} 分左右"
+    if ef:
+        line += f"，{energy_word(forecast_predict(ef, data, today, weather, today)['mean'])}"
+    return line
+
+
+def fetch_weather(city):
+    """Open-Meteo：前 92 天到往后 7 天，每天的降水（毫米）和日照（小时）。网页 forecastWeather 用同一个接口"""
+    import urllib.request
+
+    if not city or not city.get("lat"):
+        return {}
+    url = (f"https://api.open-meteo.com/v1/forecast?latitude={city['lat']}&longitude={city['lon']}"
+           "&daily=precipitation_sum,sunshine_duration&timezone=Asia%2FShanghai&past_days=92&forecast_days=7")
+    try:
+        with urllib.request.urlopen(url, timeout=20) as r:
+            j = json.load(r)["daily"]
+    except Exception as e:  # noqa: BLE001  查不到天气就不用天气
+        print(f"天气没查到：{e}")
+        return {}
+    return {t: {"rain": j["precipitation_sum"][i] or 0, "sun": (j["sunshine_duration"][i] or 0) / 3600} for i, t in enumerate(j["time"])}
+
+
+def morning_message(data, now, weather=None):
+    """早上一条（用户 2026-10-26 定的：预报和导师合成一条）：先说状态天气，导师可能会问时加一句"""
+    t = day_key(now).isoformat()
+    line = forecast_line(data, t, weather)
+    adv = advisor_message(data, now)
+    lines = [x for x in [line, adv and adv["body"]] if x]
+    if not lines:
+        return None
+    url = f"{APP}#/advisor" if adv and not line else f"{APP}#/forecast"
+    return {"title": "今天", "body": "；".join(lines), "url": url, "tag": f"life-morning-{t}"}
+
+
 def send(msg):
     from pywebpush import WebPushException, webpush
 
@@ -319,15 +484,15 @@ def main():
     night = now.hour >= 21 or os.environ.get("MODE") == "night"
     if not night and os.environ.get("TEST") != "true":
         data = json.load(open("life.json", encoding="utf-8"))
-        # 导师找我：早上 7:30–10:00 一次
-        if in_window(now, 7.5, 10) and once("advisor", now, 7.5, 10):
-            msg = advisor_message(data, now)
-            mark_sent("advisor", now)
+        # 早上 7:30–10:00 一次：状态预报 + 导师找我
+        if in_window(now, 7.5, 10) and once("morning", now, 7.5, 10):
+            msg = morning_message(data, now, fetch_weather((data.get("settings") or {}).get("city")))
+            mark_sent("morning", now)
             if msg:
                 print(msg["title"], "|", msg["body"])
                 send(msg)
             else:
-                print("今天不用提醒导师的事")
+                print("早上没有要说的")
         fkey = fetch_key(now)
         if fkey and once(fkey, now, 0, 24):
             msg = fetch_message(data, now)

@@ -28,8 +28,8 @@ export function advisorFeatures(gap, wd) {
   return x;
 }
 
-// 解线性方程组 A·v = b（高斯消元，选主元）；A 会被改
-function solve(A, b) {
+// 解线性方程组 A·v = b（高斯消元，选主元）；A 会被改。状态预报 forecast.js 也用它
+export function solve(A, b) {
   const n = b.length;
   const M = A.map((row, i) => [...row, b[i]]);
   for (let c = 0; c < n; c++) {

@@ -24,6 +24,7 @@ import {
 } from './stats.js';
 import { lineChart, barChart, monthGrid, sleepBars } from './charts.js';
 import { advisorOutlook, ADVISOR_REMIND, ADVISOR_MIN } from './advisor.js';
+import { forecastDay, forecastWeek, forecastHistory, forecastTip, forecastEffects, energyWord, FORECAST_MIN, FORECAST_SURE } from './forecast.js';
 import { icon } from './icons.js';
 import { personPicker, recentIds } from './picker.js';
 import { FAVOR_BIG, estimatePrompt, cleanEstimate } from './renqing.js';
@@ -147,6 +148,7 @@ const routes = [
   [/^\/p$/, () => privateView()],
   [/^\/periodic$/, () => periodicView()],
   [/^\/advisor$/, () => advisorView()],
+  [/^\/forecast$/, () => forecastView()],
   [/^\/chats$/, () => chatsView()],
   [/^\/chat\/new$/, (_, q) => chatEditView('new', q)],
   [/^\/chat\/([^/]+)\/edit$/, (id) => chatEditView(id)],
@@ -167,7 +169,7 @@ const NAV_GROUPS = {
   '/': [/^\/?$/, /^\/day\//, /^\/night/],
   '/look': [/^\/look/, /^\/stats/, /^\/report/, /^\/ask/],
   '/pray': [/^\/pray/, /^\/low/, /^\/chats?(\/|$)/],
-  '/more': [/^\/more/, /^\/settings/, /^\/places?/, /^\/periodic/, /^\/advisor/, /^\/goals?(\/|$)/, /^\/people/, /^\/person\//, /^\/greet\//],
+  '/more': [/^\/more/, /^\/settings/, /^\/places?/, /^\/periodic/, /^\/advisor/, /^\/forecast/, /^\/goals?(\/|$)/, /^\/people/, /^\/person\//, /^\/greet\//],
 };
 
 function setupNav() {
@@ -425,6 +427,7 @@ function todayView(day) {
   const others = ['am', 'noon', 'pm'].filter((p) => p !== now);
   return h('div', {},
     todayHeader(day, lockBtn),
+    forecastCard(today),
     alertRows(today),
     periodCard(day, now),
     now === 'noon' ? weekendCard(today) : null,
@@ -3677,6 +3680,117 @@ function advisorView() {
       h('p', { class: 'small muted' }, '没有随机数：同样的记录算出同样的数。早上推送用的是同一个模型的 Python 版。')) : null);
 }
 
+// ---------- 状态预报 ----------
+// 早上按昨晚的睡眠、昨天、星期几和今天的天气预报今天的心情和精力，说成天气（2026-10-26 用户要的）。模型在 js/forecast.js，
+// 早上推送用的是 tools/life_push.py 里同一个模型的 Python 版。天气：Open-Meteo 前 92 天到往后 7 天的降水和日照，一天查一次
+const FC_WX_KEY = 'life-fc-weather';
+let fcWxTried = '';
+function forecastWeather() {
+  const city = store.data.settings.city;
+  if (!city?.lat) return {};
+  const c = readJson(FC_WX_KEY);
+  const fresh = c.day === dayKey() && c.city === city.name;
+  if (!fresh && fcWxTried !== dayKey()) {
+    fcWxTried = dayKey();
+    fetch(`https://api.open-meteo.com/v1/forecast?latitude=${city.lat}&longitude=${city.lon}&daily=precipitation_sum,sunshine_duration&timezone=Asia%2FShanghai&past_days=92&forecast_days=7`)
+      .then((r) => r.json()).then((j) => {
+        const data = Object.fromEntries(j.daily.time.map((t, i) => [t, { rain: j.daily.precipitation_sum[i] || 0, sun: (j.daily.sunshine_duration[i] || 0) / 3600 }]));
+        writeJson(FC_WX_KEY, { day: dayKey(), city: city.name, data });
+        if (['/', '', '/forecast'].includes(currentPath())) render();
+      }).catch(() => {});
+  }
+  return c.city === city.name ? c.data || {} : {};
+}
+const WX_ICON = { sun: 'today', partly: 'partly', cloud: 'cloud', overcast: 'overcast', rain: 'rain' };
+const fcScore = (f) => `心情 ${Math.round(f.mood.mean)} 分左右${f.energy ? ` · ${energyWord(f.energy.mean)}` : ''}`;
+function forecastTipFor(f, today, w) {
+  return f.sure ? forecastTip(f.level, influences(store.data, today, { weather: w })) : null;
+}
+
+// 首页：问候下面一张小卡，点了去 #/forecast。心情记得太少就不出现
+function forecastCard(today) {
+  const d = store.data;
+  const w = forecastWeather();
+  const f = forecastDay(d, today, w, today);
+  if (f.short !== undefined) return null;
+  const r = d.days[today] || {};
+  const tip = forecastTipFor(f, today, w);
+  return h('a', { class: `card fc-card fc-${f.level.key}`, href: '#/forecast', 'aria-label': `今天的状态：${f.level.name}` },
+    h('span', { class: 'fc-ic' }, icon(WX_ICON[f.level.key])),
+    h('div', { class: 'grow' },
+      h('div', { class: 'fc-name' }, f.level.name, h('span', { class: 'muted small' }, ' 今天的状态')),
+      h('div', { class: 'small' }, f.sure ? fcScore(f) : '还在认识你，先说个大概'),
+      f.sure ? h('div', { class: 'muted small' }, `低落的可能 ${pct(f.mood.pLow)}`) : null,
+      r.mood != null && f.sure ? h('div', { class: 'fc-check small' }, `预报 ${Math.round(f.mood.mean)} · 实际 ${r.mood}`) : null,
+      r.mood == null && !r.sleep?.bed ? h('div', { class: 'muted small' }, '记了睡眠会更准') : null,
+      tip ? h('p', { class: 'fc-tip small' }, tip) : null));
+}
+
+const FORECAST_HELP = [
+  ['怎么看', [
+    '每天按昨晚睡了多久、睡得怎样、昨天的心情、昨天运动没有、昨晚祷告没有、星期几和济南今天的天气，猜今天的心情和精力。',
+    '比你平时好是晴，差不多是晴间多云或多云，低一些是阴，低落的可能过半是小雨。',
+    '「低落的可能」：今天心情在 4 分和以下的可能，像天气预报里的降水概率。',
+    '晚上记了心情，卡片上会对答案。',
+  ]],
+  ['什么时候准', [
+    `心情记满 ${FORECAST_MIN} 天开始预报，记满 ${FORECAST_SURE} 天才说具体的分。`,
+    '睡眠没记的时候按你平时的睡眠算，记了以后预报会跟着变。',
+    '往后几天还不知道睡眠和前一天，只看星期几和天气预报，说得粗。',
+    '偏阴的时候会附一句，只从你自己的记录里挑（比如运动过的第二天精力高），没有可说的就不说。',
+  ]],
+  ['提醒', ['早上 7:30–10:00 推送一条，导师可能会问进度时也写在这一条里。GitHub 定时有时晚，晚太多那天就只在「今天」里看得到。']],
+];
+const FC_EFFECT = {
+  睡眠时长: '每多睡 1 小时', 睡得怎样: '睡得好 1 档', 昨天: '昨天高 1 分', 昨天运动: '昨天运动了', 昨晚祷告: '昨晚祷告了', 下雨: '下雨天', 大晴天: '大晴天', 周末: '周末',
+};
+function forecastView() {
+  const d = store.data;
+  const today = dayKey();
+  const w = forecastWeather();
+  const f = forecastDay(d, today, w, today);
+  const head = headerSub('状态预报', '今天的心情和精力，说成天气', helpButton('状态预报怎么看', FORECAST_HELP));
+  if (f.short !== undefined) {
+    return h('div', {}, head, h('div', { class: 'card' }, h('p', {}, `心情记满 ${FORECAST_MIN} 天就开始预报（现在 ${f.short} 天）。`),
+      h('p', { class: 'muted small' }, '每晚睡前复盘里点一下心情就行。')));
+  }
+  const r = d.days[today] || {};
+  const tip = forecastTipFor(f, today, w);
+  const week = forecastWeek(d, today, w);
+  const hist = forecastHistory(d, today, w, 30);
+  const fit = f.fit;
+  const sign = (x) => (Math.abs(x) < 0.05 ? '0' : `${x > 0 ? '+' : '−'}${Math.abs(x).toFixed(1)}`);
+  return h('div', {},
+    head,
+    h('div', { class: `card fc-big fc-${f.level.key}` },
+      h('span', { class: 'fc-ic' }, icon(WX_ICON[f.level.key])),
+      h('div', { class: 'fc-name' }, f.level.name),
+      h('p', {}, f.sure ? fcScore(f) : `还在认识你：心情记满 ${FORECAST_SURE} 天才说具体的分（现在 ${fit.n} 天）。`),
+      f.sure ? h('p', { class: 'muted small' }, `低落的可能 ${pct(f.mood.pLow)} · 大概在 ${Math.max(1, Math.round(f.mood.mean - f.mood.sd))}–${Math.min(10, Math.round(f.mood.mean + f.mood.sd))} 分之间`) : null,
+      r.mood != null && f.sure ? h('p', { class: 'fc-check' }, `预报 ${Math.round(f.mood.mean)} · 实际 ${r.mood}`) : null,
+      r.mood == null && !r.sleep?.bed ? h('p', { class: 'muted small' }, '还没记睡眠，先按你平时的睡眠算。') : null,
+      tip ? h('p', { class: 'fc-tip' }, tip) : null),
+    week.length ? h('div', { class: 'card' }, h('h3', {}, '往后几天'),
+      h('div', { class: 'fc-week' }, week.map((x) => h('div', { class: `fc-day fc-${x.level.key}` },
+        h('span', { class: 'muted small' }, `周${WEEK[parseDay(x.day).getDay()]}`), icon(WX_ICON[x.level.key]),
+        h('span', { class: 'small' }, x.level.name), f.sure ? h('span', { class: 'muted small' }, `${Math.round(x.mood.mean)} 分`) : null))),
+      h('p', { class: 'muted small' }, '还不知道那几天睡得怎样，只看星期几和天气预报，说得粗。')) : null,
+    hist.n >= 3 ? h('div', { class: 'card' }, h('h3', {}, '准不准'),
+      h('p', {}, `最近 ${hist.n} 天，预报和实际平均差 ${hist.mae.toFixed(1)} 分，${pct(hist.within1)} 的日子差 1 分以内。`),
+      h('p', { class: 'muted small' }, hist.mae < hist.base ? `每天都猜「和平时一样」的话，平均差 ${hist.base.toFixed(1)} 分。` : `每天都猜「和平时一样」也差不多准（平均差 ${hist.base.toFixed(1)} 分），多记一阵子会好。`),
+      lineChart({ days: hist.rows.map((x) => x.day), vals: hist.rows.map((x) => x.actual), ma: hist.rows.map((x) => x.pred) }, { min: 1, max: 10, title: '预报（线）和实际（点）' }),
+      h('p', { class: 'muted small' }, '线是预报，点是你记的心情。每一天都只用了那天以前的记录。')) : null,
+    h('details', { class: 'card how' }, h('summary', {}, '怎么算的'),
+      h('p', { class: 'small' }, '贝叶斯线性回归（正态-逆伽马共轭先验），心情、精力各一个。每个记了心情的日子一行：'),
+      h('p', { class: 'how-math' }, '心情 − 平均 = β·(睡眠时长, 睡得怎样, 昨天, 昨天运动, 昨晚祷告, 下雨, 大晴天, 周末) + ε'),
+      h('p', { class: 'how-math' }, 'β | σ² ~ N(0, σ²·0.5²)，σ² ~ 逆伽马'),
+      h('p', { class: 'small' }, '每一项先减去平时的平均；没记的（睡眠没填、天气查不到）就当是平时。先验把每一项往 0 拉：数据少的时候，不把巧合当成规律。预测的方差把 β 的不确定也算进去：'),
+      h('p', { class: 'how-math' }, '方差 = σ̂²·(1 + xᵀVx)，低落的可能 = Φ((4.5 − 预测) / 标准差)'),
+      h('p', { class: 'small' }, `用了最近 ${fit.n} 天，平时心情 ${fit.ybar.toFixed(1)} 分。每一项让心情变多少：`),
+      h('p', { class: 'how-math' }, forecastEffects(fit).map((x) => `${FC_EFFECT[x.name] || x.name} ${sign(x.beta)}`).join(' · ')),
+      h('p', { class: 'small muted' }, '只能看出常常一起出现，看不出谁导致谁。没有随机数：同样的记录算出同样的数。早上推送用的是同一个模型的 Python 版。')));
+}
+
 // ---------- 更多 ----------
 
 function moreView() {
@@ -3689,6 +3803,7 @@ function moreView() {
       cell({ href: '#/people', ic: 'people', color: 'var(--amber)', title: '身边的人', sub: '家人、亲戚、一路上认识的人' })),
     h('div', { class: 'group' },
       cell({ href: '#/periodic', ic: 'calendar', color: 'var(--muted)', title: '定期打理', sub: '剪指甲、换床单这些，到日子才出现' }),
+      cell({ href: '#/forecast', ic: 'partly', color: 'var(--blue)', title: '状态预报', sub: '今天的心情和精力，说成天气' }),
       cell({ href: '#/advisor', ic: 'people', color: 'var(--amber)', title: '导师找我', sub: '哪天可能会问进度' })),
     h('div', { class: 'group' },
       cell({ href: '#/settings', ic: 'gear', color: 'var(--muted)', title: '设置' })));
@@ -3735,6 +3850,7 @@ function pushCard() {
   return h('div', { class: 'card' },
     h('h3', {}, '手机提醒'),
     h('p', { class: 'small' }, '每晚 22:30 左右一条：今天的一句话还没写、还没有晚上的祷告就提醒你。都做了就不发。锁屏上只显示「睡前」，看不出内容。'),
+    h('p', { class: 'small' }, '早上 7:30–10:00 一条：今天的状态预报，导师可能会问进度时也写在这一条里。'),
     h('p', { class: 'small muted' }, 'iPhone 上要先「分享 → 添加到主屏幕」，从主屏幕的「生活」打开再点开启。和账本、物品档案的提醒是分开的。'),
     status,
     sup.ok ? h('button', { class: 'secondary', onclick: enable }, '在这台设备上开启') : null);
