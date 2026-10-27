@@ -893,6 +893,8 @@ def _(c):
     expect(p.locator("svg[aria-label='星期几的心情']")).to_be_visible()
     expect(p.locator("svg[aria-label='星期几的精力']")).to_be_visible()
     expect(p.get_by_role("button", name="咖啡奶茶茶")).to_have_count(0)
+    # 压力记得少：只写一行，不画空图
+    expect(p.locator(".card", has=p.get_by_role("heading", name="压力"))).to_contain_text("还少，先不画")
     p.screenshot(path=ART / "stats.png", full_page=True)
     p.get_by_role("button", name="运动", exact=True).click()
     expect(p.locator("svg[aria-label='星期几']")).to_be_visible()
@@ -1287,7 +1289,8 @@ def _(c):
     assert fd["due"] == tomorrow and fd["estimate"] == 600 and fd["kind"] == "date" and fd["person"] == pid and fd["text"] == "婚礼", fd
     expect(p.locator(".date-row")).to_contain_text("随礼约 ¥600")
     c.go("#/")
-    expect(p.locator(".alert-line", has_text="明天：编的乙 婚礼")).to_contain_text("上次你给他：红包 · 编的婚礼 ¥200")
+    # 首页只说哪天谁什么事，来回送过多少不放在首页
+    expect(p.locator(".alert-line", has_text="明天：编的乙的婚礼")).not_to_contain_text("上次你给他")
     # 怎么还人情：从想去的地方里挑
     c.go(f"#/person/{pid}")
     p.locator(".favor-item", has_text="编的帮我改论文").get_by_role("button", name="怎么还").click()

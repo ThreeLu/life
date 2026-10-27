@@ -1138,6 +1138,13 @@ function dotMonth(month, stOf, today, start) {
     WD7.split('').map((w) => h('span', { class: 'wd', 'aria-hidden': 'true' }, w)), cells);
 }
 
+// 压力记得少时只写一行，不画一张空图
+function stressChart(series, title) {
+  const n = series.vals.filter((v) => v !== null && v !== undefined).length;
+  if (n < 5) return h('p', { class: 'small muted' }, n ? `记了 ${n} 天，还少，先不画。` : '还没记过。');
+  return lineChart(series, { min: 1, max: 5, title, color: 'var(--danger)' });
+}
+
 function monthTrendCard(d, from, end) {
   const get = (k) => (x) => d.days[x]?.[k] ?? null;
   const mood = seriesRange(d, from, end, get('mood'));
@@ -1145,7 +1152,7 @@ function monthTrendCard(d, from, end) {
   return h('div', { class: 'card' },
     h('h3', {}, '心情（线是 7 天平均）'), lineChart(mood, { min: 1, max: 10, title: '这个月的心情' }),
     h('h3', {}, '精力'), lineChart(seriesRange(d, from, end, get('energy')), { min: 1, max: 5, title: '这个月的精力', color: 'var(--good)' }),
-    h('h3', {}, '压力'), lineChart(seriesRange(d, from, end, get('stress')), { min: 1, max: 5, title: '这个月的压力', color: 'var(--danger)' }),
+    h('h3', {}, '压力'), stressChart(seriesRange(d, from, end, get('stress')), '这个月的压力'),
     h('h3', {}, '睡了几小时'), lineChart(seriesRange(d, from, end, (x) => sleepHours(d.days[x]?.sleep)), { min: 4, max: 10, title: '这个月的睡眠', color: 'var(--blue)' }));
 }
 
@@ -2302,7 +2309,7 @@ function statsView() {
     h('div', { class: 'card' },
       h('h3', {}, '心情（线是 7 天平均）'), lineChart(moodS, { min: 1, max: 10, title: '心情' }),
       h('h3', {}, '精力'), lineChart(energyS, { min: 1, max: 5, title: '精力', color: 'var(--good)' }),
-      h('h3', {}, '压力'), lineChart(stressS, { min: 1, max: 5, title: '压力', color: 'var(--danger)' }),
+      h('h3', {}, '压力'), stressChart(stressS, '压力'),
       h('h3', {}, '睡了几小时'), lineChart(slS, { min: 4, max: 10, title: '睡眠', color: 'var(--blue)' })),
 
     h('div', { class: 'section-title' }, '作息（最近 30 天）'),
@@ -3916,8 +3923,8 @@ function peopleAlerts(today) {
   }
   const ledger = ledgerSnap();
   for (const x of upcomingDates(d.people, today, 1)) {
-    const gs = x.x.gift ? giftSummary(giftsWith(d, ledger, x.p.id), ta(x.p)) : '';
-    out.push(alertLine(`${x.left === 0 ? '今天' : '明天'}：${x.p.name} ${x.x.title}${x.x.gift ? `。${gs || '以前没有来往的礼。'}` : ''}`, { href: `#/person/${x.p.id}`, tone: 'soft' }));
+    // 首页只说哪天、谁、什么事；以前来回送过多少点进去看
+    out.push(alertLine(`${x.left === 0 ? '今天' : '明天'}：${x.p.name}的${x.x.title}`, { href: `#/person/${x.p.id}`, tone: 'soft' }));
   }
   for (const f of festivalsAround(today)) {
     const left = d.people.filter((p) => !p.archived && (p.greet || []).includes(f.key) && !d.greeted?.[f.fkey]?.[p.id]);
