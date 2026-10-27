@@ -24,6 +24,8 @@ import {
 } from './stats.js';
 import { lineChart, barChart, monthGrid, sleepBars } from './charts.js';
 import { advisorOutlook, ADVISOR_REMIND, ADVISOR_MIN } from './advisor.js';
+import { mainGrid, cellRing, cellOf, districtAt, fogProgress, metroProgress, metroStations, HEX_KM } from './fog.js';
+import { MAIN_DISTRICTS, METRO } from './jinan.js';
 import { forecastDay, forecastWeek, forecastHistory, forecastTip, forecastEffects, energyWord, FORECAST_MIN, FORECAST_SURE } from './forecast.js';
 import { icon } from './icons.js';
 import { personPicker, recentIds } from './picker.js';
@@ -1364,6 +1366,13 @@ const PLACES_HELP = [
   ['去过了', ['点进一个地方 →「去过了」，打个分、写一句话，可以放一张照片。同一个地方可以去很多次。', '地图上空心的是想去的，实心的是去过的；颜色按类型分。']],
   ['周末去哪', ['周五到周日，「今天」页会从你写过的地方里挑 1–2 个：想去还没去的、去过觉得好的、好久没去的。周末要下雨就先推室内的。周五晚上的推送也会带上。']],
   ['走遍', ['「按区」看每个区去过几个地方，空着的区周末可以去转转。「足迹」是每一年去过的地方。']],
+  ['点亮', [
+    '主城区（历下、市中、槐荫、天桥、历城）盖着一层雾，分成大约 1 公里一格的六边形。去过的地方会把雾吹开。',
+    '记了「去过了」的地方，那一格和周围一圈都会亮，以前去过的也算。',
+    '散步路过、没记成地方的，点「我在这」，用现在的位置点亮脚下那一格。',
+    '坐地铁：点「坐了一趟」，选上车和下车的站。只有进出过的站才算，路过的不算。',
+    '新点亮的格子，下次打开时雾会慢慢散开。',
+  ]],
 ];
 const placeState = { tab: 'list', kind: '' };
 let leafletLoading = null;
@@ -1395,9 +1404,10 @@ function placesView() {
   const d = store.data;
   const today = dayKey();
   const list = d.places.filter((p) => !placeState.kind || p.kind === placeState.kind);
-  const tabs = [['list', '列表'], ['map', '地图'], ['area', '按区'], ['foot', '足迹']];
+  const tabs = [['list', '列表'], ['map', '地图'], ['light', '点亮'], ['area', '按区'], ['foot', '足迹']];
   let body;
   if (placeState.tab === 'map') body = placesMap(list);
+  else if (placeState.tab === 'light') body = placesLight(today);
   else if (placeState.tab === 'area') body = placesArea();
   else if (placeState.tab === 'foot') body = placesFoot(today);
   else body = placesList(list, today);
@@ -1449,6 +1459,107 @@ function placesMap(list) {
     else if (pts.length === 1) map.setView(pts[0], 14);
   }).catch((e) => el.replaceChildren(h('p', { class: 'muted small' }, e.message)));
   return [el, noPos ? h('p', { class: 'muted small' }, `还有 ${noPos} 个地方没标位置，点进去在小地图上点一下就好。`) : null];
+}
+// 点亮（2026-10-26）：主城区的雾，去过的地方、「我在这」、进出过的地铁站把雾吹开。计算在 js/fog.js
+const LIT_SEEN = 'life-lit-seen'; // 这台设备上已经看过的亮格子：没看过的这次慢慢散开
+function placesLight(today) {
+  const d = store.data;
+  const prog = fogProgress(d);
+  const lines = metroProgress(d);
+  const seen = new Set(readJson(LIT_SEEN).keys || []);
+  const grid = mainGrid();
+  const fresh = Object.keys(prog.cells).filter((k) => grid[k] && !seen.has(k));
+  const el = h('div', { class: 'map-box fog-box' });
+  loadLeaflet().then((L) => {
+    if (!el.isConnected) return;
+    const map = baseMap(el, L, cityCenter(), 11);
+    const ring = (k) => [cellRing(k, 1.04)];
+    const dark = Object.keys(grid).filter((k) => !prog.cells[k]);
+    // 雾：没点亮的格子拼成一块（颜色在 CSS 里，跟着深浅色变）。smoothFactor 0：小格子不让 Leaflet 简化变形，不然格子之间漏缝
+    L.polygon(dark.map(ring), { stroke: false, interactive: false, smoothFactor: 0, className: 'fog' }).addTo(map);
+    if (fresh.length && seen.size) L.polygon(fresh.map(ring), { stroke: false, interactive: false, smoothFactor: 0, className: 'fog fog-new' }).addTo(map);
+    const bounds = [];
+    for (const x of MAIN_DISTRICTS) for (const r of x.rings) {
+      const ll = r.map(([lng, lat]) => [lat, lng]);
+      bounds.push(...ll);
+      L.polyline(ll, { weight: 1, interactive: false, className: 'fog-edge' }).addTo(map);
+    }
+    for (const l of lines) {
+      L.polyline(l.stations.map((x) => [x.lat, x.lng]), { weight: 2, interactive: false, className: 'metro-line' }).addTo(map);
+      for (const x of l.stations) {
+        L.circleMarker([x.lat, x.lng], { radius: x.day ? 4 : 2.5, weight: 1.2, className: x.day ? 'metro-st on' : 'metro-st' })
+          .bindPopup(`${x.name}${x.day ? ` · ${x.day.slice(5).replace('-', '/')} 第一次` : ''}`).addTo(map);
+      }
+    }
+    map.fitBounds(bounds, { padding: [10, 10] });
+    writeJson(LIT_SEEN, { keys: Object.keys(prog.cells) });
+  }).catch((e) => el.replaceChildren(h('p', { class: 'muted small' }, e.message)));
+  const share = prog.total ? prog.lit / prog.total : 0;
+  const pctText = (a, b) => (b ? `${((a / b) * 100).toFixed(a && a / b < 0.1 ? 1 : 0)}%` : '—');
+  const rides = [...(d.metro || [])].sort((a, b) => b.day.localeCompare(a.day));
+  const removeRide = (x) => saveUndoable(`删掉：地铁 ${x.from} → ${x.to}`, (data) => { data.metro = (data.metro || []).filter((y) => y.id !== x.id); }, '删掉了').then(render).catch(() => {});
+  return [
+    h('div', { class: 'card fog-sum' },
+      h('div', { class: 'look-big' }, h('b', {}, pctText(prog.lit, prog.total)), h('span', {}, ' 主城区点亮了')),
+      h('p', { class: 'muted small' }, `${prog.lit} / ${prog.total} 格，一格大约 ${HEX_KM} 公里宽${fresh.length && seen.size ? ` · 这次新亮了 ${fresh.length} 格` : ''}`),
+      h('div', { class: 'actions' }, h('button', { class: 'secondary', onclick: lightHere }, '我在这'), h('button', { class: 'secondary', onclick: () => rideSheet(today) }, '坐了一趟'))),
+    el,
+    h('div', { class: 'card' }, h('h3', {}, '五个区'),
+      prog.districts.map((x) => h('div', { class: 'area-row' },
+        h('span', { class: 'area-name' }, x.name),
+        h('span', { class: 'bar-track grow' }, h('span', { class: 'bar', style: `width:${x.total ? Math.max(x.lit ? 2 : 0, (x.lit / x.total) * 100) : 0}%;background:var(--accent)` })),
+        h('span', { class: 'small muted area-num' }, pctText(x.lit, x.total)))),
+      h('p', { class: 'muted small' }, share < 0.05 ? '刚刚开始。去过一个地方，记一下「去过了」，那一片就亮了。' : '亮得少的区，周末可以去转转。')),
+    h('div', { class: 'card' }, h('h3', {}, '地铁'),
+      lines.map((l) => h('details', { class: 'metro' },
+        h('summary', { class: 'area-row' }, h('span', { class: 'area-name' }, l.name),
+          h('span', { class: 'bar-track grow' }, h('span', { class: 'bar', style: `width:${(l.done / l.total) * 100}%;background:var(--accent)` })),
+          h('span', { class: 'small muted area-num' }, `${l.done}/${l.total}`)),
+        h('div', { class: 'chips metro-chips' }, l.stations.map((x) => h('span', { class: `chip${x.day ? ' on' : ''}` }, x.name))))),
+      h('p', { class: 'muted small' }, '只算上车、下车的站，路过的不算。点一条线看是哪几站。'),
+      rides.length ? h('details', { class: 'rides' }, h('summary', { class: 'small' }, `坐过的 ${rides.length} 趟`),
+        h('div', { class: 'event-list' }, rides.map((x) => h('div', { class: 'event-row' },
+          h('span', { class: 'muted small ev-time' }, x.day.slice(5).replace('-', '/')),
+          h('span', { class: 'grow' }, `${x.from} → ${x.to}`),
+          h('button', { class: 'icon-btn icon-del', 'aria-label': `删掉 ${x.from} → ${x.to}`, onclick: () => removeRide(x) }, icon('trash')))))) : null),
+  ];
+}
+// 我在这：用现在的位置点亮脚下那一格（存 lights，高德坐标）
+function lightHere() {
+  if (!navigator.geolocation) { toast('这台设备拿不到位置', 'error'); return; }
+  navigator.geolocation.getCurrentPosition((pos) => {
+    const g = wgsToGcj(pos.coords.latitude, pos.coords.longitude);
+    const lat = Math.round(g.lat * 1e5) / 1e5; const lng = Math.round(g.lng * 1e5) / 1e5;
+    const before = fogProgress(store.data).cells;
+    const dist = districtAt(lat, lng);
+    const text = before[cellOf(lat, lng)] ? '这一格已经亮了' : dist ? `点亮了${dist}的一格` : '这里不在主城区，也记下了';
+    saveUndoable('我在这', (data) => { (data.lights ||= []).push({ id: newId('l'), day: dayKey(), at: nowIso(), lat, lng }); }, text).then(render).catch(() => {});
+  }, () => toast('拿不到位置：在 iPhone 设置里允许 Safari 使用位置', 'error'), { enableHighAccuracy: true, timeout: 10000 });
+}
+// 坐了一趟：上车、下车的站（换乘站在几条线里都有，选哪个都一样）
+function rideSheet(today) {
+  const pick = (label) => h('select', { 'aria-label': label },
+    h('option', { value: '' }, label),
+    METRO.map((l) => h('optgroup', { label: l.name }, l.stations.map(([n]) => h('option', { value: n }, n)))));
+  const from = pick('上车的站');
+  const to = pick('下车的站');
+  const day = h('input', { type: 'date', value: today, max: today, 'aria-label': '哪天' });
+  openSheet({
+    title: '坐了一趟地铁',
+    body: h('div', { class: 'form' }, h('label', {}, '从', from), h('label', {}, '到', to), h('label', {}, '哪天', day),
+      h('p', { class: 'muted small' }, '只点亮这两站。')),
+    confirmText: '记下',
+    onConfirm: () => {
+      if (!from.value || !to.value) { toast('选一下上车和下车的站', 'error'); return false; }
+      if (from.value === to.value) { toast('上车和下车是同一站', 'error'); return false; }
+      const st = metroStations();
+      const had = new Set((store.data.metro || []).flatMap((x) => [x.from, x.to]));
+      const n = [from.value, to.value].filter((x) => !had.has(x) && st[x]).length;
+      return saveUndoable(`地铁：${from.value} → ${to.value}`, (data) => {
+        (data.metro ||= []).push({ id: newId('m'), day: day.value || today, at: nowIso(), from: from.value, to: to.value });
+      }, n ? `点亮了 ${n} 站` : '记下了').then(() => { render(); return true; }).catch(() => false);
+    },
+  });
 }
 function placesArea() {
   const d = store.data;

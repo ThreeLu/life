@@ -1463,6 +1463,65 @@ def _(c):
     expect(p.get_by_role("heading", name="状态预报")).to_be_visible()
 
 
+@step("点亮地图：想去的地方「点亮」——主城区的雾、去过的地方自动点亮、五个区、「我在这」、坐了一趟地铁（只算进出的站）、能删")
+def _(c):
+    p = c.page
+
+    def mutate(d):
+        d.setdefault("places", []).append({"id": "pl-fog", "name": "编的泉边", "kind": "spot", "lat": 36.6766, "lng": 117.0627, "want": 2, "at": "2026-01-01",
+                                           "visits": [{"id": "v-fog", "day": "2026-01-02", "score": 4}]})
+        d.pop("lights", None)
+        d.pop("metro", None)
+    c.write(mutate)
+    p.evaluate("localStorage.removeItem('life-lit-seen')")
+    c.go("#/places")
+    p.reload()
+    p.get_by_role("button", name="点亮", exact=True).click()
+    sum_ = p.locator(".fog-sum")
+    expect(sum_).to_contain_text("主城区点亮了")
+    expect(sum_).not_to_contain_text("新亮了")  # 第一次打开不放动画
+    expect(p.locator(".fog-box path.fog")).to_have_count(1)
+    rows = p.locator(".card", has=p.locator("h3", has_text="五个区")).locator(".area-row")
+    expect(rows).to_have_count(5)
+    expect(rows.filter(has_text="历下区")).not_to_contain_text("0%")
+    expect(p.locator("details.metro")).to_have_count(6)
+    # 坐了一趟：只点亮上车、下车两站
+    p.get_by_role("button", name="坐了一趟").click()
+    c.sheet().get_by_role("button", name="记下").click()
+    expect(p.locator(".toast")).to_contain_text("选一下上车和下车的站")
+    c.sheet().get_by_label("上车的站").select_option("山东大学")
+    c.sheet().get_by_label("下车的站").select_option("奥体中心")
+    c.sheet().get_by_role("button", name="记下").click()
+    expect(p.locator(".toast")).to_contain_text("点亮了 2 站")
+    c.wait(lambda d: d["metro"][0]["from"] == "山东大学" and d["metro"][0]["to"] == "奥体中心", "地铁记下了")
+    six = p.locator("details.metro", has_text="6 号线东段")
+    expect(six.locator("summary")).to_contain_text("1/17")
+    expect(p.locator("details.metro", has_text="3 号线").locator("summary")).to_contain_text("1/18")  # 奥体中心是换乘站
+    expect(p.locator("details.metro", has_text="4 号线").locator("summary")).to_contain_text("1/33")
+    six.locator("summary").click()
+    expect(six.locator(".chip.on")).to_have_text("山东大学")
+    # 我在这
+    p.context.grant_permissions(["geolocation"], origin=URL.rstrip("/"))
+    p.context.set_geolocation({"latitude": 36.650, "longitude": 117.115})
+    p.get_by_role("button", name="我在这").click()
+    expect(p.locator(".toast")).to_contain_text("点亮了")
+    c.wait(lambda d: len(d["lights"]) == 1 and d["lights"][0]["day"] == TODAY, "我在这记下了")
+    expect(p.locator(".fog-sum")).to_contain_text("这次新亮了 1 格")  # 新亮的格子雾慢慢散开
+    expect(p.locator(".fog-box path.fog-new")).to_have_count(1)
+    p.wait_for_timeout(2500)
+    p.screenshot(path=ART / "fog.png", full_page=True)
+    p.reload()
+    p.get_by_role("button", name="点亮", exact=True).click()
+    expect(p.locator(".fog-sum")).not_to_contain_text("新亮了")  # 看过了就不再放
+    # 删掉一趟
+    p.locator("details.rides summary").click()
+    p.get_by_role("button", name="删掉 山东大学 → 奥体中心").click()
+    c.wait(lambda d: not d["metro"], "地铁删掉了")
+    p.locator(".help-btn").first.click()
+    expect(c.sheet()).to_contain_text("路过的不算")
+    c.sheet().get_by_role("button", name="知道了").click()
+
+
 LEDGER = FakeRepo(ledger_seed())
 STORY = FakeRepo({"README.md": b"# story-data\n"})
 INVENTORY = FakeRepo(inventory_seed())

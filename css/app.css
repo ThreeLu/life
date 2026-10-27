@@ -1025,3 +1025,22 @@ button.icon-del svg.i { width: 17px; height: 17px; }
 .fc-day { display: flex; flex-direction: column; align-items: center; gap: 4px; color: var(--fc); }
 .fc-day .i { width: 24px; height: 24px; }
 .fc-day .small { color: var(--text); white-space: nowrap; font-size: 12px; }
+
+/* 点亮地图（2026-10-26）：主城区的雾是一块淡紫，新点亮的格子慢慢散开；地铁线灰色，进出过的站紫色实心 */
+.fog-box { height: 420px; }
+.fog-box .fog { fill: var(--accent); fill-opacity: .42; fill-rule: nonzero; } /* 格子叠一点点，用 nonzero 才不会叠出洞 */
+.fog-box .fog-new { animation: fog-clear 1.8s ease-out .5s forwards; }
+@keyframes fog-clear { to { fill-opacity: 0; } }
+.fog-box .fog-edge { stroke: var(--accent); stroke-opacity: .55; fill: none; }
+.fog-box .metro-line { stroke: var(--muted); stroke-opacity: .7; fill: none; }
+.fog-box .metro-st { stroke: var(--card); stroke-opacity: .9; fill: var(--muted); fill-opacity: .8; }
+.fog-box .metro-st.on { stroke: var(--accent); fill: var(--accent); }
+.fog-sum .actions { margin-top: 10px; }
+.fog-sum p { margin: 6px 0 0; }
+details.metro > summary { list-style: none; cursor: pointer; }
+details.metro > summary::-webkit-details-marker { display: none; }
+.metro-chips { margin: 4px 0 10px; }
+.metro-chips .chip { font-size: 12px; padding: 4px 10px; }
+details.rides { margin-top: 6px; }
+details.rides > summary { color: var(--muted); cursor: pointer; padding: 6px 0; }
+@media (prefers-reduced-motion: reduce) { .fog-box .fog-new { animation: none; fill-opacity: 0; } }
