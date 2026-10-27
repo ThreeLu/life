@@ -240,23 +240,6 @@ export function careFullDay(data, day) {
   return items.length > 0 && items.every((r) => care[r.id]);
 }
 
-// 这周的你：只数做到了的，不提没做的
-export function weekHighlights(data, today) {
-  const mon = weekOf(today);
-  const days = Array.from({ length: daysBetween(mon, today) + 1 }, (_, i) => addDays(mon, i));
-  const inWeek = (e) => e.day >= mon && e.day <= today;
-  const out = [];
-  const care = days.filter((x) => Object.keys(data.days[x]?.care || {}).length).length;
-  if (care) out.push(`护肤 ${care} 天`);
-  const sport = data.events.filter((e) => e.type === 'sport' && inWeek(e)).length;
-  if (sport) out.push(`运动 ${sport} 次`);
-  const pray = days.filter((x) => data.days[x]?.prayer?.night).length;
-  if (pray) out.push(`祷告 ${pray} 晚`);
-  const notes = days.filter((x) => data.days[x]?.note || data.days[x]?.mood).length;
-  if (notes) out.push(`记录了 ${notes} 天`);
-  return out;
-}
-
 // 新达到的里程碑（还没记过的）
 export function newMilestones(data) {
   const allDays = Object.keys(data.days);

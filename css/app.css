@@ -1044,3 +1044,55 @@ details.metro > summary::-webkit-details-marker { display: none; }
 details.rides { margin-top: 6px; }
 details.rides > summary { color: var(--muted); cursor: pointer; padding: 6px 0; }
 @media (prefers-reduced-motion: reduce) { .fog-box .fog-new { animation: none; fill-opacity: 0; } }
+
+/* 回顾（2026-10-27 照账本的总结改版）：刊头、最上面那张、这周每天的格子、年历 */
+.period-nav.mast-nav { margin-bottom: 16px; padding-bottom: 14px; border-bottom: 1px solid var(--line); }
+.mast { flex: 1; min-width: 0; display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; }
+.mast-big { font-family: var(--serif); line-height: 1; white-space: nowrap; color: var(--text); }
+.mast-big b { font-size: 36px; font-weight: 600; letter-spacing: 0.02em; }
+.mast-big small { font-size: 16px; color: var(--muted); margin: 0 3px; }
+.mast-side { min-width: 0; text-align: right; padding-bottom: 2px; }
+.mast-range { font-size: 14px; font-weight: 500; }
+.mast-sub { font-size: 12px; color: var(--muted); margin-top: 4px; }
+.look-head .look-big { margin-top: 4px; }
+.time-bar { margin-top: 12px; }
+.time-track { position: relative; height: 6px; border-radius: 3px; background: var(--chip); }
+.time-fill { position: absolute; inset: 0 auto 0 0; border-radius: 3px; background: var(--accent); }
+.time-legend { display: flex; justify-content: space-between; gap: 8px; margin-top: 6px; }
+.mh-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 12px; }
+.mh-stats > div { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.mh-stats b { font-size: 15px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.hero-foot { margin-top: 10px; padding-top: 8px; border-top: 0.5px solid var(--line); }
+.card .chart + .mh-stats { margin-top: 6px; }
+.wk-grid { display: grid; grid-template-columns: 34px repeat(7, 1fr); gap: 4px; margin: 6px 0 2px; align-items: center; }
+.wk-wd { font-size: 12px; color: var(--muted); text-align: center; text-decoration: none; padding: 2px 0; }
+a.wk-wd { color: var(--accent); }
+.wk-wd.today { font-weight: 700; }
+.wk-name { color: var(--muted); white-space: nowrap; }
+.wk-cell { height: 30px; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 500; font-variant-numeric: tabular-nums; box-shadow: inset 0 0 0 1px var(--line); }
+.wk-cell.full, .wk-cell.m5 { background: var(--accent); color: var(--accent-text); box-shadow: none; }
+.wk-cell.part { background: color-mix(in srgb, var(--accent) 35%, var(--chip)); box-shadow: none; }
+.wk-cell.off { box-shadow: none; }
+.wk-cell.m1 { background: color-mix(in srgb, var(--accent) 14%, var(--chip)); box-shadow: none; }
+.wk-cell.m2 { background: color-mix(in srgb, var(--accent) 32%, var(--chip)); box-shadow: none; }
+.wk-cell.m3 { background: color-mix(in srgb, var(--accent) 52%, var(--chip)); box-shadow: none; }
+.wk-cell.m4 { background: color-mix(in srgb, var(--accent) 76%, var(--chip)); color: var(--accent-text); box-shadow: none; }
+.wk-photos { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin: 4px 0 8px; }
+.wk-photo { position: relative; display: block; border-radius: 10px; overflow: hidden; aspect-ratio: 1 / 1; background: var(--chip); }
+.wk-photo-img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.wk-photo small { position: absolute; left: 6px; bottom: 4px; font-size: 11px; color: #fff; text-shadow: 0 1px 2px rgba(0, 0, 0, .5); }
+.small-seg { margin-bottom: 10px; }
+.care-bar { flex: none; width: 64px; height: 6px; border-radius: 3px; background: var(--chip); overflow: hidden; }
+.care-bar i { display: block; height: 100%; background: var(--accent); }
+.care-n { flex: none; min-width: 52px; text-align: right; font-variant-numeric: tabular-nums; }
+.cmp-table { width: 100%; border-collapse: collapse; font-size: 14px; font-variant-numeric: tabular-nums; }
+.cmp-table th { font-size: 12px; font-weight: 500; color: var(--muted); text-align: right; padding: 0 0 6px; }
+.cmp-table td { padding: 7px 0; border-top: 0.5px solid var(--line); text-align: right; }
+.cmp-table td:first-child, .cmp-table th:first-child { text-align: left; }
+details.notes-fold > summary { list-style: none; cursor: pointer; }
+details.notes-fold > summary::-webkit-details-marker { display: none; }
+details.notes-fold > summary h3 { display: inline; }
+details.notes-fold > summary::after { content: '展开'; float: right; font-size: 13px; color: var(--muted); }
+details.notes-fold[open] > summary::after { content: '收起'; }
+details.notes-fold[open] > summary { margin-bottom: 6px; }
+.year-cal { margin-top: 2px; }

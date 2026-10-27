@@ -609,19 +609,41 @@ def _(c):
     p.screenshot(path=ART / "advisor.png", full_page=True)
 
 
-@step("回顾：这个月（护肤月历、洗澡运动祷告次数、翻月）、护肤最近两周、周报入口；不再有护肤品、生病、最近的记录")
+@step("回顾：默认是周（刊头、护肤做完几天、每天的格子、护肤最近两周）；切到月（月历、次数）、年（年历）；不再有护肤品、生病、最近的记录")
 def _(c):
     p = c.page
     c.write(lambda d: d.update(sick={"current": None, "history": [{"kind": "cold", "start": YESTERDAY, "end": TODAY}], "plans": {}, "meds": {}}))
     c.go("#/look")
     p.reload()
     expect(p.locator("#nav a.active")).to_have_text("回顾")
-    expect(p.locator(".look-big")).to_be_visible()
-    expect(p.locator(".dot-month .md.today")).to_have_count(1)
-    expect(p.locator(".look-counts")).to_contain_text("运动")
-    expect(p.locator(".look-counts")).to_contain_text("祷告")
+    expect(p.get_by_role("group", name="回顾").locator(".seg.on")).to_have_text("周")
+    expect(p.locator(".mast-big")).to_contain_text("周")
+    expect(p.locator(".mast-sub")).to_contain_text("这周")
+    expect(p.locator(".look-head .look-big")).to_contain_text("/ 7 天")
+    expect(p.locator(".look-head .mh-stats")).to_contain_text("祷告")
+    expect(p.locator(".wk-grid .wk-name")).to_have_count(6)
+    expect(p.locator(".wk-grid .wk-cell")).to_have_count(42)
+    expect(p.locator(".wk-grid a.wk-wd.today")).to_have_count(1)
     expect(p.locator(".care-rate", has_text="洗脸（洗面奶甲）").locator(".dots i")).to_have_count(14)
-    expect(p.get_by_role("link", name="这周的回顾")).to_be_visible()
+    expect(p.get_by_role("button", name="请 DeepSeek 写一段").or_(p.get_by_text("这段时间记得太少"))).to_be_visible()
+    # 月
+    p.get_by_role("group", name="回顾").get_by_role("link", name="月", exact=True).click()
+    expect(p.locator(".mast-big")).to_contain_text(f"{int(TODAY[5:7])}月")
+    expect(p.locator(".dot-month .md.today")).to_have_count(1)
+    expect(p.locator(".look-head .mh-stats")).to_contain_text("运动")
+    expect(p.locator(".look-head .mh-stats")).to_contain_text("洗澡")
+    p.locator(".look-month").get_by_role("button", name="心情").click()
+    expect(p.locator(".look-month .legend")).to_contain_text("高")
+    p.locator(".look-month").get_by_role("button", name="护肤").click()
+    expect(p.get_by_role("button", name="复制给 ChatGPT")).to_be_visible()
+    p.screenshot(path=ART / "look-month.png", full_page=True)
+    # 年
+    p.get_by_role("group", name="回顾").get_by_role("link", name="年", exact=True).click()
+    expect(p.locator(".mast-big")).to_contain_text(TODAY[:4])
+    expect(p.locator("svg[aria-label='这一年每天的护肤']")).to_be_visible()
+    p.get_by_role("button", name="心情", exact=True).click()
+    expect(p.locator("svg[aria-label='这一年每天的心情']")).to_be_visible()
+    c.go("#/look")
     expect(p.get_by_text("我学到的")).to_have_count(0)
     expect(p.get_by_text("我的方向")).to_have_count(0)
     expect(p.locator(".whisper")).to_have_count(0)  # 回顾页不放角落那句话
@@ -648,19 +670,28 @@ def _(c):
     c.write(lambda d: d.update(startDate=(datetime.fromisoformat(TODAY) - timedelta(days=40)).date().isoformat()))
     c.go("#/look")
     p.reload()
+    c.go("#/look?mode=month")
     if YESTERDAY[:7] != TODAY[:7]:
-        p.get_by_role("button", name="上个月").click()
+        p.get_by_role("link", name="上一个").click()
     p.locator(".dot-month").get_by_role("link", name=f"{int(YESTERDAY[5:7])} 月 {int(YESTERDAY[8:])} 日").click()
     expect(p.get_by_role("heading", name="昨天")).to_be_visible()
     c.period("晚上").locator(".it", has_text="洗澡").locator(".it-main").click()
     c.sheet().get_by_role("button", name="洗好了").click()
     c.wait(lambda d: any(e["day"] == YESTERDAY for e in events(d, "shower")), "补记昨天洗澡")
     assert "sick" not in c.data(), "老的生病数据存的时候清掉"
+    c.go("#/look?mode=month")
+    p.get_by_role("link", name="上一个").click()
+    expect(p.locator(".mast-big")).not_to_contain_text(f"{int(TODAY[5:7])}月")
+    expect(p.locator(".mast-sub")).to_contain_text("上个月")
+    expect(p.locator(".cmp-table")).to_have_count(0)  # 上上个月还没开始记，不比
+    p.get_by_role("link", name="下一个").click()
+    expect(p.locator(".mast-big")).to_contain_text(f"{int(TODAY[5:7])}月")
+    expect(p.locator(".cmp-table")).to_contain_text("护肤做完")
+    # 周也能往前翻
     c.go("#/look")
-    p.get_by_role("button", name="上个月").click()
-    expect(p.locator(".look-month .period-nav h3")).not_to_have_text(f"{int(TODAY[5:7])} 月")
-    p.get_by_role("button", name="下个月").click()
-    expect(p.locator(".look-month .period-nav h3")).to_have_text(f"{int(TODAY[5:7])} 月")
+    p.get_by_role("link", name="上一个").click()
+    expect(p.locator(".mast-sub")).to_have_text("上周")
+    expect(p.locator(".wk-grid a.wk-wd.today")).to_have_count(0)
     c.write(lambda d: d.update(startDate=start))
     p.reload()
 
@@ -702,7 +733,7 @@ def _(c):
     c.wait(lambda d: d["milestones"].get("seen", {}).get("care-1"), "看过里程碑")
     expect(p.locator(".seal")).to_be_visible()  # 护肤、复盘、祷告都做了
     c.go("#/look")
-    expect(p.get_by_text("这周的你")).to_be_visible()
+    expect(p.locator(".wk-grid .wk-cell.full")).not_to_have_count(0)
 
 
 @step("换季：要降温了写在首页天气下面")
@@ -875,16 +906,14 @@ def _(c):
     c.go("#/more")
     expect(p.get_by_text("分析和回顾")).to_have_count(0)
     c.go("#/stats")
-    p.get_by_role("group", name="回顾").get_by_role("link", name="这个月").click()
+    p.get_by_role("group", name="回顾").get_by_role("link", name="月", exact=True).click()
     expect(p.locator(".look-month")).to_be_visible()
 
 
 @step("回顾：周报月报（DeepSeek 写一段、存下来、不再有科研回顾）、年报；老的咖啡、英语、读经数据清掉")
 def _(c):
     p = c.page
-    c.go("#/look")
-    p.get_by_role("link", name="这个月的回顾").click()
-    c.go(f"#/report?k=month&d={YESTERDAY}")
+    c.go(f"#/report?k=month&d={YESTERDAY}")  # 老链接还能打开
     p.get_by_role("button", name="请 DeepSeek 写一段").click()
     expect(p.get_by_text("编的回顾正文")).to_be_visible()
     expect(p.get_by_text("编的科研回顾")).to_have_count(0)
@@ -900,13 +929,17 @@ def _(c):
     assert "english-10" not in d["milestones"]
     assert any(r.get("did") for r in d["days"].values()), "科研那格照记"
     expect(p.locator("#nav a.active")).to_have_text("回顾")
+    expect(p.locator("svg[aria-label='这个月的心情']")).to_be_visible()
     p.get_by_role("link", name="周", exact=True).click()
-    expect(p.locator(".period-nav")).to_contain_text("这周（")
-    p.get_by_role("link", name="年", exact=True).click()
-    expect(p.locator(".stat-grid")).to_contain_text("运动")
-    expect(p.locator(".stat-grid")).not_to_contain_text("咖啡")
-    p.get_by_role("link", name="‹ 回顾").click()
     expect(p).to_have_url(re.compile(r"#/look$"))
+    expect(p.locator(".mast-big")).to_contain_text("周")
+    expect(p.locator("svg[aria-label='这周每天的心情']")).to_be_visible()
+    p.get_by_role("link", name="年", exact=True).click()
+    expect(p.locator(".look-head .mh-stats")).to_contain_text("运动")
+    expect(p.locator("main")).not_to_contain_text("咖啡")
+    expect(p.locator("svg[aria-label='每个月护肤做完几天']")).to_be_visible()
+    p.get_by_role("button", name="请 DeepSeek 写一段").click()
+    c.wait(lambda d: d["letters"].get(f"y{TODAY[:4]}", {}).get("text") == "编的回顾正文", "年报存下来")
 
 
 @step("问问我的记录：带着最近的记录问 DeepSeek；状态不对首页轻轻提一句")

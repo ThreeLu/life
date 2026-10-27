@@ -1,7 +1,7 @@
 // 分析：纯计算（不碰 DOM）。只用记下来的数，数据不够就说「还需要几天」，不硬下结论。
 // 只能看出「两件事常常一起出现」，看不出谁导致谁——页面上要这样写。
 
-import { addDays, daysBetween, parseDay, careFullDay } from './life.js';
+import { addDays, daysBetween, parseDay, careFullDay, careDone, careSkipped, showeredOn } from './life.js';
 
 export const MIN_DAYS = 21; // 心情记满这么多天，「什么在影响我」才开始给结论
 
@@ -181,6 +181,83 @@ export function periodSummary(data, from, to) {
     sports: sports.length, sportMinutes: sports.reduce((a, e) => a + (e.minutes || 0), 0), km: sports.reduce((a, e) => a + (e.km || 0), 0),
     prayers: days.filter((d) => data.days[d]?.prayer?.night).length,
     notes: days.map((d) => ({ day: d, note: data.days[d]?.note, mood: data.days[d]?.mood })).filter((x) => x.note),
+    photos: days.filter((d) => data.days[d]?.photo),
     visits: (data.places || []).flatMap((p) => (p.visits || []).filter((v) => v.day >= from && v.day <= to).map((v) => ({ name: p.name, ...v }))),
   };
+}
+
+// ---------- 回顾（周 / 月 / 年，2026-10-27 照账本的总结改版） ----------
+
+// 一段日子里每天一个数，加 7 天平均（月的走势）
+export function seriesRange(data, from, to, get) {
+  const days = rangeDays(from, to);
+  const vals = days.map((d) => get(d));
+  const ma = vals.map((_, i) => {
+    const win = vals.slice(Math.max(0, i - 6), i + 1).filter((v) => v !== null && v !== undefined);
+    return win.length >= 3 ? avg(win) : null;
+  });
+  return { days, vals, ma };
+}
+
+// 周的格子：一列一天，一行一件事。st：full 做了 / part 做了一部分 / none 没有（空着）/ off 还没到、还没开始记、没有这一项；心情是 m1–m5
+export function weekGrid(data, mon, today) {
+  const days = rangeDays(mon, addDays(mon, 6));
+  const start = data.startDate || today;
+  const off = (d) => d > today || d < start;
+  const row = (key, name, f) => ({ key, name, cells: days.map((d) => ({ day: d, ...(off(d) ? { st: 'off' } : f(d)) })) });
+  const care = (when) => (d) => {
+    const c = careDone(data, d, when);
+    return { st: !c.total ? 'off' : c.done >= c.total ? 'full' : c.done ? 'part' : 'none' };
+  };
+  const ev = (type) => (d) => ({ st: data.events.some((e) => e.type === type && e.day === d) ? 'full' : 'none' });
+  return {
+    days,
+    rows: [
+      row('am', '早上', care('am')),
+      row('pm', '晚上', care('pm')),
+      row('shower', '洗澡', ev('shower')),
+      row('sport', '运动', ev('sport')),
+      row('pray', '祷告', (d) => ({ st: data.days[d]?.prayer?.night ? 'full' : 'none' })),
+      row('mood', '心情', (d) => { const v = data.days[d]?.mood; return v ? { st: `m${Math.ceil(v / 2)}`, v } : { st: 'none' }; }),
+    ],
+  };
+}
+
+// 一段日子里每一项护肤做了几天：早晚的项 = 做了 / 该做的天数（洗过澡的晚上洗脸不算），洗澡后的 = 做了 / 洗澡次数，每周的 = 做了几次
+export function careInRange(data, from, to) {
+  const days = rangeDays([from, data.startDate || from].sort().at(-1), to);
+  return data.look.routine.map((r) => {
+    const can = r.when === 'shower' ? days.filter((x) => showeredOn(data, x)) : r.when === 'week' ? days : days.filter((x) => !careSkipped(data, x, r));
+    return { r, done: can.filter((x) => data.days[x]?.care?.[r.id]).length, total: can.length };
+  });
+}
+
+// 一件事的日子（排好的），平均隔几天、最长隔几天
+export function gaps(days) {
+  const xs = [...new Set(days)].sort();
+  const g = xs.slice(1).map((d, i) => daysBetween(xs[i], d));
+  return { n: xs.length, avg: avg(g), max: g.length ? Math.max(...g) : null };
+}
+
+// 一年：每天（年历用）和每个月的数
+export function yearData(data, year, today) {
+  const start = data.startDate || today;
+  const days = rangeDays(`${year}-01-01`, `${year}-12-31`).map((d) => {
+    const off = d > today || d < start;
+    const r = data.days[d] || {};
+    return { day: d, off, care: off ? 0 : careFullDay(data, d) ? 2 : Object.keys(r.care || {}).length ? 1 : 0, mood: off ? null : r.mood || null };
+  });
+  const months = Array.from({ length: 12 }, (_, i) => {
+    const m = `${year}-${String(i + 1).padStart(2, '0')}`;
+    const ds = days.filter((x) => x.day.startsWith(m) && !x.off);
+    const ev = (t) => data.events.filter((e) => e.type === t && e.day.startsWith(m) && e.day >= start && e.day <= today).length;
+    return {
+      month: i + 1, n: ds.length,
+      careDays: ds.filter((x) => x.care === 2).length,
+      sports: ev('sport'), showers: ev('shower'),
+      prayers: ds.filter((x) => data.days[x.day]?.prayer?.night).length,
+      mood: avg(ds.map((x) => x.mood).filter(Boolean)),
+    };
+  });
+  return { days, months };
 }

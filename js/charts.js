@@ -64,8 +64,8 @@ export function monthGrid(month, marks, { color = 'var(--accent)', title = '', p
   return svg;
 }
 
-// 作息横条：rows = [{ day, bed: 晚 18 点起的分钟, wake: 同 }]，横轴 21:00 → 第二天 12:00
-export function sleepBars(rows, { title = '' } = {}) {
+// 作息横条：rows = [{ day, bed: 晚 18 点起的分钟, wake: 同 }]，横轴 21:00 → 第二天 12:00；every：每几行写一个日期
+export function sleepBars(rows, { title = '', every = 7 } = {}) {
   const from = 180; const to = 1080; // 21:00 → 次日 12:00
   const rowH = 9; const left = 30; const height = rows.length * rowH + 18;
   const svg = s('svg', { viewBox: `0 0 ${W} ${height}`, class: 'chart', role: 'img', 'aria-label': title });
@@ -76,11 +76,48 @@ export function sleepBars(rows, { title = '' } = {}) {
   }
   rows.forEach((r, i) => {
     const yy = i * rowH + 2;
-    if (i % 7 === 0) svg.append(s('text', { x: 0, y: yy + 7, class: 'chart-label' }, `${Number(r.day.slice(5, 7))}/${Number(r.day.slice(8))}`));
+    if (i % every === 0) svg.append(s('text', { x: 0, y: yy + 7, class: 'chart-label' }, `${Number(r.day.slice(5, 7))}/${Number(r.day.slice(8))}`));
     if (r.bed !== null && r.wake !== null) {
       const x1 = x(r.bed); const x2 = x(r.wake > r.bed ? r.wake : r.wake + 1440);
       svg.append(s('rect', { x: x1, y: yy, width: Math.max(2, x2 - x1), height: rowH - 3, rx: 3, style: 'fill:var(--blue)' }));
     }
   });
+  return svg;
+}
+
+// 一年的日历（和账本总结的年历同一个样子）：上半年、下半年各一排，一列是一周（周一在上），颜色越深越多。
+// days = [{ day, lv: 0–4, off, tip }]（off：还没到 / 还没开始记），today 那天描一圈；legend = ['少', '多']
+export function yearCalendar(days, { today = '', title = '', legend = ['少', '多'] } = {}) {
+  const left = 14; const labelH = 13; const gap = 2;
+  const halves = [days.filter((d) => d.day.slice(5, 7) <= '06'), days.filter((d) => d.day.slice(5, 7) > '06')].filter((x) => x.length);
+  const leadOf = (part) => (new Date(`${part[0].day}T12:00:00`).getDay() + 6) % 7;
+  const weeks = Math.max(...halves.map((part) => Math.ceil((leadOf(part) + part.length) / 7)));
+  const step = (W - left - 2) / weeks;
+  const size = step - gap;
+  const halfH = labelH + step * 7 + 8;
+  const height = halfH * halves.length + size + 8;
+  const FILL = ['var(--chip)', 'color-mix(in srgb, var(--accent) 28%, var(--chip))', 'color-mix(in srgb, var(--accent) 50%, var(--chip))', 'color-mix(in srgb, var(--accent) 75%, var(--chip))', 'var(--accent)'];
+  const rx = Math.min(2.5, size / 4);
+  const svg = s('svg', { viewBox: `0 0 ${W} ${height}`, class: 'chart year-cal', role: 'img', 'aria-label': title });
+  halves.forEach((part, hi) => {
+    const top = hi * halfH + labelH;
+    const lead = leadOf(part);
+    ['一', '三', '五', '日'].forEach((t, i) => svg.append(s('text', { x: 0, y: top + step * [0, 2, 4, 6][i] + size - 1, class: 'chart-label' }, t)));
+    part.forEach((d, i) => {
+      const k = lead + i;
+      const x = left + Math.floor(k / 7) * step;
+      const y = top + (k % 7) * step;
+      if (d.day.slice(8) === '01') svg.append(s('text', { x, y: top - 4, class: 'chart-label' }, `${Number(d.day.slice(5, 7))}月`));
+      const cell = s('rect', { x, y, width: size, height: size, rx, style: `fill:${FILL[d.off ? 0 : d.lv]}${d.off ? ';opacity:.45' : ''}` });
+      cell.append(s('title', {}, `${Number(d.day.slice(5, 7))}/${Number(d.day.slice(8))}${d.tip ? ` ${d.tip}` : ''}`));
+      svg.append(cell);
+      if (d.day === today) svg.append(s('rect', { x: x - 1, y: y - 1, width: size + 2, height: size + 2, rx: rx + 1, fill: 'none', style: 'stroke:var(--text)', 'stroke-width': 1.2 }));
+    });
+  });
+  const ly = halves.length * halfH;
+  const lx = W - 2 - 5 * (size + 3) - 12;
+  svg.append(s('text', { x: lx - 4, y: ly + size - 1, 'text-anchor': 'end', class: 'chart-label' }, legend[0]));
+  FILL.forEach((f, i) => svg.append(s('rect', { x: lx + i * (size + 3), y: ly, width: size, height: size, rx, style: `fill:${f}` })));
+  svg.append(s('text', { x: lx + 5 * (size + 3) + 1, y: ly + size - 1, class: 'chart-label' }, legend[1]));
   return svg;
 }

@@ -4,7 +4,7 @@ import {
   defaultData, dayKey, addDays, daysBetween, weekOf, weekLabel, hm, parseDay, WHEN, routineOf, careDone, weekCount,
   periodicDue, periodicTomorrow, eventsOn, privateStats,
   prayedOn,
-  dailyCheer, weekHighlights, newMilestones, careFullDay, showeredOn, careSkipped,
+  dailyCheer, newMilestones, careFullDay, showeredOn, careSkipped,
   seasonWarning,
   fetchRows, fetchState, solarTerm, lowLessons, goodDays, 
   goalProgress, goalLine, habitWeek, goalWeekDone, applyGoalPlan, lookMonth, careItemRates, careDots,
@@ -20,9 +20,9 @@ import { askJson } from './ai.js';
 import { PLACE_KINDS, parseShare, cleanCandidates, visited, lastVisit, bestScore, weekendPicks, districtProgress, footprints, weekendDays, wgsToGcj } from './places.js';
 import {
   MIN_DAYS, influences, influenceText, moodDays, series, sleepPattern, sleepHours, bedMinutes, bedLabel, rhythm, weekdayMood,
-  gentleNote, periodSummary, rangeDays,
+  gentleNote, periodSummary, rangeDays, seriesRange, weekGrid, careInRange, gaps, yearData,
 } from './stats.js';
-import { lineChart, barChart, monthGrid, sleepBars } from './charts.js';
+import { lineChart, barChart, monthGrid, sleepBars, yearCalendar } from './charts.js';
 import { advisorOutlook, ADVISOR_REMIND, ADVISOR_MIN } from './advisor.js';
 import { mainGrid, cellRing, cellOf, districtAt, fogProgress, metroProgress, metroStations, HEX_KM } from './fog.js';
 import { MAIN_DISTRICTS, METRO } from './jinan.js';
@@ -136,7 +136,7 @@ const routes = [
   [/^\/?$/, () => todayView(dayKey())],
   [/^\/day\/(\d{4}-\d\d-\d\d)$/, (d) => todayView(d)],
   [/^\/night$/, (_, q) => nightView(q.d || dayKey())],
-  [/^\/look$/, () => lookView()],
+  [/^\/look$/, (_, q) => lookView(q)],
   [/^\/pray$/, () => prayView()],
   [/^\/pray\/go$/, (_, q) => prayGoView(q.m)],
   [/^\/photos$/, (_, q) => photosView(q.m)],
@@ -145,7 +145,7 @@ const routes = [
   [/^\/place\/new$/, () => placeEditView('new')],
   [/^\/place\/([^/]+)$/, (id) => placeView(id)],
   [/^\/stats$/, () => statsView()],
-  [/^\/report$/, (_, q) => reportView(q)],
+  [/^\/report$/, (_, q) => lookView({ mode: q.k, day: q.d })], // 老链接
   [/^\/ask$/, () => askView()],
   [/^\/p$/, () => privateView()],
   [/^\/periodic$/, () => periodicView()],
@@ -678,13 +678,6 @@ function dayComplete(day) {
 
 
 
-// 这周的你：只数做到的
-function weekCardToday(today) {
-  const list = weekHighlights(store.data, today);
-  if (!list.length) return null;
-  return h('div', { class: 'card week-you' }, h('h3', {}, '这周的你'), h('p', {}, list.join(' · ')), h('p', { class: 'muted small' }, '一点一点，都算数。'));
-}
-
 // 里程碑：达到时记下日期，首页祝贺 3 天（或点「好」收起）
 let milestoneSaving = false;
 function milestoneList() {
@@ -915,73 +908,383 @@ function careCardInline(day, when) {
 }
 
 // ---------- 回顾 ----------
-// 一页看这段日子：这个月（护肤月历，点一天看那天、补记）、这周的你、护肤最近两周、一年前的今天、周报月报年报。
-// 不放口号，不涉及钱（钱在账本里看）。顶上切到「分析」。
+// 2026-10-27 照账本的「总结」改版：顶上「周 | 月 | 年 | 分析」，默认是周；刊头左边宋体大字（第 44 周 / 10 月 / 2026），右边日期范围和一句在哪。
+// 不放口号，不涉及钱（钱在账本里看），小记不进来，科研不展示。没做的那天就空着。
 
 const LOOK_HELP = [
-  ['这一页是什么', ['回头看这段日子做了什么：这个月护肤做完几天，洗澡、运动、祷告几次，这周的你，每一项护肤最近两周做了哪几天。', '最下面是这周、这个月的回顾和年度报告。顶上点「分析」看心情、作息这些的分析。']],
-  ['月历', ['早晚护肤都做完是实心的紫点，做了一部分是浅紫点，今天带一个圈。点两边的箭头看别的月。', '点一天，打开那一天：能看那天记了什么，忘了记的也能补上。']],
-  ['护肤', ['每一项后面是最近 14 天，一天一个点，最右边是今天。洗过澡的晚上，洗脸那天是一个小空心圈（洗澡时洗过了）。', '「改打卡项」可以加、改名、删掉每天的打卡项，比如加「防晒（早上）」「擦鞋（早上）」。']],
+  ['周', ['一周从周一到周日。最上面是这周护肤做完了几天，下面三个数是祷告、运动、平均睡多久，最下面一行是上周的。',
+    '格子：一列一天，一行一件事。实心是做了，浅的是早上或晚上的护肤做了一部分，空着的是没有；心情那一行颜色越深心情越好，数字是那天的分。点上面的星期几，打开那天，能看也能补记。',
+    '再往下：每天的心情，几点睡几点起，想做到的事，这周的感恩，去了的地方，照片和每天的一句话。看的是这周时，还有护肤最近两周（「改打卡项」在这里）。']],
+  ['月', ['最上面是这个月护肤做完了几天，和祷告、运动、洗澡几次。',
+    '月历可以切护肤、心情、运动：护肤早晚都做完是实心，做了一部分是浅的；心情越好越深。点一天打开那天，忘了记的也能补。',
+    '走势是这个月的心情、精力、压力、睡眠（线是 7 天平均）。下面是每一项护肤做了几天、洗澡运动隔几天、和上个月比。']],
+  ['年', ['一年的日历一格一天，可以切护肤和心情。下面是每个月护肤、运动、祷告几次，每个月的平均心情，这一年去过的地方、心情最好的几天。']],
+  ['写给你的话', ['每一周、每个月、每一年都可以请 DeepSeek 看这段时间的数字和每天的一句话，写一小段（存下来，不会每次重写）。科研和小记不会发过去。', '月和年最下面「复制给 ChatGPT」：把这段时间的数字复制好，拿去聊。']],
+  ['翻看', ['左右箭头看以前的。顶上点「分析」看心情、作息这些的分析。']],
 ];
-const lookState = { month: null };
-
-function lookView() {
-  const today = dayKey();
-  return h('div', {},
-    headerSub('回顾', '这段日子做了什么', helpButton('回顾这一页怎么用', LOOK_HELP)),
-    lookTabs('look'),
-    lookMonthCard(today),
-    weekCardToday(today),
-    careDataCard(today),
-    yearAgoCard(today),
-    h('div', { class: 'section-title' }, '回顾'),
-    h('div', { class: 'group' },
-      cell({ href: `#/report?k=week&d=${today}`, ic: 'calendar', color: 'var(--sage)', title: '这周的回顾' }),
-      cell({ href: `#/report?k=month&d=${today}`, ic: 'chart', color: 'var(--blue)', title: '这个月的回顾' }),
-      cell({ href: `#/report?k=year&d=${today}`, ic: 'book', color: 'var(--amber)', title: `${today.slice(0, 4)} 年度报告` })));
+const lookState = { cal: 'care', ycal: 'care' };
+const WD7 = '一二三四五六日';
+const lookLink = (mode, day) => `#/look?mode=${mode}${day ? `&day=${day}` : ''}`;
+// 回顾页顶上的切换：周 | 月 | 年 | 分析（分析页也有）
+function lookTabs(on) {
+  return h('div', { class: 'segmented', role: 'group', 'aria-label': '回顾' },
+    [['week', '周', '#/look'], ['month', '月', lookLink('month')], ['year', '年', lookLink('year')], ['stats', '分析', '#/stats']]
+      .map(([k, v, href]) => h('a', { class: `seg${on === k ? ' on' : ''}`, href, 'aria-current': on === k ? 'page' : null }, v)));
 }
 
-// 这个月：一个大数字、一行次数、圆点月历（可以翻月，点一天打开那天）
-function lookMonthCard(today) {
+// 刊头的字（和账本一样）：日期范围（同一个月的后半截不写月）+ 一句在哪（这周还剩几天 / 上周 / 3 周前）
+const lmd = (day) => `${Number(day.slice(5, 7))}月${Number(day.slice(8))}日`;
+const mastRange = (a, b) => `${lmd(a)} – ${a.slice(0, 7) === b.slice(0, 7) ? `${Number(b.slice(8))}日` : lmd(b)}`;
+const mastLeft = (end, what) => { const n = daysBetween(dayKey(), end); return n ? `${what} · 还剩 ${n} 天` : `${what} · 最后一天`; };
+// 第几周：ISO 周（周一开始，有 1 月 4 日的那周是第 1 周）
+function weekNo(day) {
+  const thu = addDays(day, 3 - (parseDay(day).getDay() + 6) % 7);
+  return Math.floor(daysBetween(`${thu.slice(0, 4)}-01-01`, thu) / 7) + 1;
+}
+const f1 = (v) => (v === null || v === undefined ? '—' : String(Math.round(v * 10) / 10));
+const hoursText = (v) => (v === null ? '—' : `${f1(v)} 小时`);
+const mh = (k, v, sub) => h('div', {}, h('span', { class: 'muted small' }, k), h('b', {}, v), sub ? h('span', { class: 'muted small' }, sub) : null);
+const dayHref = (x) => (x === dayKey() ? '#/' : `#/day/${x}`);
+
+function lookView(q = {}) {
   const d = store.data;
-  const month = lookState.month || today.slice(0, 7);
-  const last = new Date(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 0).getDate();
-  const end = [`${month}-${String(last).padStart(2, '0')}`, today].sort()[0];
-  const m = lookMonth(d, end);
-  const inMonth = (x) => x >= m.from && x <= end;
-  const sports = d.events.filter((e) => e.type === 'sport' && inMonth(e.day)).length;
-  let prayers = 0;
-  for (let x = m.from; x <= end; x = addDays(x, 1)) if (prayedOn(d, x)) prayers++;
-  const counts = [`洗澡 ${m.showers} 次`, `运动 ${sports} 次`, `祷告 ${prayers} 晚`, ...m.extra.map((x) => `${x.r.name} ${x.n} 次`)];
-  const prev = addDays(`${month}-01`, -1).slice(0, 7);
-  const next = addDays(`${month}-28`, 7).slice(0, 7);
-  const move = (x) => { lookState.month = x === today.slice(0, 7) ? null : x; render(); };
-  return h('div', { class: 'card look-month' },
-    h('div', { class: 'period-nav' },
-      prev >= (d.startDate || today).slice(0, 7) ? h('button', { class: 'icon-btn', onclick: () => move(prev), 'aria-label': '上个月' }, '‹') : h('span', { class: 'icon-btn ghost' }),
-      h('h3', { class: 'grow center' }, month.slice(0, 4) === today.slice(0, 4) ? `${Number(month.slice(5, 7))} 月` : `${month.slice(0, 4)} 年 ${Number(month.slice(5, 7))} 月`),
-      next <= today.slice(0, 7) ? h('button', { class: 'icon-btn', onclick: () => move(next), 'aria-label': '下个月' }, '›') : h('span', { class: 'icon-btn ghost' })),
-    h('div', { class: 'look-big' }, h('b', {}, String(m.full.size)), h('span', {}, '天')),
-    h('p', { class: 'muted small look-cap' }, month === today.slice(0, 7) ? '这个月护肤做完的日子' : '这个月护肤做完了这么多天'),
-    h('p', { class: 'look-counts' }, counts.map((x) => h('span', {}, x))),
-    dotMonth(month, m, today),
-    h('p', { class: 'muted small legend' }, h('i', { class: 'dot-sw full' }), '早晚都做完　', h('i', { class: 'dot-sw part' }), '做了一部分', h('span', { class: 'grow' }), '点一天看那天'));
+  const today = dayKey();
+  const mode = ['month', 'year'].includes(q.mode) ? q.mode : 'week';
+  const day = /^\d{4}-\d\d-\d\d$/.test(q.day || '') && q.day <= today ? q.day : today;
+  const start = d.startDate || today;
+  const head = header('回顾', helpButton('回顾怎么看', LOOK_HELP));
+  const navRow = (m, prev, next) => h('div', { class: 'period-nav mast-nav' },
+    prev >= start ? h('a', { class: 'icon-btn', href: lookLink(mode, prev), 'aria-label': '上一个' }, '‹') : h('span', { class: 'icon-btn ghost' }),
+    h('div', { class: 'mast' },
+      h('div', { class: 'mast-big' }, m.pre ? h('small', {}, m.pre) : null, h('b', {}, m.big), m.unit ? h('small', {}, m.unit) : null),
+      h('div', { class: 'mast-side' }, h('div', { class: 'mast-range' }, m.range), h('div', { class: 'mast-sub' }, m.sub))),
+    next <= today ? h('a', { class: 'icon-btn', href: lookLink(mode, next), 'aria-label': '下一个' }, '›') : h('span', { class: 'icon-btn ghost' }));
+  if (mode === 'month') return lookMonthView(d, day, today, head, navRow);
+  if (mode === 'year') return lookYearView(d, day, today, head, navRow);
+  return lookWeekView(d, day, today, head, navRow);
 }
-function dotMonth(month, m, today) {
+
+// 最上面那张（和账本周总结一样的样子）：宋体大数字 + 一条进度 + 三个小数 + 上一段的一行
+function lookHead({ label, n, of, left, prevText, stats, foot }) {
+  return h('div', { class: 'card summary-head look-head' },
+    h('div', { class: 'muted small' }, label),
+    h('div', { class: 'look-big' }, h('b', {}, String(n)), h('span', {}, `/ ${of} 天`)),
+    h('div', { class: 'time-bar' },
+      h('div', { class: 'time-track', 'aria-label': `${of} 天里做完 ${n} 天` }, h('span', { class: 'time-fill wh-fill', style: `width:${Math.min(100, (n / of) * 100).toFixed(1)}%` })),
+      h('div', { class: 'time-legend small' }, h('span', {}, left || ''), h('span', { class: 'muted' }, prevText || ''))),
+    h('div', { class: 'mh-stats' }, stats),
+    foot ? h('div', { class: 'hero-foot muted small' }, foot) : null);
+}
+
+// ----- 周 -----
+function lookWeekView(d, day, today, head, navRow) {
+  const mon = weekOf(day);
+  const end = addDays(mon, 6);
+  const to = end < today ? end : today;
+  const ongoing = end >= today;
+  const s = periodSummary(d, mon, to);
+  const hasPrev = addDays(mon, -1) >= (d.startDate || today);
+  const prev = periodSummary(d, addDays(mon, -7), addDays(mon, -1));
+  const ago = daysBetween(mon, weekOf(today)) / 7;
+  const mast = { pre: '第', big: String(weekNo(mon)), unit: '周', range: mastRange(mon, end), sub: ago ? (ago === 1 ? '上周' : `${ago} 周前`) : mastLeft(end, '这周') };
+  const left = daysBetween(today, end);
+  const thanks = d.weeks?.[mon]?.thanks;
+  return h('div', {}, head, lookTabs('week'),
+    navRow(mast, addDays(mon, -1), addDays(end, 1)),
+    lookHead({
+      label: '这周护肤做完', n: s.careDays, of: 7,
+      left: ongoing ? (left ? `还剩 ${left} 天` : '最后一天') : '',
+      prevText: hasPrev ? `上周 ${prev.careDays} 天` : '',
+      stats: [mh('祷告', `${s.prayers} 晚`), mh('运动', `${s.sports} 次`), mh('平均睡', hoursText(s.sleep))],
+      foot: hasPrev ? `上周：祷告 ${prev.prayers} 晚 · 运动 ${prev.sports} 次 · 平均睡 ${hoursText(prev.sleep)}` : null,
+    }),
+    weekGridCard(d, mon, today),
+    weekMoodCard(d, mon, s, hasPrev ? prev : null),
+    sleepCard(d, mon, to, '这周几点睡几点起', 1),
+    goalWeekCard(mon),
+    thanks ? h('div', { class: 'card' }, h('h3', {}, '这周的感恩'), h('p', { class: 'letter-text' }, thanks)) : null,
+    visitsCard(s, '这周去了'),
+    ongoing ? careDataCard(today) : null,
+    ongoing ? yearAgoCard(today) : null,
+    photosNotesCard(d, s),
+    letterCard(d, { key: `w${mon}`, title: `第 ${weekNo(mon)} 周（${weekLabel(mon)}）`, from: mon, to }, s));
+}
+
+// 这周每天：一列一天，一行一件事（和账本「午饭和晚饭」的格子一个样子）
+function weekGridCard(d, mon, today) {
+  const g = weekGrid(d, mon, today);
+  const start = d.startDate || today;
+  return h('div', { class: 'card' }, h('h3', {}, '这周每天'),
+    h('div', { class: 'wk-grid' },
+      h('span', {}),
+      g.days.map((x, i) => (x > today || x < start ? h('span', { class: 'wk-wd' }, WD7[i])
+        : h('a', { class: `wk-wd${x === today ? ' today' : ''}`, href: dayHref(x), 'aria-label': dayLabel(x) }, WD7[i]))),
+      g.rows.map((r) => [h('span', { class: 'wk-name small' }, r.name),
+        r.cells.map((c) => h('span', { class: `wk-cell ${c.st}`, title: `${r.name} · ${dayLabel(c.day)}` }, c.v ? String(c.v) : ''))])),
+    h('p', { class: 'muted small legend' }, h('i', { class: 'dot-sw full' }), '做了　', h('i', { class: 'dot-sw part' }), '做了一部分', h('span', { class: 'grow' }), '心情越好越深'));
+}
+
+function weekMoodCard(d, mon, s, prev) {
+  if (s.mood === null && s.energy === null && s.stress === null) return null;
+  const days = rangeDays(mon, addDays(mon, 6));
+  const cmp = (a, b) => (a === null || !prev || b === null ? null : Math.abs(a - b) < 0.05 ? '和上周一样' : `比上周${a > b ? '高' : '低'} ${f1(Math.abs(a - b))}`);
+  return h('div', { class: 'card' }, h('h3', {}, '每天的心情'),
+    barChart(days.map((x, i) => ({ label: `周${WD7[i]}`, v: d.days[x]?.mood || 0 })), { title: '这周每天的心情', scale: 10 }),
+    h('div', { class: 'mh-stats' },
+      mh('心情', f1(s.mood), cmp(s.mood, prev?.mood)), mh('精力', f1(s.energy), cmp(s.energy, prev?.energy)), mh('压力', f1(s.stress), cmp(s.stress, prev?.stress))));
+}
+
+// 几点睡几点起（周、月）
+function sleepCard(d, from, to, title, every) {
+  const rows = rangeDays(from, to).map((x) => ({ day: x, sl: d.days[x]?.sleep })).filter((x) => x.sl?.bed && x.sl?.wake);
+  if (!rows.length) return null;
+  const hrs = rows.map((r) => sleepHours(r.sl));
+  const beds = rows.map((r) => bedMinutes(r.sl));
+  const avg = (xs) => xs.reduce((a, b) => a + b, 0) / xs.length;
+  return h('div', { class: 'card' }, h('h3', {}, '作息'),
+    sleepBars(rows.map((r) => ({ day: r.day, bed: bedMinutes(r.sl), wake: bedMinutes({ bed: r.sl.wake }) })), { title, every }),
+    h('div', { class: 'mh-stats' }, mh('平均睡', hoursText(avg(hrs))), mh('平均几点睡', bedLabel(Math.round(avg(beds)))), mh('记了', `${rows.length} 天`)));
+}
+
+function visitsCard(s, title) {
+  if (!s.visits.length) return null;
+  return h('div', { class: 'card' }, h('h3', {}, title),
+    s.visits.map((v) => h('div', { class: 'small night-note' }, h('span', { class: 'muted' }, `${lmd(v.day)}　`), v.name, v.score ? h('span', { class: 'muted' }, ` · ${v.score} 分`) : null)));
+}
+
+function photosNotesCard(d, s) {
+  if (!s.photos.length && !s.notes.length) return null;
+  return h('div', { class: 'card' }, h('h3', {}, '照片和每天的一句话'),
+    s.photos.length ? h('div', { class: 'wk-photos' }, s.photos.map((x) => h('a', { class: 'wk-photo', href: dayHref(x), 'aria-label': dayLabel(x) },
+      dayImg(d.days[x].photo, 'wk-photo-img'), h('small', {}, `周${WD7[(parseDay(x).getDay() + 6) % 7]}`)))) : null,
+    s.notes.map((x) => h('div', { class: 'small night-note' }, h('span', { class: 'muted' }, `${x.day.slice(5).replace('-', '/')} · ${x.mood || '-'} 分　`), x.note)));
+}
+
+// ----- 月 -----
+function lookMonthView(d, day, today, head, navRow) {
+  const m = day.slice(0, 7);
+  const from = `${m}-01`;
+  const end = addDays(`${addDays(`${m}-28`, 7).slice(0, 7)}-01`, -1);
+  const to = end < today ? end : today;
+  const ongoing = end >= today;
+  const pFrom = `${addDays(from, -1).slice(0, 7)}-01`;
+  const pEnd = addDays(from, -1);
+  const hasPrev = pEnd >= (d.startDate || today);
+  const s = periodSummary(d, from, to);
+  const prev = periodSummary(d, pFrom, pEnd);
+  const now = today.slice(0, 7);
+  const ago = (Number(now.slice(0, 4)) * 12 + Number(now.slice(5))) - (Number(m.slice(0, 4)) * 12 + Number(m.slice(5)));
+  const where = ago ? (ago === 1 ? '上个月' : `${ago} 个月前`) : mastLeft(end, '这个月');
+  const mast = { big: String(Number(m.slice(5))), unit: '月', range: mastRange(from, end), sub: m.slice(0, 4) === today.slice(0, 4) ? where : `${m.slice(0, 4)} 年 · ${where}` };
+  const left = daysBetween(today, end);
+  const title = `${m.slice(0, 4)} 年 ${Number(m.slice(5))} 月`;
+  return h('div', {}, head, lookTabs('month'),
+    navRow(mast, pEnd, addDays(end, 1)),
+    lookHead({
+      label: '这个月护肤做完', n: s.careDays, of: Number(end.slice(8)),
+      left: ongoing ? (left ? `还剩 ${left} 天` : '最后一天') : '',
+      prevText: hasPrev ? `上个月 ${prev.careDays} 天` : '',
+      stats: [mh('祷告', `${s.prayers} 晚`), mh('运动', `${s.sports} 次`), mh('洗澡', `${s.showers} 次`)],
+    }),
+    monthCalCard(d, m, to, today),
+    monthTrendCard(d, from, end),
+    sleepCard(d, from, to, '这个月几点睡几点起', 7),
+    monthCareCard(d, from, to),
+    rhythmCard(d, from, to, s),
+    hasPrev ? compareCard(s, prev, '这个月', '上个月') : null,
+    visitsCard(s, '这个月去了'),
+    s.photos.length ? h('div', { class: 'group' }, cell({ href: `#/photos?m=${m}`, ic: 'image', color: 'var(--sage)', title: '这个月的照片', meta: `${s.photos.length} 张` })) : null,
+    notesFold(s),
+    letterCard(d, { key: `m${m}`, title, from, to }, s),
+    exportButton(title, from, to, s));
+}
+
+// 月历：切护肤 / 心情 / 运动；点一天打开那天
+function monthCalCard(d, m, to, today) {
+  const start = d.startDate || today;
+  const mode = lookState.cal;
+  const sport = new Set(d.events.filter((e) => e.type === 'sport' && e.day.startsWith(m)).map((e) => e.day));
+  const lm = lookMonth(d, to);
+  const stOf = {
+    care: (x) => (lm.full.has(x) ? 'full' : lm.some.has(x) ? 'part' : ''),
+    mood: (x) => (d.days[x]?.mood ? `m${Math.ceil(d.days[x].mood / 2)}` : ''),
+    sport: (x) => (sport.has(x) ? 'full' : ''),
+  }[mode];
+  const legend = {
+    care: [h('i', { class: 'dot-sw full' }), '早晚都做完　', h('i', { class: 'dot-sw part' }), '做了一部分'],
+    mood: ['低', [1, 2, 3, 4, 5].map((k) => h('i', { class: `dot-sw m${k}` })), '高'],
+    sport: [h('i', { class: 'dot-sw full' }), '运动了'],
+  }[mode];
+  return h('div', { class: 'card look-month' },
+    h('div', { class: 'segmented small-seg' }, [['care', '护肤'], ['mood', '心情'], ['sport', '运动']].map(([k, v]) =>
+      h('button', { type: 'button', class: `seg${mode === k ? ' on' : ''}`, onclick: () => { lookState.cal = k; render(); } }, v))),
+    dotMonth(m, stOf, today, start),
+    h('p', { class: `muted small legend${mode === 'mood' ? ' mood-legend' : ''}` }, legend, h('span', { class: 'grow' }), '点一天看那天'));
+}
+function dotMonth(month, stOf, today, start) {
   const first = `${month}-01`;
   const lead = (parseDay(first).getDay() + 6) % 7;
   const n = new Date(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 0).getDate();
   const cells = Array.from({ length: lead }, () => h('span', {}));
   for (let i = 1; i <= n; i++) {
     const x = `${month}-${String(i).padStart(2, '0')}`;
-    const st = m.full.has(x) ? 'full' : m.some.has(x) ? 'part' : x > today ? 'future' : x < m.from ? 'before' : 'empty';
+    const st = x > today ? 'future' : x < start ? 'before' : stOf(x) || 'empty';
     const inner = [h('i', {}), h('small', {}, String(i))];
-    const cls = `md ${st}${x === today ? ' today' : ''}`;
-    cells.push(x > today || x < m.from ? h('span', { class: cls }, inner)
-      : h('a', { class: cls, href: x === today ? '#/' : `#/day/${x}`, 'aria-label': `${Number(month.slice(5, 7))} 月 ${i} 日` }, inner));
+    const cls = `md ${st.startsWith('m') ? `mood ${st}` : st}${x === today ? ' today' : ''}`;
+    cells.push(x > today || x < start ? h('span', { class: cls }, inner)
+      : h('a', { class: cls, href: dayHref(x), 'aria-label': `${Number(month.slice(5, 7))} 月 ${i} 日` }, inner));
   }
   return h('div', { class: 'dot-month' },
-    ['一', '二', '三', '四', '五', '六', '日'].map((w) => h('span', { class: 'wd', 'aria-hidden': 'true' }, w)), cells);
+    WD7.split('').map((w) => h('span', { class: 'wd', 'aria-hidden': 'true' }, w)), cells);
+}
+
+function monthTrendCard(d, from, end) {
+  const get = (k) => (x) => d.days[x]?.[k] ?? null;
+  const mood = seriesRange(d, from, end, get('mood'));
+  if (!mood.vals.some((v) => v !== null)) return null;
+  return h('div', { class: 'card' },
+    h('h3', {}, '心情（线是 7 天平均）'), lineChart(mood, { min: 1, max: 10, title: '这个月的心情' }),
+    h('h3', {}, '精力'), lineChart(seriesRange(d, from, end, get('energy')), { min: 1, max: 5, title: '这个月的精力', color: 'var(--good)' }),
+    h('h3', {}, '压力'), lineChart(seriesRange(d, from, end, get('stress')), { min: 1, max: 5, title: '这个月的压力', color: 'var(--danger)' }),
+    h('h3', {}, '睡了几小时'), lineChart(seriesRange(d, from, end, (x) => sleepHours(d.days[x]?.sleep)), { min: 4, max: 10, title: '这个月的睡眠', color: 'var(--blue)' }));
+}
+
+// 每一项护肤这个月做了几天（按早上 / 晚上 / 洗澡后 / 每周分组）
+function monthCareCard(d, from, to) {
+  const rows = careInRange(d, from, to);
+  if (!rows.length) return null;
+  const groups = ['am', 'pm', 'shower', 'week'].map((w) => {
+    const items = rows.filter((x) => x.r.when === w);
+    if (!items.length) return null;
+    return h('div', { class: 'care-group' },
+      h('div', { class: 'care-when' }, icon(WHEN_ICON[w], 'i'), WHEN[w]),
+      items.map((x) => h('div', { class: 'care-rate' },
+        h('span', { class: 'grow' }, x.r.name),
+        ['am', 'pm'].includes(w) && x.total ? h('span', { class: 'care-bar', 'aria-hidden': 'true' }, h('i', { style: `width:${((x.done / x.total) * 100).toFixed(1)}%` })) : null,
+        h('span', { class: 'small muted care-n' }, w === 'shower' ? `洗澡 ${x.total} 次里 ${x.done} 次` : w === 'week' ? `${x.done} 次` : `${x.done}/${x.total} 天`))));
+  });
+  return h('div', { class: 'card' }, h('h3', {}, '每一项护肤'), groups);
+}
+
+// 洗澡、运动：几次、平均隔几天（月、年）
+function rhythmCard(d, from, to, s) {
+  const inR = (e) => e.day >= from && e.day <= to;
+  const sh = gaps(d.events.filter((e) => e.type === 'shower' && inR(e)).map((e) => e.day));
+  const sp = d.events.filter((e) => e.type === 'sport' && inR(e));
+  if (!sh.n && !sp.length) return null;
+  const kinds = {};
+  for (const e of sp) kinds[e.kind || '其他'] = (kinds[e.kind || '其他'] || 0) + 1;
+  return h('div', { class: 'card' }, h('h3', {}, '洗澡和运动'),
+    h('div', { class: 'stat-grid' },
+      stat('洗澡', `${sh.n} 次`), stat('平均隔', sh.avg === null ? '—' : `${f1(sh.avg)} 天`),
+      stat('运动', `${sp.length} 次${s.sportMinutes ? ` · ${s.sportMinutes} 分钟` : ''}`), stat('走了 / 跑了', s.km ? `${f1(s.km)} 公里` : '—')),
+    Object.keys(kinds).length ? h('p', { class: 'look-counts' }, Object.entries(kinds).sort((a, b) => b[1] - a[1]).map(([k, n]) => h('span', {}, `${k} ${n} 次`))) : null);
+}
+
+function compareCard(s, prev, a, b) {
+  const rows = [
+    ['护肤做完', `${s.careDays} 天`, `${prev.careDays} 天`], ['祷告', `${s.prayers} 晚`, `${prev.prayers} 晚`],
+    ['运动', `${s.sports} 次`, `${prev.sports} 次`], ['洗澡', `${s.showers} 次`, `${prev.showers} 次`],
+    ['心情', f1(s.mood), f1(prev.mood)], ['精力', f1(s.energy), f1(prev.energy)], ['压力', f1(s.stress), f1(prev.stress)],
+    ['平均睡', hoursText(s.sleep), hoursText(prev.sleep)],
+  ];
+  return h('div', { class: 'card' }, h('h3', {}, `和${b}比`),
+    h('table', { class: 'cmp-table' }, h('thead', {}, h('tr', {}, h('th', {}, ''), h('th', {}, a), h('th', {}, b))),
+      h('tbody', {}, rows.map(([k, x, y]) => h('tr', {}, h('td', {}, k), h('td', {}, x), h('td', { class: 'muted' }, y))))));
+}
+
+function notesFold(s) {
+  if (!s.notes.length) return null;
+  return h('details', { class: 'card notes-fold' }, h('summary', {}, h('h3', {}, `每天的一句话（${s.notes.length}）`)),
+    s.notes.map((x) => h('div', { class: 'small night-note' }, h('span', { class: 'muted' }, `${x.day.slice(5).replace('-', '/')} · ${x.mood || '-'} 分　`), x.note)));
+}
+
+const exportButton = (title, from, to, s) => h('button', { type: 'button', class: 'secondary wide', onclick: () => copyText(`${title}的记录（${from} 到 ${to}）：\n${summaryText(s)}`) }, icon('copy'), '复制给 ChatGPT');
+
+// ----- 年 -----
+function lookYearView(d, day, today, head, navRow) {
+  const y = Number(day.slice(0, 4));
+  const from = `${y}-01-01`;
+  const end = `${y}-12-31`;
+  const to = end < today ? end : today;
+  const start = d.startDate || today;
+  const s = periodSummary(d, from, to);
+  const yd = yearData(d, y, today);
+  const ago = Number(today.slice(0, 4)) - y;
+  const mast = { big: String(y), range: '1月1日 – 12月31日', sub: ago ? (ago === 1 ? '去年' : `${ago} 年前`) : mastLeft(end, '今年') };
+  const counted = yd.days.filter((x) => !x.off).length;
+  const places = new Set(s.visits.map((v) => v.name));
+  const title = `${y} 年`;
+  return h('div', {}, head, lookTabs('year'),
+    navRow(mast, `${y - 1}-12-31`, `${y + 1}-01-01`),
+    lookHead({
+      label: '这一年护肤做完', n: s.careDays, of: counted || 1,
+      left: start > from ? `从 ${lmd(start)} 开始记` : '', prevText: `记了 ${s.recorded} 天心情或一句话`,
+      stats: [mh('祷告', `${s.prayers} 晚`), mh('运动', `${s.sports} 次`), mh('去了', `${places.size} 个地方`)],
+    }),
+    yearCalCard(yd, today),
+    yearMonthsCard(yd),
+    yearThingsCard(d, s, y),
+    letterCard(d, { key: `y${y}`, title, from, to }, s),
+    exportButton(title, from, to, s));
+}
+
+function yearCalCard(yd, today) {
+  const mode = lookState.ycal;
+  const days = yd.days.map((x) => (mode === 'care'
+    ? { day: x.day, off: x.off, lv: x.care * 2, tip: x.care === 2 ? '护肤都做完' : x.care ? '做了一部分' : '' }
+    : { day: x.day, off: x.off, lv: x.mood ? Math.min(4, Math.ceil(x.mood / 2.5)) : 0, tip: x.mood ? `心情 ${x.mood} 分` : '' }));
+  return h('div', { class: 'card' }, h('h3', {}, '一年的日历'),
+    h('div', { class: 'segmented small-seg' }, [['care', '护肤'], ['mood', '心情']].map(([k, v]) =>
+      h('button', { type: 'button', class: `seg${mode === k ? ' on' : ''}`, onclick: () => { lookState.ycal = k; render(); } }, v))),
+    yearCalendar(days, { today, title: mode === 'care' ? '这一年每天的护肤' : '这一年每天的心情', legend: mode === 'care' ? ['没做', '做完'] : ['低', '高'] }));
+}
+
+function yearMonthsCard(yd) {
+  const ms = yd.months;
+  if (!ms.some((x) => x.n)) return null;
+  const bars = (k) => ms.map((x) => ({ label: String(x.month), v: x[k] }));
+  return h('div', { class: 'card' }, h('h3', {}, '每个月'),
+    h('div', { class: 'label-sm' }, '护肤做完（天）'), barChart(bars('careDays'), { title: '每个月护肤做完几天' }),
+    h('div', { class: 'label-sm' }, '祷告（晚）'), barChart(bars('prayers'), { title: '每个月祷告几晚', color: 'var(--sage)' }),
+    h('div', { class: 'label-sm' }, '运动（次）'), barChart(bars('sports'), { title: '每个月运动几次', color: 'var(--good)' }),
+    ms.some((x) => x.mood !== null) ? [h('div', { class: 'label-sm' }, '平均心情'),
+      barChart(ms.map((x) => ({ label: String(x.month), v: x.mood === null ? 0 : Math.round(x.mood * 10) / 10 })), { title: '每个月的平均心情', scale: 10, color: 'var(--blue)' })] : null);
+}
+
+// 这一年：去过的地方、心情最好的几天、里程碑、做到的事
+function yearThingsCard(d, s, y) {
+  const places = [...new Set(s.visits.map((v) => v.name))];
+  const best = s.notes.filter((x) => x.mood).sort((a, b) => b.mood - a.mood || a.day.localeCompare(b.day)).slice(0, 3);
+  const miles = Object.entries(d.milestones || {}).filter(([k, at]) => k !== 'seen' && MILESTONE_TEXT[k] && String(at).startsWith(String(y))).sort((a, b) => a[1].localeCompare(b[1]));
+  const goals = (d.goals || []).filter((g) => g.status === 'done' && String(g.doneAt || '').startsWith(String(y)));
+  if (!places.length && !best.length && !miles.length && !goals.length) return null;
+  return h('div', { class: 'card' }, h('h3', {}, '这一年'),
+    places.length ? [h('div', { class: 'label-sm' }, `去过 ${places.length} 个地方`), h('p', { class: 'look-counts' }, places.map((n) => h('span', {}, n)))] : null,
+    best.length ? [h('div', { class: 'label-sm' }, '心情最好的几天'), best.map((x) => h('a', { class: 'small night-note block', href: dayHref(x.day) }, h('span', { class: 'muted' }, `${lmd(x.day)} · ${x.mood} 分　`), x.note))] : null,
+    goals.length ? [h('div', { class: 'label-sm' }, '做到的事'), goals.map((g) => h('div', { class: 'small night-note' }, h('span', { class: 'muted' }, `${lmd(g.doneAt)}　`), g.title))] : null,
+    miles.length ? [h('div', { class: 'label-sm' }, '第一次'), miles.map(([k, at]) => h('div', { class: 'small night-note' }, h('span', { class: 'muted' }, `${lmd(at)}　`), MILESTONE_TEXT[k]))] : null);
+}
+
+// 写给你的话：DeepSeek 看这段时间的数字和每天的一句话写一段，存在 letters（周 w周一 / 月 m月份 / 年 y年份）
+const letterBusy = {};
+function letterCard(d, r, s) {
+  const letter = d.letters?.[r.key];
+  const write = async () => {
+    letterBusy[r.key] = true; render();
+    try {
+      const cfg = await aiConfig();
+      const out = await askJson(cfg, LETTER_SYSTEM, `${r.title}的记录（${r.from} 到 ${r.to}）：\n${summaryText(s)}\n\n请写这段时间的回顾。返回 JSON：{"letter": "回顾正文"}`);
+      await save(`回顾：${r.title}`, (data) => { (data.letters ||= {})[r.key] = { at: dayKey(), text: String(out.letter || '') }; });
+    } catch (e) { toast(e.message, 'error'); }
+    letterBusy[r.key] = false; render();
+  };
+  return h('div', { class: 'card letter' },
+    h('h3', {}, icon('sparkle', 'i'), ' 写给你的话'),
+    letter ? [h('p', { class: 'letter-text' }, letter.text),
+      h('button', { class: 'link small', onclick: write, disabled: letterBusy[r.key] }, letterBusy[r.key] ? '正在写……' : '重新写')]
+      : s.recorded < 2 ? h('p', { class: 'muted small' }, '这段时间记得太少，先不写。')
+        : h('button', { class: 'secondary', onclick: write, disabled: letterBusy[r.key] }, letterBusy[r.key] ? 'DeepSeek 正在写……' : '请 DeepSeek 写一段'));
 }
 
 // 护肤：按早上 / 晚上 / 洗澡后 / 每周分组，每一项后面最近 14 天一天一个点
@@ -1953,12 +2256,6 @@ const statsState = { range: 30, rhythm: 'shower' };
 const weatherHist = { key: '', data: {} };
 const spendHist = { at: 0, data: {} };
 
-// 回顾页顶上的切换：这个月 | 分析
-function lookTabs(on) {
-  return h('div', { class: 'segmented', role: 'group', 'aria-label': '回顾' },
-    [['look', '这个月'], ['stats', '分析']].map(([k, v]) => h('a', { class: `seg${on === k ? ' on' : ''}`, href: `#/${k}`, 'aria-current': on === k ? 'page' : null }, v)));
-}
-
 function statsView() {
   const d = store.data;
   const today = dayKey();
@@ -2092,59 +2389,6 @@ function weekdayCard(today) {
       h('h3', {}, '精力'), barChart(bars('energy'), { title: '星期几的精力', scale: 5, color: 'var(--good)' }),
       best && best.mood - worst.mood >= 0.5 ? h('p', { class: 'small' }, `${name(best)}心情最好（平均 ${f1(best.mood)}），${name(worst)}低一些（${f1(worst.mood)}）。`)
         : h('p', { class: 'muted small' }, best ? '每天差不多，没有哪天特别不一样。' : '最近 90 天，每个星期几都记过 2 次以上，就能比出来了。'))];
-}
-// 报告：周 / 月 / 年。数字 + DeepSeek 写的一小段（存在 letters 里）
-function reportRange(k, day) {
-  if (k === 'week') { const mon = weekOf(day); return { key: `w${mon}`, from: mon, to: addDays(mon, 6), title: `这周（${weekLabel(mon)}）`, prev: addDays(mon, -7), next: addDays(mon, 7) }; }
-  if (k === 'month') {
-    const m = day.slice(0, 7); const end = addDays(`${addDays(`${m}-28`, 7).slice(0, 7)}-01`, -1);
-    return { key: `m${m}`, from: `${m}-01`, to: end, title: `${Number(m.slice(5))} 月`, prev: addDays(`${m}-01`, -1), next: addDays(end, 1) };
-  }
-  const y = day.slice(0, 4);
-  return { key: `y${y}`, from: `${y}-01-01`, to: `${y}-12-31`, title: `${y} 年`, prev: `${Number(y) - 1}-06-01`, next: `${Number(y) + 1}-06-01` };
-}
-const letterBusy = {};
-function reportView(q) {
-  const d = store.data;
-  const k = ['week', 'month', 'year'].includes(q.k) ? q.k : 'week';
-  const r = reportRange(k, q.d || dayKey());
-  const to = r.to > dayKey() ? dayKey() : r.to;
-  const s = periodSummary(d, r.from, to);
-  const letter = d.letters?.[r.key];
-  const fmt1 = (v) => (v === null ? '—' : (Math.round(v * 10) / 10).toString());
-  const tiles = [
-    ['心情', fmt1(s.mood)], ['精力', fmt1(s.energy)], ['压力', fmt1(s.stress)], ['平均睡', s.sleep === null ? '—' : `${fmt1(s.sleep)} 小时`],
-    ['护肤做完', `${s.careDays} 天`], ['洗澡', `${s.showers} 次`], ['运动', `${s.sports} 次${s.km ? ` · ${Math.round(s.km * 10) / 10} 公里` : ''}`],
-    ['祷告', `${s.prayers} 晚`], ['去了', `${new Set(s.visits.map((v) => v.name)).size} 个地方`],
-  ];
-  const write = async () => {
-    letterBusy[r.key] = true; render();
-    try {
-      const cfg = await aiConfig();
-      const out = await askJson(cfg, LETTER_SYSTEM, `${r.title}的记录（${r.from} 到 ${to}）：\n${summaryText(s)}\n\n请写这段时间的回顾。返回 JSON：{"letter": "回顾正文"}`);
-      await save(`回顾：${r.title}`, (data) => { (data.letters ||= {})[r.key] = { at: dayKey(), text: String(out.letter || '') }; });
-    } catch (e) { toast(e.message, 'error'); }
-    letterBusy[r.key] = false; render();
-  };
-  const tabs = [['week', '周'], ['month', '月'], ['year', '年']];
-  return h('div', {},
-    headerSub('回顾', r.title),
-    h('div', { class: 'segmented' }, tabs.map(([kk, v]) => h('a', { class: `seg${k === kk ? ' on' : ''}`, href: `#/report?k=${kk}&d=${q.d || dayKey()}` }, v))),
-    h('div', { class: 'period-nav' },
-      h('a', { class: 'icon-btn', href: `#/report?k=${k}&d=${r.prev}`, 'aria-label': '上一段' }, '‹'),
-      h('b', { class: 'grow center' }, r.title),
-      r.next <= dayKey() ? h('a', { class: 'icon-btn', href: `#/report?k=${k}&d=${r.next}`, 'aria-label': '下一段' }, '›') : h('span', { class: 'icon-btn ghost' })),
-    h('div', { class: 'card letter' },
-      h('h3', {}, icon('sparkle', 'i'), ' 写给你的话'),
-      letter ? [h('p', { class: 'letter-text' }, letter.text),
-        h('button', { class: 'link small', onclick: write, disabled: letterBusy[r.key] }, letterBusy[r.key] ? '正在写……' : '重新写')]
-        : s.recorded < 2 ? h('p', { class: 'muted small' }, '这段时间记得太少，先不写。')
-          : h('button', { class: 'secondary', onclick: write, disabled: letterBusy[r.key] }, letterBusy[r.key] ? 'DeepSeek 正在写……' : '请 DeepSeek 写一段')),
-    h('div', { class: 'card' }, h('div', { class: 'stat-grid' }, tiles.map(([a, b]) => stat(a, b))),
-      s.bestDay ? h('p', { class: 'small' }, `心情最好的一天：${dayLabel(s.bestDay)}${d.days[s.bestDay].note ? `，「${d.days[s.bestDay].note}」` : ''}`) : null),
-    k === 'week' ? goalWeekCard(r.from) : null,
-    s.notes.length ? h('div', { class: 'card' }, h('h3', {}, '每天的一句话'), s.notes.slice(-31).map((x) => h('div', { class: 'small night-note' }, h('span', { class: 'muted' }, `${x.day.slice(5).replace('-', '/')} · ${x.mood || '-'} 分　`), x.note))) : null,
-    h('a', { class: 'small', href: '#/look' }, '‹ 回顾'));
 }
 // 周报里：想做到的事这周做了什么、现在到哪了
 function goalWeekCard(mon) {
