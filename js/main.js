@@ -745,7 +745,7 @@ function eventRow(e) {
   return h('div', { class: 'event-row' },
     h('span', { class: 'muted small ev-time' }, hm(e.at)),
     h('span', { class: 'grow' }, eventText(e), e.note ? h('span', { class: 'muted small' }, ` · ${e.note}`) : null),
-    h('button', { class: 'link small', 'aria-label': `删掉 ${eventText(e)}`, onclick: remove }, '删掉'));
+    h('button', { class: 'link small muted icon-del', 'aria-label': `删掉 ${eventText(e)}`, onclick: remove }, icon('trash')));
 }
 
 // 记在哪一天：今天就用现在的时间；补记以前的某天，就用那天晚上 9 点
@@ -2567,7 +2567,7 @@ function lowView() {
       d.low.notes.length ? d.low.notes.slice().reverse().map((n) => h('div', { class: 'low-note' },
         h('p', {}, n.text),
         h('div', { class: 'rec-top' }, h('span', { class: 'muted small' }, n.at.slice(0, 10)),
-          h('button', { class: 'link small', onclick: () => saveUndoable('删掉一句', (data) => { data.low.notes = data.low.notes.filter((x) => x.id !== n.id); }, '删掉了').then(render).catch(() => {}) }, '删掉'))))
+          h('button', { class: 'link small muted icon-del', 'aria-label': '删掉', onclick: () => saveUndoable('删掉一句', (data) => { data.low.notes = data.low.notes.filter((x) => x.id !== n.id); }, '删掉了').then(render).catch(() => {}) }, icon('trash')))))
         : h('p', { class: 'muted small' }, '状态好的时候写一句给难受时的自己。到时候会翻出来给你看。')),
     lessons.length ? [h('div', { class: 'section-title' }, '以前的经验'), h('div', { class: 'card' }, lessons.map(([k, l]) => h('div', { class: 'low-lesson' },
       h('b', {}, `${LOW_KINDS[k].icon} ${LOW_KINDS[k].name}`), h('span', { class: 'muted small' }, ` · ${l.n} 次${l.better ? ` · 做完平均好了 ${l.better} 分` : ''}`),
@@ -4029,7 +4029,7 @@ function advisorView() {
     h('div', { class: 'card' }, h('h3', {}, `记下的 ${list.length} 次`),
       list.length ? h('div', { class: 'event-list' }, list.map((e) => h('div', { class: 'event-row' },
         h('span', { class: 'grow' }, dayLabel(e.day), e.kind ? h('span', { class: 'muted small' }, ` · ${ADVISOR_HOW[e.kind] || e.kind}`) : null),
-        h('button', { class: 'link small', 'aria-label': `删掉 ${e.day}`, onclick: () => remove(e) }, '删掉'))))
+        h('button', { class: 'link small muted icon-del', 'aria-label': `删掉 ${e.day}`, onclick: () => remove(e) }, icon('trash')))))
         : h('p', { class: 'muted small' }, '还没有。')),
     fit ? h('details', { class: 'card how' }, h('summary', {}, '怎么算的'),
       h('p', { class: 'small' }, '离散时间风险模型（贝叶斯逻辑回归）。从第一次被找的第二天起，每天一行：那天被找了没有，离上次几天，周几。'),
