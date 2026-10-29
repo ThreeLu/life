@@ -2,6 +2,7 @@
 // 只能看出「两件事常常一起出现」，看不出谁导致谁——页面上要这样写。
 
 import { addDays, daysBetween, parseDay, careFullDay, careDone, careSkipped, showeredOn } from './life.js';
+import { scalesIn } from './scales.js';
 
 export const MIN_DAYS = 21; // 心情记满这么多天，「什么在影响我」才开始给结论
 
@@ -183,6 +184,7 @@ export function periodSummary(data, from, to) {
     notes: days.map((d) => ({ day: d, note: data.days[d]?.note, mood: data.days[d]?.mood })).filter((x) => x.note),
     photos: days.filter((d) => data.days[d]?.photo),
     visits: (data.places || []).flatMap((p) => (p.visits || []).filter((v) => v.day >= from && v.day <= to).map((v) => ({ name: p.name, ...v }))),
+    scales: scalesIn(data, from, to),
   };
 }
 

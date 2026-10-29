@@ -1563,6 +1563,91 @@ STORY = FakeRepo({"README.md": b"# story-data\n"})
 INVENTORY = FakeRepo(inventory_seed())
 
 
+@step("心情问卷：一题一屏填完（能回上一题、中途离开接着填）；分数偏高「今天」一句多出去走走；回顾周 / 月、分析、全部问卷；复制给 ChatGPT 带上分数")
+def _(c):
+    p = c.page
+    # 编的：两周前那周（周日已经过了）；每周的按周日归到哪个月
+    t = datetime.fromisoformat(TODAY)
+    mon = (t - timedelta(days=t.weekday() + 14)).date().isoformat()
+    sun = (t - timedelta(days=t.weekday() + 8)).date().isoformat()
+    wk, mk = f"w{mon}", f"m{sun[:7]}"
+    c.write(lambda d: d.pop("scales", None))
+    c.go(f"#/scale?k={wk}")
+    expect(p.locator(".scale-go .muted.small").first).to_contain_text("过去一周")
+    for i in range(21):
+        expect(p.locator(".scale-go .card .muted.small")).to_have_text(f"{i + 1} / 21")
+        if i == 3:
+            p.wait_for_timeout(600)
+            p.screenshot(path=ART / "scale-question.png")
+        if i == 2:  # 回上一题再往下
+            p.get_by_role("button", name="上一题").click()
+            expect(p.locator(".scale-go .card .muted.small")).to_have_text("2 / 21")
+            expect(p.get_by_role("button", name="有时符合")).to_have_attribute("aria-pressed", "true")
+            p.get_by_role("button", name="有时符合").click()
+        p.get_by_role("button", name="有时符合").click()
+    expect(p.locator("h1")).to_have_text("填好了")
+    c.wait(lambda d: d["scales"][wk]["dass"] == [1] * 21 and d["scales"][wk]["day"] == TODAY, "存下这周的问卷")
+    expect(p.locator(".scale-go")).to_contain_text("多出去转转")  # 抑郁 14 是中度
+    expect(p.locator("main")).not_to_contain_text("中度")  # 分数段只在「?」里
+    # 每个月的：填 3 题离开，回来接着第 4 题
+    c.go(f"#/scale?k={mk}")
+    expect(p.locator(".scale-go .muted.small").first).to_contain_text("过去一个月")
+    for _ in range(3):
+        p.get_by_role("button", name="偶尔").click()
+    c.go("#/")
+    c.go(f"#/scale?k={mk}")
+    p.reload()
+    expect(p.locator(".scale-go .card .muted.small")).to_have_text("4 / 15")
+    for _ in range(7):
+        p.get_by_role("button", name="偶尔").click()
+    expect(p.locator(".scale-go .muted.small").first).to_contain_text("有多同意")  # 接着是生活满意度
+    for _ in range(5):
+        p.get_by_role("button", name="同意", exact=True).click()
+    c.wait(lambda d: d["scales"][mk]["pss"] == [2] * 10 and d["scales"][mk]["swls"] == [5] * 5, "存下这个月的问卷")
+    # 今天：刚填完分数偏高 → 一句多出去走走，点了去想去的地方
+    c.go("#/")
+    line = p.locator(".alert-line", has_text="多出去转转")
+    expect(line).to_be_visible()
+    expect(line).to_have_attribute("href", "#/places")
+    # 回顾 · 周
+    c.go(f"#/look?mode=week&day={mon}")
+    card = p.locator(".card", has=p.locator("h3", has_text="心情问卷"))
+    expect(card.locator(".mh-stats").first).to_contain_text("抑郁14")
+    expect(card).to_contain_text("这个月的压力20 / 40")
+    # 回顾 · 月：两份的分数 + 每周的图；复制给 ChatGPT 带上分数
+    c.go(f"#/look?mode=month&day={sun}")
+    card = p.locator(".card", has=p.locator("h3", has_text="问卷"))
+    expect(card).to_contain_text("生活满意度30 / 35")
+    expect(card.locator("svg[aria-label='这个月每周的心情问卷']")).to_be_visible()
+    p.get_by_role("button", name="复制给 ChatGPT").click()
+    clip = p.evaluate("navigator.clipboard.readText()")
+    assert "抑郁14（中度）焦虑14（中度）压力14（正常）" in clip and "压力知觉 20/40（中等）" in clip and "生活满意度 30/35（满意）" in clip, clip[-400:]
+    # 分析：只填了一周，还没有走势
+    c.go("#/stats")
+    expect(p.locator(".card", has_text="再填一周")).to_be_visible()
+    # 全部问卷：分数段在「?」里
+    p.get_by_role("link", name="全部问卷").click()
+    expect(p.locator("#nav a.active")).to_have_text("回顾")
+    expect(p.locator(".night-note").first).to_contain_text("抑郁 14 · 焦虑 14 · 压力 14")
+    p.get_by_role("button", name="怎么用").click()
+    expect(c.sheet()).to_contain_text("14–20 中度")
+    c.sheet().get_by_role("button", name="知道了").click()
+    # 再填两周（编的），分析里出走势
+    def more(d):
+        for k, v in ((7, 0), (21, 2)):
+            m = (t - timedelta(days=t.weekday() + k)).date().isoformat()
+            d["scales"][f"w{m}"] = {"at": f"{m}T12:00:00.000Z", "day": m, "dass": [v] * 21}
+    c.write(more)
+    c.go("#/stats")
+    p.reload()
+    expect(p.locator("svg[aria-label='最近 12 周的心情问卷'] path")).to_have_count(3)
+    p.locator(".section-title", has_text="问卷").scroll_into_view_if_needed()
+    p.screenshot(path=ART / "scales-stats.png")
+    c.go("#/scales")
+    p.screenshot(path=ART / "scales.png", full_page=True)
+    c.write(lambda d: d.pop("scales", None))
+
+
 def main():
     only = sys.argv[1:]
     ART.mkdir(exist_ok=True)

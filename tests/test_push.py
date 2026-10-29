@@ -142,3 +142,40 @@ if shutil.which("node"):
                 assert abs(a["pLow"] - b["p_low"]) < 1e-9, (a, b)
     assert out["level"] == forecast_level(mf, res["mood"][0]), out["level"]
 print("状态预报 ✓")
+
+
+# 心情问卷：周日出现、挂到周二；每个月最后一个周日多一份；周日 19 点还没填提醒；网页 js/scales.js 的 scaleDue 规则一样
+from datetime import date, timedelta  # noqa: E402
+from life_push import scale_due, scale_message  # noqa: E402
+
+assert scale_due({}, date(2026, 11, 1)) == ["w2026-10-26"]  # 周日
+assert scale_due({}, date(2026, 11, 3)) == ["w2026-10-26"]  # 周二还在
+assert scale_due({}, date(2026, 11, 4)) == []  # 周三没了
+assert scale_due({}, date(2026, 10, 31)) == []  # 周六没有
+assert scale_due({}, date(2026, 10, 25)) == ["w2026-10-19", "m2026-10"]  # 10 月最后一个周日
+assert scale_due({}, date(2026, 10, 27)) == ["w2026-10-19", "m2026-10"]  # 跨不跨月都是 10 月那份
+assert scale_due({"scales": {"w2026-10-19": {}}}, date(2026, 10, 25)) == ["m2026-10"]
+assert scale_due({"startDate": "2026-11-02"}, date(2026, 11, 1)) == []
+m = scale_message({}, datetime(2026, 11, 1, 19, 5))
+assert m["body"] == "这周的问卷还没填，大约 3 分钟" and m["url"].endswith("#/scale?k=w2026-10-26"), m
+assert "6 分钟" in scale_message({}, datetime(2026, 10, 25, 19, 5))["body"]
+assert scale_message({}, datetime(2026, 11, 2, 19, 5)) is None  # 周一不推
+assert scale_message({"scales": {"w2026-10-26": {}}}, datetime(2026, 11, 1, 19, 5)) is None
+if shutil.which("node"):
+    days = [(date(2026, 9, 1) + timedelta(days=i)).isoformat() for i in range(120)]
+    seen = {"scales": {"w2026-10-05": {}, "m2026-11": {}}, "startDate": "2026-09-10"}
+    js = ("const a = await import(process.argv[1]); const [days, data] = JSON.parse(process.argv[2]);"
+          "const all3 = Array(21).fill(3), one = Array(21).fill(0); one[2] = 1;"
+          "console.log(JSON.stringify({ due: days.map((d) => a.scaleDue(data, d)), all3: a.dassScore(all3), one: a.dassScore(one),"
+          " lv: [a.dassLevel('d', 9), a.dassLevel('d', 10), a.dassLevel('a', 20), a.dassLevel('s', 18)],"
+          " pss: [a.pssScore(Array(10).fill(0)), a.pssScore([4,4,4,0,0,4,0,0,4,4])], swls: [a.swlsScore([0,0,0,0,0]), a.swlsScore([6,6,6,6,6])],"
+          " high: [a.scaleHigh({ dass: [0,0,0,0,3,0,0,0,0,3,0,0,1,0,0,0,0,0,0,0,0] }), a.scaleHigh({ dass: [0,0,0,0,3,0,0,0,0,3,0,0,0,0,0,0,0,0,0,0,0] }), a.scaleHigh({ pss: Array(10).fill(3).map((v, i) => [3,4,6,7].includes(i) ? 1 : v), swls: [3,3,3,3,3] })] }));")
+    out = _json.loads(subprocess.run(["node", "--input-type=module", "-e", js, str(Path(__file__).resolve().parent.parent / "js" / "scales.js"), _json.dumps([days, seen])],
+                                     capture_output=True, text=True, check=True).stdout)
+    for d, w in zip(days, out["due"]):
+        assert w == scale_due(seen, date.fromisoformat(d)), (d, w)
+    assert out["all3"] == {"d": 42, "a": 42, "s": 42} and out["one"] == {"d": 2, "a": 0, "s": 0}, out
+    assert out["lv"] == [0, 1, 4, 1], out["lv"]
+    assert out["pss"] == [16, 40] and out["swls"] == [5, 35], out  # 全选「从未有」：4 道反向题各 4 分
+    assert out["high"] == [True, False, True], out["high"]  # 抑郁 14 是中度、12 是轻度；压力知觉 27 是高
+print("心情问卷 ✓")

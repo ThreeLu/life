@@ -402,6 +402,43 @@ def morning_message(data, now, weather=None):
     return {"title": "今天", "body": "；".join(lines), "url": url, "tag": f"life-morning-{t}"}
 
 
+# 心情问卷（2026-10-28）：周日出现，没填挂到周二；周日 19:00 还没填提醒一次。规则和 js/scales.js 的 scaleDue 一样
+SCALE_KEEP_DAYS = 2
+SCALE_REMIND = (19, 22)
+
+
+def scale_due(data, today):
+    """today：date。返回还没填的问卷键（w周一 / m月份）"""
+    back = (today.weekday() + 1) % 7  # 0 = 周日
+    if back > SCALE_KEEP_DAYS:
+        return []
+    sun = today - timedelta(days=back)
+    start = data.get("startDate")
+    if start and sun.isoformat() < start:
+        return []
+    done = data.get("scales") or {}
+    out = []
+    wk = f"w{(sun - timedelta(days=6)).isoformat()}"
+    if wk not in done:
+        out.append(wk)
+    mk = f"m{sun.isoformat()[:7]}"
+    if (sun + timedelta(days=7)).month != sun.month and mk not in done:
+        out.append(mk)
+    return out
+
+
+def scale_message(data, now):
+    """周日晚上：这周的问卷还没填就提醒（文字看不出内容）"""
+    today = day_key(now)
+    if today.weekday() != 6:
+        return None
+    due = scale_due(data, today)
+    if not due:
+        return None
+    body = "这周的问卷还没填，大约 3 分钟" if len(due) == 1 else "这周和这个月的问卷还没填，大约 6 分钟"
+    return {"title": "周日", "body": body, "url": f"{APP}#/scale?k={due[0]}", "tag": f"life-scale-{today.isoformat()}"}
+
+
 def send(msg):
     from pywebpush import WebPushException, webpush
 
@@ -493,6 +530,13 @@ def main():
                 send(msg)
             else:
                 print("早上没有要说的")
+        # 周日 19–22 点一次：问卷还没填
+        if day_key(now).weekday() == 6 and in_window(now, *SCALE_REMIND) and once("scale", now, *SCALE_REMIND):
+            msg = scale_message(data, now)
+            mark_sent("scale", now)
+            if msg:
+                print(msg["title"], "|", msg["body"])
+                send(msg)
         fkey = fetch_key(now)
         if fkey and once(fkey, now, 0, 24):
             msg = fetch_message(data, now)
@@ -512,6 +556,9 @@ def main():
     else:
         msg = message(data, now)
         extra = season_line(data, now)
+        sc = scale_message(data, now)
+        if sc:
+            extra = "；".join(x for x in [extra, "问卷还没填"] if x)
         if extra:
             msg = msg or {"title": "睡前", "body": "", "url": f"{APP}#/", "tag": f"life-{day_key(now)}"}
             msg["body"] = "；".join(x for x in [msg["body"], extra] if x)

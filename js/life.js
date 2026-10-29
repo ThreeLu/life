@@ -62,6 +62,7 @@ export function defaultData(today) {
     chats: [], // 和 ChatGPT 聊过的：{ id, day, at, mood?, title, text }
     people: [], // 身边的人，见 people.js
     greeted: {}, // 过节问候发了没有：{ '年-节': { 人 id: 日期 } }
+    scales: {}, // 心情问卷：{ w周一: { at, day, dass: [21 个 0–3] }, m月份: { at, day, pss: [10 个 0–4], swls: [5 个 0–6] } }，见 scales.js
   };
 }
 
@@ -102,6 +103,7 @@ export function migrate(data) {
   data.chats ||= [];
   data.people ||= [];
   data.greeted ||= {};
+  data.scales ||= {};
   // 2026-10-24 用户说咖啡奶茶茶、英语、读经的老数据都不要了
   delete data.settings.drinkKinds;
   delete data.english;

@@ -22,7 +22,8 @@ import {
   MIN_DAYS, influences, influenceText, moodDays, series, sleepPattern, sleepHours, bedMinutes, bedLabel, rhythm, weekdayMood,
   gentleNote, periodSummary, rangeDays, seriesRange, weekGrid, careInRange, gaps, yearData,
 } from './stats.js';
-import { lineChart, barChart, monthGrid, sleepBars, yearCalendar } from './charts.js';
+import { lineChart, barChart, monthGrid, sleepBars, yearCalendar, multiLine } from './charts.js';
+import { SCALE_SETS, DASS_SUB, scaleDue, scaleTitle, scaleCount, scoreOf, scaleHigh, scalesIn, scalesText } from './scales.js';
 import { advisorOutlook, ADVISOR_REMIND, ADVISOR_MIN } from './advisor.js';
 import { mainGrid, cellRing, cellOf, districtAt, fogProgress, metroProgress, metroStations, HEX_KM } from './fog.js';
 import { MAIN_DISTRICTS, METRO } from './jinan.js';
@@ -35,7 +36,7 @@ import { nextBirthday, birthdayText, lunarName, holidayAround, holidayLine, GREE
 
 const SETTINGS_KEY = 'life-settings';
 const DEFAULT_REPO = 'ThreeLu/life-data';
-const EDITING_ROUTES = /^\/(night|pray\/go|chat\/new|chat\/[^/]+\/edit|p$|p\/s|place\/|ask|person\/new|person\/[^/]+\/edit)/;
+const EDITING_ROUTES = /^\/(night|pray\/go|scale$|chat\/new|chat\/[^/]+\/edit|p$|p\/s|place\/|ask|person\/new|person\/[^/]+\/edit)/;
 
 const readJson = (key) => { try { return JSON.parse(localStorage.getItem(key)) || {}; } catch { return {}; } };
 const writeJson = (key, v) => { try { localStorage.setItem(key, JSON.stringify(v)); } catch { /* 存不了就算了 */ } };
@@ -145,6 +146,8 @@ const routes = [
   [/^\/place\/new$/, () => placeEditView('new')],
   [/^\/place\/([^/]+)$/, (id) => placeView(id)],
   [/^\/stats$/, () => statsView()],
+  [/^\/scale$/, (_, q) => scaleGoView(q.k)],
+  [/^\/scales$/, () => scalesView()],
   [/^\/report$/, (_, q) => lookView({ mode: q.k, day: q.d })], // 老链接
   [/^\/ask$/, () => askView()],
   [/^\/p$/, () => privateView()],
@@ -169,7 +172,7 @@ const routes = [
 ];
 const NAV_GROUPS = {
   '/': [/^\/?$/, /^\/day\//, /^\/night/],
-  '/look': [/^\/look/, /^\/stats/, /^\/report/, /^\/ask/],
+  '/look': [/^\/look/, /^\/stats/, /^\/report/, /^\/ask/, /^\/scales?$/],
   '/pray': [/^\/pray/, /^\/low/, /^\/chats?(\/|$)/],
   '/more': [/^\/more/, /^\/settings/, /^\/places?/, /^\/periodic/, /^\/advisor/, /^\/forecast/, /^\/goals?(\/|$)/, /^\/people/, /^\/person\//, /^\/greet\//],
 };
@@ -228,7 +231,7 @@ document.addEventListener('click', (e) => {
 document.addEventListener('touchstart', () => {}, { passive: true });
 
 // 各页最下面角落的一句话（活出自己）：每页每天一句，同一天不变。小记、难受的时候一步一步、带着祷告、设置不放
-const NO_WHISPER = /^\/(p|p\/s|low\/go|pray\/go|settings|look|chat\/.+)$/;
+const NO_WHISPER = /^\/(p|p\/s|low\/go|pray\/go|scale|settings|look|chat\/.+)$/;
 function whisper(path) {
   const n = [...`${dayKey()}${path || '/'}`].reduce((a, c) => (a * 31 + c.charCodeAt(0)) >>> 0, 11);
   const x = SELF_LINES[n % SELF_LINES.length];
@@ -461,6 +464,7 @@ function alertRows(today) {
       const x = data.periodic.find((y) => y.id === p.id); if (x) x.last = today;
     }, '好了').then(render).catch(() => {}) }, '做了') }));
   } else if (due.length > 1) out.push(alertLine(`该打理了：${due.map((p) => p.name).join('、')}`, { href: '#/periodic' }));
+  out.push(...scaleAlerts(today));
   out.push(...peopleAlerts(today));
   // 导师找我：今天被问进度的可能 ≥ 25%、今天还没记，一整天都在（早上还会推送一次）
   const adv = advisorOutlook(d, today);
@@ -1001,6 +1005,7 @@ function lookWeekView(d, day, today, head, navRow) {
     weekGridCard(d, mon, today),
     weekMoodCard(d, mon, s, hasPrev ? prev : null),
     sleepCard(d, mon, to, '这周几点睡几点起', 1),
+    scaleWeekCard(d, mon, today),
     goalWeekCard(mon),
     thanks ? h('div', { class: 'card' }, h('h3', {}, '这周的感恩'), h('p', { class: 'letter-text' }, thanks)) : null,
     visitsCard(s, '这周去了'),
@@ -1089,6 +1094,7 @@ function lookMonthView(d, day, today, head, navRow) {
     monthCalCard(d, m, to, today),
     monthTrendCard(d, from, end),
     sleepCard(d, from, to, '这个月几点睡几点起', 7),
+    scaleMonthCard(d, from, to),
     monthCareCard(d, from, to),
     rhythmCard(d, from, to, s),
     hasPrev ? compareCard(s, prev, '这个月', '上个月') : null,
@@ -2324,6 +2330,8 @@ function statsView() {
 
     weekdayCard(today),
 
+    scaleStatsCard(d, today),
+
     h('div', { class: 'section-title' }, '规律'),
     h('div', { class: 'segmented' }, Object.entries(RH).map(([k, [v]]) => h('button', { type: 'button', class: `seg${statsState.rhythm === k ? ' on' : ''}`, onclick: () => { statsState.rhythm = k; render(); } }, v))),
     h('div', { class: 'card' },
@@ -2409,7 +2417,8 @@ function goalWeekCard(mon) {
 }
 const LETTER_SYSTEM = '你是一位温暖、真诚的朋友，帮一位博士生回顾他的一段生活。他在用心学着照顾自己：护肤、祷告（他是基督徒）、运动。'
   + '用中文大白话写，160–260 字，分两三段。先说看到的好的地方（要具体，引用他的数字或他写的话），再温和地说一两个可以留意的规律，最后一句鼓励。'
-  + '不说教，不评判，不用「你应该」，不夸张，不制造焦虑。没做到的事轻轻带过或者不提。只能说「常常一起出现」，不要下因果结论。';
+  + '不说教，不评判，不用「你应该」，不夸张，不制造焦虑。没做到的事轻轻带过或者不提。只能说「常常一起出现」，不要下因果结论。'
+  + '如果有心情问卷的分数，可以轻轻提一句和上次比的变化，不下诊断、不说病名；分数偏高时只建议多出去转转、走一走、放松一下。';
 
 function summaryText(s) {
   const f = (v) => (v === null ? '没记' : Math.round(v * 10) / 10);
@@ -2417,6 +2426,7 @@ function summaryText(s) {
     `记录了 ${s.recorded}/${s.days} 天。心情平均 ${f(s.mood)}（1–10），精力 ${f(s.energy)}（1–5），压力 ${f(s.stress)}（1–5），平均睡 ${f(s.sleep)} 小时。`,
     `护肤都做完 ${s.careDays} 天，洗澡 ${s.showers} 次，运动 ${s.sports} 次（${s.sportMinutes} 分钟${s.km ? `，${Math.round(s.km * 10) / 10} 公里` : ''}），祷告 ${s.prayers} 晚。`,
     s.visits.length ? `去过：${s.visits.map((v) => `${v.name}${v.score ? `（${v.score} 分）` : ''}`).join('、')}。` : '',
+    scalesText(s.scales || []),
     s.notes.length ? `每天的一句话：${s.notes.map((x) => `${x.day.slice(5)} ${x.mood || '-'}分 ${x.note}`).join('；')}` : '',
   ].filter(Boolean).join('\n');
 }
@@ -2455,6 +2465,8 @@ function recordContext() {
     ].filter(Boolean);
     if (parts.length) lines.push(`${day} ${parts.join('，')}`);
   }
+  const sct = scalesText(scalesIn(d, addDays(today, -59), today));
+  if (sct) lines.push(sct);
   // 小记和日常生活完全分开：从来不发
   return `今天 ${today}。\n${lines.join('\n') || '（最近没什么记录）'}`;
 }
@@ -4154,6 +4166,183 @@ function forecastView() {
 }
 
 // ---------- 更多 ----------
+
+// ---------- 心情问卷（2026-10-28 用户要的） ----------
+// 每周日一份 DASS-21（过去一周），每个月最后一个周日再加 PSS-10 和 SWLS（过去一个月）。周日出现在「今天」，没填挂到周二；
+// 周日 19:00 还没填推送一次。一题一屏，点了就到下一题。分数段只放在「?」里；结果进周报、月报和 DeepSeek 的回顾。
+// 分数偏高（`scaleHigh`）只说一句「多出去转转、走一走、放松一下」，用户定的。
+
+const SCALE_HELP = [
+  ['这是什么', ['每周日一份「心情问卷」（DASS-21，21 题，大约 3 分钟），问的是过去一周。',
+    '每个月最后一个周日，再加两份：压力知觉（PSS-10，10 题）和生活满意度（SWLS，5 题），问的是过去一个月。',
+    '周日这天「今天」里有一行，晚上 7 点还没填会提醒一次；没填的话挂到周二，再晚就不准了，空着就好。',
+    '一题一屏，点一下就到下一题，可以点「上一题」改。中途离开，下次接着填。']],
+  ['分数怎么看', ['问卷只用来看自己这段时间的变化，不是诊断。',
+    '心情问卷三项各 0–42 分，越高越重。抑郁：0–9 正常，10–13 轻度，14–20 中度，21–27 重度，28 以上非常重。',
+    '焦虑：0–7 正常，8–9 轻度，10–14 中度，15–19 重度，20 以上非常重。',
+    '压力：0–14 正常，15–18 轻度，19–25 中度，26–33 重度，34 以上非常重。',
+    '压力知觉 0–40 分：0–13 低，14–26 中等，27–40 高。',
+    '生活满意度 5–35 分：5–9 非常不满意，10–14 不满意，15–19 有点不满意，20 中立，21–25 有点满意，26–30 满意，31–35 非常满意。',
+    '心情问卷有一项到中度，或者压力知觉到高，「今天」里会出现一句：多出去转转，走一走。']],
+  ['去哪看', ['回顾页的周、月里有这一周、这个月的分数；分析页有走势。周报、月报请 DeepSeek 写的那段话也会看这些分数。']],
+  ['出处', ['DASS-21：Lovibond & Lovibond（1995），中文版 Taouk、Lovibond、Laube（2001），简体选项照龚栩等（2010）。',
+    'PSS-10：Cohen 等（1983），王振（2008）译。',
+    'SWLS：Diener 等（1985），中文版 Mantak Yuen（2002）。']],
+];
+const SCALE_LINES = { d: 'var(--accent)', a: 'var(--blue)', s: 'var(--amber)' };
+const SCALE_OUT = '这几天多出去转转，走一走，放松一下';
+const scaleState = { key: null, set: 0, q: 0, ans: null, done: false };
+const SCALE_DRAFT = 'life-scale-draft';
+
+// 「今天」里的几行：要填的问卷；刚填完分数偏高时那一句
+function scaleAlerts(today) {
+  const d = store.data;
+  const out = scaleDue(d, today).map((k) => alertLine(k[0] === 'w' ? `这周的心情问卷 · ${scaleCount(k)} 题` : `这个月的问卷 · ${scaleCount(k)} 题`, { href: `#/scale?k=${k}` }));
+  const recent = Object.values(d.scales || {}).some((r) => r.day >= addDays(today, -2) && scaleHigh(r));
+  if (recent) out.push(alertLine(SCALE_OUT, { href: '#/places', tone: 'soft' }));
+  return out;
+}
+
+function scaleGoView(key) {
+  const d = store.data;
+  if (!/^(w\d{4}-\d\d-\d\d|m\d{4}-\d\d)$/.test(key || '')) return h('p', { class: 'muted center' }, '找不到这份问卷。');
+  const sets = SCALE_SETS[key[0]];
+  const st = scaleState;
+  if (st.key !== key) {
+    const draft = readJson(SCALE_DRAFT);
+    Object.assign(st, draft.key === key ? { key, set: draft.set || 0, q: draft.q || 0, ans: draft.ans, done: false } : { key, set: 0, q: 0, ans: {}, done: false });
+  }
+  const close = h('a', { class: 'icon-btn quiet', href: '#/', 'aria-label': '回去' }, '×');
+  if (st.done || d.scales?.[key]) {
+    const rec = d.scales?.[key];
+    const more = scaleDue(d, dayKey()).filter((k) => k !== key);
+    return h('div', { class: 'scale-go' },
+      headerSub('填好了', scaleTitle(key), close),
+      h('div', { class: 'card' }, h('p', {}, '谢谢你花时间照看自己。'),
+        rec && scaleHigh(rec) ? h('p', { class: 'small' }, `${SCALE_OUT}。`) : null),
+      h('div', { class: 'actions col' },
+        more.length ? h('a', { class: 'button', href: `#/scale?k=${more[0]}` }, `接着填${more[0][0] === 'm' ? '这个月的' : '这周的'}（${scaleCount(more[0])} 题）`) : null,
+        rec && scaleHigh(rec) ? h('a', { class: 'button secondary', href: '#/places' }, '看看想去的地方') : null,
+        h('a', { class: 'button secondary', href: '#/scales' }, '看看以前的'),
+        more.length ? null : h('a', { class: 'button secondary', href: '#/' }, '回到今天')));
+  }
+  const sc = sets[st.set];
+  const ans = (st.ans[sc.id] ||= []);
+  const total = scaleCount(key);
+  const before = sets.slice(0, st.set).reduce((a, s) => a + s.items.length, 0);
+  const n = before + st.q + 1;
+  const keep = () => writeJson(SCALE_DRAFT, { key, set: st.set, q: st.q, ans: st.ans });
+  const pick = async (v) => {
+    ans[st.q] = v;
+    if (st.q < sc.items.length - 1) st.q += 1;
+    else if (st.set < sets.length - 1) { st.set += 1; st.q = 0; }
+    else {
+      const rec = { at: new Date().toISOString(), day: dayKey() };
+      for (const s of sets) rec[s.id] = st.ans[s.id].slice(0, s.items.length);
+      try {
+        await save(`问卷：${scaleTitle(key)}`, (data) => { (data.scales ||= {})[key] = rec; });
+        localStorage.removeItem(SCALE_DRAFT);
+        st.done = true;
+      } catch { /* save 已经提示过 */ }
+      render(); window.scrollTo(0, 0);
+      return;
+    }
+    keep(); render(); window.scrollTo(0, 0);
+  };
+  const back = () => {
+    if (st.q > 0) st.q -= 1;
+    else if (st.set > 0) { st.set -= 1; st.q = sets[st.set].items.length - 1; }
+    keep(); render();
+  };
+  return h('div', { class: 'scale-go' },
+    headerSub(sc.short, scaleTitle(key), helpButton('问卷怎么填', SCALE_HELP), close),
+    h('div', { class: 'time-track scale-bar', 'aria-label': `第 ${n} 题，共 ${total} 题` }, h('span', { class: 'time-fill', style: `width:${((n - 1) / total) * 100}%` })),
+    st.q === 0 ? h('p', { class: 'muted small' }, sc.intro) : null,
+    h('div', { class: 'card' },
+      h('div', { class: 'muted small' }, `${n} / ${total}`),
+      h('p', { class: 'scale-q' }, sc.items[st.q]),
+      h('div', { class: 'chips col' }, sc.options.map((o, v) => h('button', {
+        type: 'button', class: `chip${ans[st.q] === v ? ' on' : ''}`, 'aria-pressed': String(ans[st.q] === v), onclick: () => pick(v),
+      }, o)))),
+    n > 1 ? h('button', { class: 'link small', onclick: back }, '上一题') : null);
+}
+
+const scaleLegend = () => h('p', { class: 'legend' }, Object.entries(DASS_SUB).map(([k, s]) => h('span', {}, h('i', { style: `background:${SCALE_LINES[k]}` }), s.name)));
+const weekLab = (k) => { const sun = addDays(k.slice(1), 6); return `${Number(sun.slice(5, 7))}/${Number(sun.slice(8))}`; };
+function dassChart(list, title) {
+  return [multiLine(list.map((x) => weekLab(x.key)), Object.keys(DASS_SUB).map((k) => ({ vals: list.map((x) => x.score[k]), color: SCALE_LINES[k] })), { min: 0, max: 42, title }), scaleLegend()];
+}
+const scaleCmp = (a, b) => (b === undefined || b === null ? null : a === b ? '和上次一样' : `比上次${a > b ? '高' : '低'} ${Math.abs(a - b)}`);
+
+// 回顾 · 周：这周的分数；没填、还能填时一个按钮
+function scaleWeekCard(d, mon, today) {
+  const key = `w${mon}`;
+  const rec = d.scales?.[key];
+  if (!rec) {
+    return scaleDue(d, today).includes(key) ? h('div', { class: 'card' }, h('h3', {}, '心情问卷'),
+      h('p', { class: 'muted small' }, '这周的还没填，21 题，大约 3 分钟。'), h('a', { class: 'button secondary', href: `#/scale?k=${key}` }, '去填')) : null;
+  }
+  const sc = scoreOf(rec);
+  const prev = scoreOf(d.scales?.[`w${addDays(mon, -7)}`]);
+  const m = d.scales?.[`m${addDays(mon, 6).slice(0, 7)}`];
+  const ms = m && scoreOf(m);
+  return h('div', { class: 'card' }, h('h3', {}, '心情问卷'),
+    h('div', { class: 'mh-stats' }, Object.entries(DASS_SUB).map(([k, s]) => mh(s.name, String(sc[k]), scaleCmp(sc[k], prev?.[k])))),
+    ms ? h('div', { class: 'mh-stats' }, ms.pss !== null ? mh('这个月的压力', `${ms.pss} / 40`) : null, ms.swls !== null ? mh('对生活满意', `${ms.swls} / 35`) : null) : null,
+    scaleHigh(rec) || (m && scaleHigh(m)) ? h('p', { class: 'small' }, `${SCALE_OUT}。`) : null,
+    h('a', { class: 'link small', href: '#/scales' }, '分数怎么看、以前的'));
+}
+
+// 回顾 · 月：这个月的两份 + 这个月每周的心情问卷
+function scaleMonthCard(d, from, to) {
+  const list = scalesIn(d, from, to);
+  const weeks = list.filter((x) => x.key[0] === 'w');
+  const m = list.find((x) => x.key[0] === 'm');
+  if (!weeks.length && !m) return null;
+  const pm = scoreOf(d.scales?.[`m${addDays(from, -1).slice(0, 7)}`]);
+  return h('div', { class: 'card' }, h('h3', {}, '问卷'),
+    m ? h('div', { class: 'mh-stats' },
+      m.score.pss !== null ? mh('压力知觉', `${m.score.pss} / 40`, scaleCmp(m.score.pss, pm?.pss)) : null,
+      m.score.swls !== null ? mh('生活满意度', `${m.score.swls} / 35`, scaleCmp(m.score.swls, pm?.swls)) : null) : null,
+    weeks.length ? [h('div', { class: 'label-sm' }, '每周的心情问卷'), dassChart(weeks, '这个月每周的心情问卷')] : null,
+    m && scaleHigh(m.rec) ? h('p', { class: 'small' }, `${SCALE_OUT}。`) : null,
+    h('a', { class: 'link small', href: '#/scales' }, '分数怎么看、以前的'));
+}
+
+// 分析：最近 12 周的走势
+function scaleStatsCard(d, today) {
+  const weeks = scalesIn(d, addDays(weekOf(today), -77), today).filter((x) => x.key[0] === 'w');
+  return [h('div', { class: 'section-title' }, '问卷'),
+    h('div', { class: 'card' },
+      weeks.length >= 2 ? [h('h3', {}, '心情问卷（最近 12 周）'), dassChart(weeks, '最近 12 周的心情问卷')]
+        : h('p', { class: 'muted small' }, weeks.length ? '再填一周，这里就有走势了。' : '每周日填一份心情问卷，这里会画出走势。'),
+      h('a', { class: 'link small', href: '#/scales' }, '全部问卷')),
+  ];
+}
+
+// 全部问卷：要填的、每周和每月的走势、一份一份的分数
+function scalesView() {
+  const d = store.data;
+  const today = dayKey();
+  const all = scalesIn(d, '0000-01-01', '9999-12-31');
+  const weeks = all.filter((x) => x.key[0] === 'w');
+  const months = all.filter((x) => x.key[0] === 'm');
+  const due = scaleDue(d, today);
+  return h('div', {},
+    headerSub('问卷', '每周日一份，每个月最后一个周日多两份', helpButton('问卷怎么看', SCALE_HELP)),
+    due.length ? h('div', { class: 'group' }, due.map((k) => cell({ href: `#/scale?k=${k}`, ic: 'pen', title: scaleTitle(k), meta: `${scaleCount(k)} 题` }))) : null,
+    !all.length ? h('div', { class: 'card' }, h('p', { class: 'muted small' }, '还没有填过。周日「今天」里会出现。')) : null,
+    weeks.length ? h('div', { class: 'card' }, h('h3', {}, '心情问卷'),
+      weeks.length >= 2 ? dassChart(weeks.slice(-26), '每周的心情问卷') : null,
+      [...weeks].reverse().slice(0, 12).map((x) => h('div', { class: 'small night-note' }, h('span', { class: 'muted' }, `${weekLab(x.key)} 那周　`),
+        Object.entries(DASS_SUB).map(([k, s]) => `${s.name} ${x.score[k]}`).join(' · ')))) : null,
+    months.length ? h('div', { class: 'card' }, h('h3', {}, '每月'),
+      months.length >= 2 ? [multiLine(months.map((x) => `${Number(x.key.slice(6))}月`), [
+        { vals: months.map((x) => x.score.pss), color: 'var(--amber)' }, { vals: months.map((x) => x.score.swls), color: 'var(--good)' }], { min: 0, max: 40, title: '每月的压力知觉和生活满意度' }),
+      h('p', { class: 'legend' }, h('span', {}, h('i', { style: 'background:var(--amber)' }), '压力知觉（0–40）'), h('span', {}, h('i', { style: 'background:var(--good)' }), '生活满意度（5–35）'))] : null,
+      [...months].reverse().map((x) => h('div', { class: 'small night-note' }, h('span', { class: 'muted' }, `${x.key.slice(1, 5)} 年 ${Number(x.key.slice(6))} 月　`),
+        [x.score.pss !== null ? `压力知觉 ${x.score.pss}` : '', x.score.swls !== null ? `生活满意度 ${x.score.swls}` : ''].filter(Boolean).join(' · ')))) : null);
+}
 
 function moreView() {
   return h('div', {},

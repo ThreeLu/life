@@ -121,3 +121,24 @@ export function yearCalendar(days, { today = '', title = '', legend = ['少', '�
   svg.append(s('text', { x: lx + 5 * (size + 3) + 1, y: ly + size - 1, class: 'chart-label' }, legend[1]));
   return svg;
 }
+
+// 几条线画在一起（问卷每周 / 每月一个点）：labels = ['10/26', …]，lines = [{ vals: [数或 null], color, name }]
+export function multiLine(labels, lines, { min = 0, max, title = '', height = 130 } = {}) {
+  const top = 10; const bottom = 18; const left = 22;
+  const svg = s('svg', { viewBox: `0 0 ${W} ${height}`, class: 'chart', role: 'img', 'aria-label': title });
+  const x = (i) => left + 6 + (labels.length === 1 ? (W - left - 12) / 2 : (i * (W - left - 18)) / (labels.length - 1));
+  const y = (v) => top + ((max - v) / (max - min || 1)) * (height - top - bottom);
+  for (const g of [min, (min + max) / 2, max]) {
+    svg.append(s('line', { x1: left, x2: W, y1: y(g), y2: y(g), style: 'stroke:var(--line)' }));
+    svg.append(s('text', { x: left - 4, y: y(g) + 3, 'text-anchor': 'end', class: 'chart-label' }, String(Math.round(g))));
+  }
+  for (const ln of lines) {
+    let path = '';
+    ln.vals.forEach((v, i) => { if (v === null || v === undefined) return; path += `${path && ln.vals[i - 1] !== null && ln.vals[i - 1] !== undefined ? 'L' : 'M'}${x(i).toFixed(1)},${y(v).toFixed(1)}`; });
+    if (path) svg.append(s('path', { d: path, fill: 'none', style: `stroke:${ln.color}`, 'stroke-width': 2, 'stroke-linejoin': 'round' }));
+    ln.vals.forEach((v, i) => { if (v !== null && v !== undefined) svg.append(s('circle', { cx: x(i), cy: y(v), r: 2.6, style: `fill:${ln.color}` })); });
+  }
+  const at = labels.length <= 6 ? labels.map((_, i) => i) : [0, Math.floor((labels.length - 1) / 2), labels.length - 1];
+  for (const i of at) svg.append(s('text', { x: x(i), y: height - 4, 'text-anchor': labels.length === 1 ? 'middle' : i === 0 ? 'start' : i === labels.length - 1 ? 'end' : 'middle', class: 'chart-label' }, labels[i]));
+  return svg;
+}
